@@ -5,13 +5,32 @@ pub mod ui;
 
 const CONVEYOR_BASE_SPEED: f32 = 16.0;
 
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub enum GameSystemSet {
+    MessageWrite,
+    MessageRead,
+    Simulation,
+}
+
 pub struct CorePlugin;
 impl Plugin for CorePlugin {
     fn build(&self, app: &mut App) {
+        app.configure_sets(
+            Update,
+            (
+                GameSystemSet::Simulation,
+                GameSystemSet::MessageWrite,
+                GameSystemSet::MessageRead,
+            )
+                .chain(),
+        );
         app.add_message::<CreateTile>();
         app.add_message::<CreateWorldItem>();
         app.add_message::<CreateConveyor>();
-        app.add_systems(Update, (create_tile, create_item, create_conveyor));
+        app.add_systems(
+            Update,
+            (create_tile, create_item, create_conveyor).in_set(GameSystemSet::MessageRead),
+        );
     }
 }
 
@@ -61,7 +80,10 @@ fn create_conveyor(mut msgs: MessageReader<CreateConveyor>, mut cmd: Commands) {
 pub struct SimPlugin;
 impl Plugin for SimPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, conveyor_moves_items);
+        app.add_systems(
+            Update,
+            conveyor_moves_items.in_set(GameSystemSet::Simulation),
+        );
     }
 }
 
@@ -126,13 +148,13 @@ mod tests {
             FRAME_TIME,
         )));
         app.add_plugins(CorePlugin);
+        app.add_plugins(SimPlugin);
         app
     }
 
     #[test]
     fn item() {
         let mut app = test_app();
-        app.add_plugins(SimPlugin);
 
         let world = app.world_mut();
         let entity = world.spawn_empty().id();
@@ -160,9 +182,8 @@ mod tests {
             Vec2 { x: 0.0, y: 0.0 },
             Direction::East,
         ));
-        app.update();
 
-        app.add_plugins(SimPlugin);
+        app.update();
         app.update();
 
         let mut query = app.world_mut().query::<(&WorldItem, &Transform)>();
@@ -185,9 +206,8 @@ mod tests {
             Vec2 { x: 0.0, y: 0.0 },
             Direction::North,
         ));
-        app.update();
 
-        app.add_plugins(SimPlugin);
+        app.update();
         app.update();
 
         let mut query = app.world_mut().query::<(&WorldItem, &Transform)>();
@@ -212,9 +232,6 @@ mod tests {
         ));
         app.update();
 
-        app.add_plugins(SimPlugin);
-        app.update();
-
         let mut query = app.world_mut().query::<(&WorldItem, &Transform)>();
         let items = query.iter(app.world()).collect::<Vec<_>>();
         assert_eq!(1, items.len());
@@ -236,8 +253,6 @@ mod tests {
             Direction::East,
         ));
         app.update();
-
-        app.add_plugins(SimPlugin);
         app.update();
 
         let mut query = app.world_mut().query::<(&WorldItem, &Transform)>();
