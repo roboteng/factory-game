@@ -30,6 +30,30 @@ fn startup(mut cmd: Commands, asset: Res<AssetServer>) {
 #[derive(Component, PartialEq, Eq, Debug)]
 pub struct WorldItem;
 
+enum Direction {
+    North,
+    East,
+    South,
+    West,
+}
+
+#[derive(Component)]
+pub struct Conveyor {
+    direction: Direction,
+}
+
+impl Conveyor {
+    pub fn new(dir: Direction) -> Self {
+        Self { direction: dir }
+    }
+}
+
+fn conveyor_moves_items(items: Query<&mut Transform, With<WorldItem>>) {
+    for mut item in items {
+        item.translation.x += 1.0;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -39,6 +63,10 @@ mod tests {
         cmd.spawn((WorldItem, Transform::default()));
     }
 
+    fn place_conveyor(mut cmd: Commands) {
+        cmd.spawn((Conveyor::new(Direction::East), Transform::default()));
+    }
+
     #[test]
     fn item() {
         let mut app = App::new();
@@ -46,8 +74,26 @@ mod tests {
         app.add_systems(Startup, place_ore);
 
         app.update();
+
         let mut query = app.world_mut().query::<(&WorldItem, &Transform)>();
         let items = query.iter(app.world()).collect::<Vec<_>>();
         assert_eq!(items, vec![(&WorldItem, &Transform::default())]);
+    }
+
+    #[test]
+    fn conveyor_moves_item() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.add_systems(Startup, place_ore);
+        app.add_systems(Startup, place_conveyor);
+        app.add_systems(Update, conveyor_moves_items);
+
+        app.update();
+
+        let mut query = app.world_mut().query::<(&WorldItem, &Transform)>();
+        let items = query.iter(app.world()).collect::<Vec<_>>();
+        assert_eq!(1, items.len());
+        let actual_x = items[0].1.translation.x;
+        assert!(actual_x > 0.0, "expected {actual_x} to be bigger than 0.0");
     }
 }
