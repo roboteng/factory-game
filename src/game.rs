@@ -1,36 +1,57 @@
 use bevy::prelude::*;
+pub mod ui;
 
-pub struct GamePlugin;
-impl Plugin for GamePlugin {
+pub struct CorePlugin;
+impl Plugin for CorePlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, (startup, startup_camera));
+        app.add_message::<CreateTile>();
+        app.add_message::<CreateWorldItem>();
+        app.add_message::<CreateConveyor>();
+        app.add_systems(Update, (create_tile, create_item, create_conveyor));
+    }
+}
+
+#[derive(Message)]
+pub struct CreateTile(pub Entity, pub Vec2);
+
+#[derive(Message)]
+pub struct CreateWorldItem(pub Entity, pub Vec2);
+
+#[derive(Message)]
+pub struct CreateConveyor(pub Entity, pub Vec2, pub Direction);
+
+fn create_tile(mut msgs: MessageReader<CreateTile>, mut cmd: Commands) {
+    for CreateTile(entity, vec) in msgs.read() {
+        cmd.entity(*entity)
+            .insert(Transform::from_xyz(vec.x, vec.y, 0.0));
+    }
+}
+
+fn create_item(mut msgs: MessageReader<CreateWorldItem>, mut cmd: Commands) {
+    for CreateWorldItem(entity, vec) in msgs.read() {
+        cmd.entity(*entity)
+            .insert((Transform::from_xyz(vec.x, vec.y, 0.0), WorldItem));
+    }
+}
+
+fn create_conveyor(mut msgs: MessageReader<CreateConveyor>, mut cmd: Commands) {
+    for CreateConveyor(entity, vec, dir) in msgs.read() {
+        cmd.entity(*entity)
+            .insert((Transform::from_xyz(vec.x, vec.y, 0.0), Conveyor::new(*dir)));
+    }
+}
+
+pub struct SimPlugin;
+impl Plugin for SimPlugin {
+    fn build(&self, app: &mut App) {
         app.add_systems(Update, conveyor_moves_items);
     }
-}
-
-fn startup_camera(mut cmd: Commands) {
-    cmd.spawn(Camera2d);
-}
-
-fn startup(mut cmd: Commands, asset: Res<AssetServer>) {
-    let tile = asset.load("sprites/tile.png");
-    for x in -5..=5 {
-        for y in -5..=5 {
-            cmd.spawn((
-                Sprite::from_image(tile.clone()),
-                Transform::from_xyz(x as f32 * 32.0, y as f32 * 32.0, 0.0),
-            ));
-        }
-    }
-    cmd.spawn((
-        Sprite::from_image(asset.load("sprites/player.png")),
-        Transform::default(),
-    ));
 }
 
 #[derive(Component, PartialEq, Eq, Debug)]
 pub struct WorldItem;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Direction {
     North,
     East,
@@ -75,36 +96,16 @@ mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
 
-    fn place_ore(mut cmd: Commands) {
-        cmd.spawn((WorldItem, Transform::default()));
-    }
-
-    fn place_ore_offset(mut cmd: Commands) {
-        cmd.spawn((
-            WorldItem,
-            Transform {
-                translation: Vec3 {
-                    x: 32.0,
-                    ..Vec3::default()
-                },
-                ..Transform::default()
-            },
-        ));
-    }
-
-    fn place_conveyor_east(mut cmd: Commands) {
-        cmd.spawn((Conveyor::new(Direction::East), Transform::default()));
-    }
-
-    fn place_conveyor_north(mut cmd: Commands) {
-        cmd.spawn((Conveyor::new(Direction::North), Transform::default()));
-    }
-
     #[test]
     fn item() {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins);
-        app.add_systems(Startup, place_ore);
+        app.add_plugins(CorePlugin);
+        app.add_plugins(SimPlugin);
+
+        let world = app.world_mut();
+        let entity = world.spawn_empty().id();
+        world.write_message(CreateWorldItem(entity, Vec2 { x: 0.0, y: 0.0 }));
 
         app.update();
 
@@ -117,10 +118,20 @@ mod tests {
     fn conveyor_moves_item() {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins);
-        app.add_systems(Startup, place_ore);
-        app.add_systems(Startup, place_conveyor_east);
-        app.add_systems(Update, conveyor_moves_items);
+        app.add_plugins(CorePlugin);
 
+        let world = app.world_mut();
+        let item_entity = world.spawn_empty().id();
+        world.write_message(CreateWorldItem(item_entity, Vec2 { x: 0.0, y: 0.0 }));
+        let conveyor_entity = world.spawn_empty().id();
+        world.write_message(CreateConveyor(
+            conveyor_entity,
+            Vec2 { x: 0.0, y: 0.0 },
+            Direction::East,
+        ));
+        app.update();
+
+        app.add_plugins(SimPlugin);
         app.update();
 
         let mut query = app.world_mut().query::<(&WorldItem, &Transform)>();
@@ -134,10 +145,20 @@ mod tests {
     fn conveyor_moves_item_north() {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins);
-        app.add_systems(Startup, place_ore);
-        app.add_systems(Startup, place_conveyor_north);
-        app.add_systems(Update, conveyor_moves_items);
+        app.add_plugins(CorePlugin);
 
+        let world = app.world_mut();
+        let item_entity = world.spawn_empty().id();
+        world.write_message(CreateWorldItem(item_entity, Vec2 { x: 0.0, y: 0.0 }));
+        let conveyor_entity = world.spawn_empty().id();
+        world.write_message(CreateConveyor(
+            conveyor_entity,
+            Vec2 { x: 0.0, y: 0.0 },
+            Direction::North,
+        ));
+        app.update();
+
+        app.add_plugins(SimPlugin);
         app.update();
 
         let mut query = app.world_mut().query::<(&WorldItem, &Transform)>();
@@ -151,10 +172,20 @@ mod tests {
     fn conveyor_doesnt_moves_item() {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins);
-        app.add_systems(Startup, place_ore_offset);
-        app.add_systems(Startup, place_conveyor_north);
-        app.add_systems(Update, conveyor_moves_items);
+        app.add_plugins(CorePlugin);
 
+        let world = app.world_mut();
+        let item_entity = world.spawn_empty().id();
+        world.write_message(CreateWorldItem(item_entity, Vec2 { x: 32.0, y: 0.0 }));
+        let conveyor_entity = world.spawn_empty().id();
+        world.write_message(CreateConveyor(
+            conveyor_entity,
+            Vec2 { x: 0.0, y: 0.0 },
+            Direction::North,
+        ));
+        app.update();
+
+        app.add_plugins(SimPlugin);
         app.update();
 
         let mut query = app.world_mut().query::<(&WorldItem, &Transform)>();
