@@ -26,3 +26,28 @@ fn startup(mut cmd: Commands, asset: Res<AssetServer>) {
         Transform::default(),
     ));
 }
+
+#[derive(Component, PartialEq, Eq, Debug)]
+pub struct WorldItem;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pretty_assertions::assert_eq;
+
+    fn place_ore(mut cmd: Commands) {
+        cmd.spawn((WorldItem, Transform::default()));
+    }
+
+    #[test]
+    fn item() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.add_systems(Startup, place_ore);
+
+        app.update();
+        let mut query = app.world_mut().query::<(&WorldItem, &Transform)>();
+        let items = query.iter(app.world()).collect::<Vec<_>>();
+        assert_eq!(items, vec![(&WorldItem, &Transform::default())]);
+    }
+}
