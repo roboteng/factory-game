@@ -1,3 +1,5 @@
+use std::f32::consts::PI;
+
 use bevy::prelude::*;
 pub mod ui;
 
@@ -11,33 +13,46 @@ impl Plugin for CorePlugin {
     }
 }
 
-#[derive(Message)]
-pub struct CreateTile(pub Entity, pub Vec2);
+pub type WorldCoords = Vec2;
 
 #[derive(Message)]
-pub struct CreateWorldItem(pub Entity, pub Vec2);
+pub struct CreateTile(pub Entity, pub WorldCoords);
 
 #[derive(Message)]
-pub struct CreateConveyor(pub Entity, pub Vec2, pub Direction);
+pub struct CreateWorldItem(pub Entity, pub WorldCoords);
+
+#[derive(Message)]
+pub struct CreateConveyor(pub Entity, pub WorldCoords, pub Direction);
 
 fn create_tile(mut msgs: MessageReader<CreateTile>, mut cmd: Commands) {
     for CreateTile(entity, vec) in msgs.read() {
         cmd.entity(*entity)
-            .insert(Transform::from_xyz(vec.x, vec.y, 0.0));
+            .insert(Transform::from_xyz(vec.x * 32.0, vec.y * 32.0, 0.0));
     }
 }
 
 fn create_item(mut msgs: MessageReader<CreateWorldItem>, mut cmd: Commands) {
     for CreateWorldItem(entity, vec) in msgs.read() {
-        cmd.entity(*entity)
-            .insert((Transform::from_xyz(vec.x, vec.y, 0.0), WorldItem));
+        cmd.entity(*entity).insert((
+            Transform::from_xyz(vec.x * 32.0, vec.y * 32.0, 0.0),
+            WorldItem,
+        ));
     }
 }
 
 fn create_conveyor(mut msgs: MessageReader<CreateConveyor>, mut cmd: Commands) {
     for CreateConveyor(entity, vec, dir) in msgs.read() {
-        cmd.entity(*entity)
-            .insert((Transform::from_xyz(vec.x, vec.y, 0.0), Conveyor::new(*dir)));
+        let rot = match dir {
+            Direction::North => 0.25,
+            Direction::East => 0.0,
+            Direction::South => 0.75,
+            Direction::West => 0.5,
+        };
+        cmd.entity(*entity).insert((
+            Transform::from_xyz(vec.x * 32.0, vec.y * 32.0, 0.0)
+                .with_rotation(Quat::from_rotation_z(rot * 2.0 * PI)),
+            Conveyor::new(*dir),
+        ));
     }
 }
 
@@ -52,7 +67,7 @@ impl Plugin for SimPlugin {
 pub struct WorldItem;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Direction {
+pub enum Direction {
     North,
     East,
     South,
@@ -176,7 +191,7 @@ mod tests {
 
         let world = app.world_mut();
         let item_entity = world.spawn_empty().id();
-        world.write_message(CreateWorldItem(item_entity, Vec2 { x: 32.0, y: 0.0 }));
+        world.write_message(CreateWorldItem(item_entity, WorldCoords { x: 1.0, y: 0.0 }));
         let conveyor_entity = world.spawn_empty().id();
         world.write_message(CreateConveyor(
             conveyor_entity,

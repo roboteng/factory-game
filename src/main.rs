@@ -1,4 +1,4 @@
-use crate::game::{CorePlugin, CreateTile, SimPlugin, ui::UIPlugin};
+use crate::game::{ui::UIPlugin, *};
 use bevy::prelude::*;
 mod game;
 
@@ -12,17 +12,27 @@ fn main() {
         .run();
 }
 
-fn startup(mut msgs: MessageWriter<CreateTile>, mut cmds: Commands) {
+fn startup(
+    mut tiles: MessageWriter<CreateTile>,
+    mut conveyors: MessageWriter<CreateConveyor>,
+    mut cmds: Commands,
+) {
     for x in -5..=5 {
         for y in -5..=5 {
             let entity = cmds.spawn_empty().id();
-            msgs.write(CreateTile(
+            tiles.write(CreateTile(
                 entity,
-                Vec2 {
-                    x: x as f32 * 32.0,
-                    y: y as f32 * 32.0,
+                WorldCoords {
+                    x: x as f32,
+                    y: y as f32,
                 },
             ));
         }
     }
+    let entity = cmds.spawn_empty().id();
+    conveyors.write(CreateConveyor(
+        entity,
+        Vec2 { x: 0.0, y: 0.0 },
+        game::Direction::East,
+    ));
 }
