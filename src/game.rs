@@ -3,6 +3,8 @@ use std::f32::consts::PI;
 use bevy::prelude::*;
 pub mod ui;
 
+const CONVEYOR_BASE_SPEED: f32 = 16.0;
+
 pub struct CorePlugin;
 impl Plugin for CorePlugin {
     fn build(&self, app: &mut App) {
@@ -88,6 +90,7 @@ impl Conveyor {
 fn conveyor_moves_items(
     conveyors: Query<(&Conveyor, &Transform)>,
     items: Query<&mut Transform, (With<WorldItem>, Without<Conveyor>)>,
+    time: Res<Time>,
 ) {
     for mut item in items {
         for (conveyor, con_trans) in conveyors {
@@ -95,10 +98,10 @@ fn conveyor_moves_items(
             if rel_x.abs() < 16.0 {
                 match conveyor.direction {
                     Direction::North => {
-                        item.translation.y += 1.0;
+                        item.translation.y += CONVEYOR_BASE_SPEED * time.delta_secs();
                     }
                     Direction::East => {
-                        item.translation.x += 1.0;
+                        item.translation.x += CONVEYOR_BASE_SPEED * time.delta_secs();
                     }
                     _ => todo!(),
                 }
@@ -109,12 +112,19 @@ fn conveyor_moves_items(
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use super::*;
+    use bevy::time::TimeUpdateStrategy;
     use pretty_assertions::assert_eq;
 
+    const FRAME_TIME: f32 = 1.0 / 60.0;
     fn test_app() -> App {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins);
+        app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f32(
+            FRAME_TIME,
+        )));
         app.add_plugins(CorePlugin);
         app
     }
@@ -210,5 +220,30 @@ mod tests {
         assert_eq!(1, items.len());
         let actual_y = items[0].1.translation.y;
         assert_eq!(actual_y, 0.0);
+    }
+
+    #[test]
+    fn conveyor_speed() {
+        let mut app = test_app();
+
+        let world = app.world_mut();
+        let item_entity = world.spawn_empty().id();
+        world.write_message(CreateWorldItem(item_entity, Vec2 { x: 0.0, y: 0.0 }));
+        let conveyor_entity = world.spawn_empty().id();
+        world.write_message(CreateConveyor(
+            conveyor_entity,
+            Vec2 { x: 0.0, y: 0.0 },
+            Direction::East,
+        ));
+        app.update();
+
+        app.add_plugins(SimPlugin);
+        app.update();
+
+        let mut query = app.world_mut().query::<(&WorldItem, &Transform)>();
+        let items = query.iter(app.world()).collect::<Vec<_>>();
+        assert_eq!(1, items.len());
+        let actual_x = items[0].1.translation.x;
+        assert_eq!(actual_x, FRAME_TIME * CONVEYOR_BASE_SPEED);
     }
 }
