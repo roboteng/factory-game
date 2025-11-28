@@ -34,7 +34,7 @@ fn create_tile(mut msgs: MessageReader<CreateTile>, mut cmd: Commands) {
 fn create_item(mut msgs: MessageReader<CreateWorldItem>, mut cmd: Commands) {
     for CreateWorldItem(entity, vec) in msgs.read() {
         cmd.entity(*entity).insert((
-            Transform::from_xyz(vec.x * 32.0, vec.y * 32.0, 0.0),
+            Transform::from_xyz(vec.x * 32.0, vec.y * 32.0, 2.0),
             WorldItem,
         ));
     }
@@ -49,7 +49,7 @@ fn create_conveyor(mut msgs: MessageReader<CreateConveyor>, mut cmd: Commands) {
             Direction::West => 0.5,
         };
         cmd.entity(*entity).insert((
-            Transform::from_xyz(vec.x * 32.0, vec.y * 32.0, 0.0)
+            Transform::from_xyz(vec.x * 32.0, vec.y * 32.0, 1.0)
                 .with_rotation(Quat::from_rotation_z(rot * 2.0 * PI)),
             Conveyor::new(*dir),
         ));
@@ -91,7 +91,8 @@ fn conveyor_moves_items(
 ) {
     for mut item in items {
         for (conveyor, con_trans) in conveyors {
-            if (item.translation.x - con_trans.translation.x).abs() < 16.0 {
+            let rel_x = item.translation.x - con_trans.translation.x;
+            if rel_x.abs() < 16.0 {
                 match conveyor.direction {
                     Direction::North => {
                         item.translation.y += 1.0;
@@ -111,11 +112,16 @@ mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
 
-    #[test]
-    fn item() {
+    fn test_app() -> App {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins);
         app.add_plugins(CorePlugin);
+        app
+    }
+
+    #[test]
+    fn item() {
+        let mut app = test_app();
         app.add_plugins(SimPlugin);
 
         let world = app.world_mut();
@@ -126,14 +132,14 @@ mod tests {
 
         let mut query = app.world_mut().query::<(&WorldItem, &Transform)>();
         let items = query.iter(app.world()).collect::<Vec<_>>();
-        assert_eq!(items, vec![(&WorldItem, &Transform::default())]);
+        let mut expected_trans = Transform::default();
+        expected_trans.translation.z = 2.0;
+        assert_eq!(items, vec![(&WorldItem, &expected_trans)]);
     }
 
     #[test]
     fn conveyor_moves_item() {
-        let mut app = App::new();
-        app.add_plugins(MinimalPlugins);
-        app.add_plugins(CorePlugin);
+        let mut app = test_app();
 
         let world = app.world_mut();
         let item_entity = world.spawn_empty().id();
@@ -158,9 +164,7 @@ mod tests {
 
     #[test]
     fn conveyor_moves_item_north() {
-        let mut app = App::new();
-        app.add_plugins(MinimalPlugins);
-        app.add_plugins(CorePlugin);
+        let mut app = test_app();
 
         let world = app.world_mut();
         let item_entity = world.spawn_empty().id();
@@ -185,9 +189,7 @@ mod tests {
 
     #[test]
     fn conveyor_doesnt_moves_item() {
-        let mut app = App::new();
-        app.add_plugins(MinimalPlugins);
-        app.add_plugins(CorePlugin);
+        let mut app = test_app();
 
         let world = app.world_mut();
         let item_entity = world.spawn_empty().id();

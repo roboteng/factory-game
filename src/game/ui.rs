@@ -1,4 +1,4 @@
-use bevy::prelude::*;
+use bevy::{color::palettes::css::GRAY, prelude::*};
 
 use crate::game::*;
 
@@ -6,7 +6,7 @@ pub struct UIPlugin;
 impl Plugin for UIPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, startup_camera);
-        app.add_systems(Update, (create_tile, create_conveyor));
+        app.add_systems(Update, (create_tile, create_conveyor, create_world_item));
     }
 }
 
@@ -29,5 +29,22 @@ fn create_conveyor(
     for CreateConveyor(entity, _, _) in msgs.read() {
         cmd.entity(*entity)
             .insert(Sprite::from_image(assets.load("sprites/conveyor.png")));
+    }
+}
+
+fn create_world_item(
+    mut msgs: MessageReader<CreateWorldItem>,
+    mut cmd: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+) {
+    for CreateWorldItem(entity, _) in msgs.read() {
+        let shape = meshes.add(Rectangle {
+            half_size: Vec2 { x: 8.0, y: 8.0 },
+        });
+        let mat = materials.add(Color::from(GRAY));
+
+        cmd.entity(*entity)
+            .insert((Mesh2d(shape), MeshMaterial2d(mat)));
     }
 }
