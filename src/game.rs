@@ -4,6 +4,7 @@ use bevy::prelude::*;
 pub mod ui;
 
 const CONVEYOR_BASE_SPEED: f32 = 16.0;
+const TILE_SIZE: f32 = 32.0;
 
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
 pub enum GameSystemSet {
@@ -47,8 +48,11 @@ pub struct CreateConveyor(pub Entity, pub WorldCoords, pub Direction);
 
 fn create_tile(mut msgs: MessageReader<CreateTile>, mut cmd: Commands) {
     for CreateTile(entity, vec) in msgs.read() {
-        cmd.entity(*entity)
-            .insert(Transform::from_xyz(vec.x * 32.0, vec.y * 32.0, 0.0));
+        cmd.entity(*entity).insert(Transform::from_xyz(
+            vec.x * TILE_SIZE,
+            vec.y * TILE_SIZE,
+            0.0,
+        ));
     }
 }
 
@@ -117,13 +121,15 @@ fn conveyor_moves_items(
     for mut item in items {
         for (conveyor, con_trans) in conveyors {
             let rel_x = item.translation.x - con_trans.translation.x;
-            if rel_x.abs() < 16.0 {
+            if rel_x < 3.0 * TILE_SIZE / 4.0 {
                 match conveyor.direction {
                     Direction::North => {
                         item.translation.y += CONVEYOR_BASE_SPEED * time.delta_secs();
                     }
                     Direction::East => {
-                        item.translation.x += CONVEYOR_BASE_SPEED * time.delta_secs();
+                        item.translation.x = (CONVEYOR_BASE_SPEED * time.delta_secs()
+                            + item.translation.x)
+                            .min(con_trans.translation.x + 3.0 * TILE_SIZE / 4.0);
                     }
                     _ => todo!(),
                 }
@@ -260,5 +266,32 @@ mod tests {
         assert_eq!(1, items.len());
         let actual_x = items[0].1.translation.x;
         assert_eq!(actual_x, FRAME_TIME * CONVEYOR_BASE_SPEED);
+    }
+
+    #[test]
+    fn conveyor_moves_item_to_end() {
+        let mut app = test_app();
+
+        let world = app.world_mut();
+        let item_entity = world.spawn_empty().id();
+        // almost at the edge of the conveyor
+        let delta = 1.0 / 1000.0;
+        let x = 1.0 / 2.0 + 1.0 / 4.0 - delta;
+        world.write_message(CreateWorldItem(item_entity, WorldCoords { x, y: 0.0 }));
+        let conveyor_entity = world.spawn_empty().id();
+        world.write_message(CreateConveyor(
+            conveyor_entity,
+            Vec2 { x: 0.0, y: 0.0 },
+            Direction::East,
+        ));
+
+        app.update();
+        app.update();
+
+        let mut query = app.world_mut().query::<(&WorldItem, &Transform)>();
+        let items = query.iter(app.world()).collect::<Vec<_>>();
+        assert_eq!(1, items.len());
+        let actual_x = items[0].1.translation.x;
+        assert_eq!(actual_x, TILE_SIZE / 2.0 + TILE_SIZE / 4.0);
     }
 }
