@@ -126,7 +126,8 @@ fn conveyor_moves_items(
                 }
                 Direction::East => {
                     let rel_x = item.translation.x - con_trans.translation.x;
-                    if rel_x.abs() < 3.0 * TILE_SIZE / 4.0 {
+                    let rel_y = item.translation.y - con_trans.translation.y;
+                    if rel_x.abs() < 3.0 * TILE_SIZE / 4.0 && rel_y.abs() < 3.0 * TILE_SIZE / 4.0 {
                         item.translation.x = (CONVEYOR_BASE_SPEED * time.delta_secs()
                             + item.translation.x)
                             .min(con_trans.translation.x + 3.0 * TILE_SIZE / 4.0);
@@ -319,5 +320,31 @@ mod tests {
         assert_eq!(1, items.len());
         let actual_x = items[0].1.translation.x;
         assert_eq!(actual_x, -TILE_SIZE / 2.0 - TILE_SIZE / 4.0);
+    }
+
+    #[test]
+    fn conveyor_doesnt_moves_item_to_the_side() {
+        let mut app = test_app();
+
+        let world = app.world_mut();
+        let item_entity = world.spawn_empty().id();
+        // almost at the edge of the conveyor
+        let y = 1.0 / 2.0 + 1.0 / 4.0;
+        world.write_message(CreateWorldItem(item_entity, WorldCoords { x: 0.0, y }));
+        let conveyor_entity = world.spawn_empty().id();
+        world.write_message(CreateConveyor(
+            conveyor_entity,
+            Vec2 { x: 0.0, y: 0.0 },
+            Direction::East,
+        ));
+
+        app.update();
+        app.update();
+
+        let mut query = app.world_mut().query::<(&WorldItem, &Transform)>();
+        let items = query.iter(app.world()).collect::<Vec<_>>();
+        assert_eq!(1, items.len());
+        let actual_x = items[0].1.translation.x;
+        assert_eq!(actual_x, 0.0);
     }
 }
