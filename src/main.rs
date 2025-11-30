@@ -21,28 +21,31 @@ fn startup(
     for x in -5..=5 {
         for y in -5..=5 {
             let entity = cmds.spawn_empty().id();
-            tiles.write(CreateTile(
-                entity,
-                WorldCoords {
-                    x: x as f32,
-                    y: y as f32,
-                },
-            ));
+            tiles.write(CreateTile(entity, WorldCoords { x, y }));
         }
     }
     for x in 0..=5 {
         let entity = cmds.spawn_empty().id();
         conveyors.write(CreateConveyor(
             entity,
-            Vec2 {
-                x: x as f32,
-                y: 0.0,
-            },
+            WorldCoords { x, y: 0 },
             game::Direction::East,
         ));
     }
     let entity = cmds.spawn_empty().id();
-    items.write(CreateWorldItem(entity, Vec2 { x: 0.0, y: 0.0 }));
+    items.write(CreateWorldItem(
+        entity,
+        HalfWorldCoords {
+            coords: WorldCoords { x: 0, y: 0 },
+            conrner: Corner::NE,
+        },
+    ));
     let entity = cmds.spawn_empty().id();
-    items.write(CreateWorldItem(entity, Vec2 { x: -1.0, y: 0.0 }));
+    items.write(CreateWorldItem(
+        entity,
+        HalfWorldCoords {
+            coords: WorldCoords { x: -1, y: 0 },
+            conrner: Corner::NE,
+        },
+    ));
 }
