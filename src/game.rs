@@ -6,7 +6,6 @@ pub mod ui;
 
 pub const TILE_SIZE: f32 = 32.0;
 pub const POSITIONS_PER_TILE: u16 = 256;
-pub const POSITION_PER_ITEM: u16 = 64;
 
 pub struct CorePlugin;
 impl Plugin for CorePlugin {
@@ -145,7 +144,6 @@ mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
 
-    const FRAME_TIME: f32 = 1.0 / 60.0;
     fn test_app() -> App {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins);

@@ -1,4 +1,4 @@
-use bevy::{color::palettes::css::GRAY, ecs::error::info, prelude::*};
+use bevy::{color::palettes::css::GRAY, prelude::*};
 
 use crate::game::*;
 
