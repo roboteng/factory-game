@@ -24,7 +24,7 @@ impl Plugin for CorePlugin {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct WorldCoords {
     pub x: i32,
     pub y: i32,

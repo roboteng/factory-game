@@ -80,6 +80,45 @@ mod tests {
     use bevy::time::TimeUpdateStrategy;
     use pretty_assertions::assert_eq;
 
+    struct TestBuilder {
+        app: App,
+        last_belt_created: Option<Entity>,
+    }
+    impl TestBuilder {
+        fn new() -> Self {
+            Self {
+                app: test_app(),
+                last_belt_created: None,
+            }
+        }
+        fn spawn_belt(&mut self, coords: WorldCoords, dir: Direction) -> Entity {
+            let world = self.app.world_mut();
+            let belt = world.spawn_empty().id();
+            world.write_message(CreateBelt {
+                entity: belt,
+                pos: coords,
+                dir,
+            });
+            self.last_belt_created = Some(belt);
+            belt
+        }
+        fn with_item_at(&mut self, position: u16) -> Entity {
+            let world = self.app.world_mut();
+            let item = world.spawn_empty().id();
+            world.write_message(CreateBeltItem {
+                entity: item,
+                belt: self.last_belt_created.unwrap(),
+                position,
+            });
+            item
+        }
+        fn get_transform(&mut self, entity: Entity) -> Transform {
+            let world = self.app.world_mut();
+            let mut q = world.query::<&Transform>();
+            *q.get(world, entity).unwrap()
+        }
+    }
+
     const FRAME_TIME: f32 = 1.0 / 60.0;
     fn test_app() -> App {
         let mut app = App::new();
@@ -94,25 +133,11 @@ mod tests {
 
     #[test]
     fn item_on_belt() {
-        let mut app = test_app();
-        let world = app.world_mut();
-        let belt = world.spawn_empty().id();
-        world.write_message(CreateBelt {
-            entity: belt,
-            pos: WorldCoords { x: 0, y: 0 },
-            dir: Direction::East,
-        });
-
-        let item = world.spawn_empty().id();
-        world.write_message(CreateBeltItem {
-            entity: item,
-            belt,
-            position: 0,
-        });
-        app.update();
-        let world = app.world_mut();
-        let mut q = world.query::<&Transform>();
-        q.get(world, item).unwrap();
+        let mut t = TestBuilder::new();
+        t.spawn_belt(WorldCoords::default(), Direction::East);
+        let item = t.with_item_at(0);
+        t.app.update();
+        let _ = t.get_transform(item);
     }
 
     #[test]
@@ -141,83 +166,35 @@ mod tests {
 
     #[test]
     fn item_moves_on_belt() {
-        let mut app = test_app();
-        let world = app.world_mut();
-
-        let belt = world.spawn_empty().id();
-        world.write_message(CreateBelt {
-            entity: belt,
-            pos: WorldCoords { x: 0, y: 0 },
-            dir: Direction::East,
-        });
-
-        let item = world.spawn_empty().id();
-        let starting_position = 128;
-        world.write_message(CreateBeltItem {
-            entity: item,
-            belt,
-            position: starting_position,
-        });
-
-        app.update();
-
-        let world = app.world_mut();
-        let mut item_query = world.query::<&Transform>();
-        let initial_transform = item_query.get(world, item).unwrap();
-        let initial_position = initial_transform.translation;
-
-        app.update();
-
-        let world = app.world_mut();
-        let mut item_query = world.query::<&Transform>();
-        let final_transform = item_query.get(world, item).unwrap();
-        let final_position = final_transform.translation;
-
-        assert_ne!(
-            initial_position, final_position,
-            "Item transform should have changed after update"
-        );
+        let mut t = TestBuilder::new();
+        t.spawn_belt(WorldCoords::default(), Direction::East);
+        let item = t.with_item_at(128);
+        t.app.update();
+        let initial_transform = t.get_transform(item);
+        t.app.update();
+        let next_transform = t.get_transform(item);
 
         assert!(
-            final_position.x > initial_position.x,
+            next_transform.translation.x > initial_transform.translation.x,
             "Item should have moved along the belt (East direction means increasing X as it progresses). Initial: {}, Final: {}",
-            initial_position.x,
-            final_position.x
+            initial_transform.translation.x,
+            next_transform.translation.x
         );
     }
 
     #[test]
     fn item_doesnt_move_at_end_of_belt() {
-        let mut app = test_app();
-        let world = app.world_mut();
+        let mut t = TestBuilder::new();
+        t.spawn_belt(WorldCoords::default(), Direction::East);
+        let item = t.with_item_at(0);
 
-        let belt = world.spawn_empty().id();
-        world.write_message(CreateBelt {
-            entity: belt,
-            pos: WorldCoords { x: 0, y: 0 },
-            dir: Direction::East,
-        });
+        t.app.update();
 
-        let item = world.spawn_empty().id();
-        world.write_message(CreateBeltItem {
-            entity: item,
-            belt,
-            position: 0,
-        });
+        let initial_position = t.get_transform(item).translation;
 
-        app.update();
+        t.app.update();
 
-        let world = app.world_mut();
-        let mut item_query = world.query::<&Transform>();
-        let initial_transform = item_query.get(world, item).unwrap();
-        let initial_position = initial_transform.translation;
-
-        app.update();
-
-        let world = app.world_mut();
-        let mut item_query = world.query::<&Transform>();
-        let final_transform = item_query.get(world, item).unwrap();
-        let final_position = final_transform.translation;
+        let final_position = t.get_transform(item).translation;
 
         assert_eq!(
             initial_position, final_position,
