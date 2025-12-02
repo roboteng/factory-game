@@ -36,7 +36,7 @@ fn create_item(
 ) {
     for item in msgs.read() {
         let shape = meshes.add(Rectangle {
-            half_size: Vec2 { x: 8.0, y: 8.0 },
+            half_size: Vec2 { x: 3.5, y: 3.5 },
         });
         let mat = materials.add(Color::from(GRAY));
 

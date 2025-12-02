@@ -42,4 +42,10 @@ fn startup(
         belt: belt.unwrap(),
         position: POSITIONS_PER_TILE - 1,
     });
+    let entity = cmds.spawn_empty().id();
+    items.write(CreateBeltItem {
+        entity,
+        belt: belt.unwrap(),
+        position: POSITIONS_PER_TILE / 2 - 1,
+    });
 }

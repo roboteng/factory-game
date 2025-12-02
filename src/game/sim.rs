@@ -138,4 +138,90 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn item_moves_on_belt() {
+        let mut app = test_app();
+        let world = app.world_mut();
+
+        let belt = world.spawn_empty().id();
+        world.write_message(CreateBelt {
+            entity: belt,
+            pos: WorldCoords { x: 0, y: 0 },
+            dir: Direction::East,
+        });
+
+        let item = world.spawn_empty().id();
+        let starting_position = 128;
+        world.write_message(CreateBeltItem {
+            entity: item,
+            belt,
+            position: starting_position,
+        });
+
+        app.update();
+
+        let world = app.world_mut();
+        let mut item_query = world.query::<&Transform>();
+        let initial_transform = item_query.get(world, item).unwrap();
+        let initial_position = initial_transform.translation;
+
+        app.update();
+
+        let world = app.world_mut();
+        let mut item_query = world.query::<&Transform>();
+        let final_transform = item_query.get(world, item).unwrap();
+        let final_position = final_transform.translation;
+
+        assert_ne!(
+            initial_position, final_position,
+            "Item transform should have changed after update"
+        );
+
+        assert!(
+            final_position.x > initial_position.x,
+            "Item should have moved along the belt (East direction means increasing X as it progresses). Initial: {}, Final: {}",
+            initial_position.x,
+            final_position.x
+        );
+    }
+
+    #[test]
+    fn item_doesnt_move_at_end_of_belt() {
+        let mut app = test_app();
+        let world = app.world_mut();
+
+        let belt = world.spawn_empty().id();
+        world.write_message(CreateBelt {
+            entity: belt,
+            pos: WorldCoords { x: 0, y: 0 },
+            dir: Direction::East,
+        });
+
+        let item = world.spawn_empty().id();
+        world.write_message(CreateBeltItem {
+            entity: item,
+            belt,
+            position: 0,
+        });
+
+        app.update();
+
+        let world = app.world_mut();
+        let mut item_query = world.query::<&Transform>();
+        let initial_transform = item_query.get(world, item).unwrap();
+        let initial_position = initial_transform.translation;
+
+        app.update();
+
+        let world = app.world_mut();
+        let mut item_query = world.query::<&Transform>();
+        let final_transform = item_query.get(world, item).unwrap();
+        let final_position = final_transform.translation;
+
+        assert_eq!(
+            initial_position, final_position,
+            "Item transform should not have changed after update"
+        );
+    }
 }
