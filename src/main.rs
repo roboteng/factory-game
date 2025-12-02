@@ -1,4 +1,4 @@
-use crate::game::{ui::UIPlugin, *};
+use crate::game::{sim::SimPlugin, ui::UIPlugin, *};
 use bevy::prelude::*;
 mod game;
 
@@ -15,7 +15,7 @@ fn main() {
 fn startup(
     mut tiles: MessageWriter<CreateTile>,
     mut conveyors: MessageWriter<CreateConveyor>,
-    mut items: MessageWriter<CreateWorldItem>,
+    mut items: MessageWriter<CreateConveyorItem>,
     mut cmds: Commands,
 ) {
     for x in -5..=5 {
@@ -24,28 +24,22 @@ fn startup(
             tiles.write(CreateTile(entity, WorldCoords { x, y }));
         }
     }
-    for x in 0..=5 {
+    let mut belt: Option<Entity> = None;
+    for x in 0..=4 {
         let entity = cmds.spawn_empty().id();
-        conveyors.write(CreateConveyor(
+        conveyors.write(CreateConveyor {
             entity,
-            WorldCoords { x, y: 0 },
-            game::Direction::East,
-        ));
+            pos: WorldCoords { x, y: 0 },
+            dir: game::Direction::East,
+        });
+        if belt.is_none() {
+            belt = Some(entity);
+        }
     }
     let entity = cmds.spawn_empty().id();
-    items.write(CreateWorldItem(
+    items.write(CreateConveyorItem {
         entity,
-        HalfWorldCoords {
-            coords: WorldCoords { x: 0, y: 0 },
-            conrner: Corner::NE,
-        },
-    ));
-    let entity = cmds.spawn_empty().id();
-    items.write(CreateWorldItem(
-        entity,
-        HalfWorldCoords {
-            coords: WorldCoords { x: -1, y: 0 },
-            conrner: Corner::NE,
-        },
-    ));
+        conveyor: belt.unwrap(),
+        position: POSITIONS_PER_TILE - 1,
+    });
 }
