@@ -123,12 +123,19 @@ mod tests {
                 Vec3::new(16.0, 0.0, 2.0),
             ),
             (
+                (WorldCoords { x: 0, y: 0 }, Direction::East, 128),
+                Vec3::new(0.0, 0.0, 2.0),
+            ),
+            (
                 (WorldCoords { x: 0, y: 0 }, Direction::East, 256),
                 Vec3::new(-16.0, 0.0, 2.0),
             ),
         ] {
             let actual = item_position(input.0, input.1, input.2);
-            assert_eq!(actual, expected);
+            assert_eq!(
+                actual, expected,
+                "when passing \n\t{input:?},\nexpected\n\t{expected},\nbut got\n\t{actual}"
+            );
         }
     }
 }
