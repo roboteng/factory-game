@@ -11,15 +11,15 @@ pub const POSITION_PER_ITEM: u16 = 64;
 pub struct CorePlugin;
 impl Plugin for CorePlugin {
     fn build(&self, app: &mut App) {
-        app.add_message::<CreateConveyor>();
-        app.add_message::<CreateConveyorItem>();
+        app.add_message::<CreateBelt>();
+        app.add_message::<CreateBeltItem>();
         app.add_message::<CreateTile>();
         app.add_systems(
             PreUpdate,
             (
-                create_conveyor,
+                create_belt,
                 create_tile,
-                create_belt_item.after(create_conveyor),
+                create_belt_item.after(create_belt),
             ),
         );
     }
@@ -41,16 +41,16 @@ impl From<WorldCoords> for Vec3 {
 pub struct CreateTile(pub Entity, pub WorldCoords);
 
 #[derive(Message)]
-pub struct CreateConveyor {
+pub struct CreateBelt {
     pub entity: Entity,
     pub pos: WorldCoords,
     pub dir: Direction,
 }
 
 #[derive(Message)]
-pub struct CreateConveyorItem {
+pub struct CreateBeltItem {
     pub entity: Entity,
-    pub conveyor: Entity,
+    pub belt: Entity,
     pub position: u16,
 }
 
@@ -61,8 +61,8 @@ fn create_tile(mut msgs: MessageReader<CreateTile>, mut cmd: Commands) {
     }
 }
 
-fn create_conveyor(mut msgs: MessageReader<CreateConveyor>, mut cmd: Commands) {
-    for CreateConveyor { entity, pos, dir } in msgs.read() {
+fn create_belt(mut msgs: MessageReader<CreateBelt>, mut cmd: Commands) {
+    for CreateBelt { entity, pos, dir } in msgs.read() {
         let rot = match dir {
             Direction::North => 0.25,
             Direction::East => 0.0,
@@ -73,7 +73,7 @@ fn create_conveyor(mut msgs: MessageReader<CreateConveyor>, mut cmd: Commands) {
         t.translation.z = 1.0;
         cmd.entity(*entity).insert((
             t.with_rotation(Quat::from_rotation_z(rot * 2.0 * PI)),
-            Conveyor::new(*dir, *pos),
+            Belt::new(*dir, *pos),
         ));
     }
 }
@@ -83,21 +83,21 @@ pub struct BeltItem;
 
 // #[derive(Component)]
 // pub struct BeltGroup;
-// /// Mapping from Conveyor Entity to Which group it belongs to
+// /// Mapping from Belt Entity to Which group it belongs to
 // #[derive(Resource)]
 // struct BeltGroupMap(HashMap<Entity, Entity>);
 
 fn create_belt_item(
-    mut msgs: MessageReader<CreateConveyorItem>,
+    mut msgs: MessageReader<CreateBeltItem>,
     mut cmd: Commands,
-    mut belts: Query<&mut Conveyor>,
+    mut belts: Query<&mut Belt>,
 ) {
     for item in msgs.read() {
-        if let Ok(mut belt) = belts.get_mut(item.conveyor) {
+        if let Ok(mut belt) = belts.get_mut(item.belt) {
             belt.lane.push((item.position, item.entity));
             belt.lane.sort_by(|a, b| a.0.cmp(&b.0));
         } else {
-            panic!("Couldn't find belt {}", item.conveyor);
+            panic!("Couldn't find belt {}", item.belt);
         }
         cmd.entity(item.entity)
             .insert((Transform::from_xyz(0.0, 0.0, 2.0), BeltItem));
@@ -124,13 +124,13 @@ impl From<Direction> for Vec2 {
 }
 
 #[derive(Component)]
-pub struct Conveyor {
+pub struct Belt {
     direction: Direction,
     pos: WorldCoords,
     lane: Vec<(u16, Entity)>,
 }
 
-impl Conveyor {
+impl Belt {
     pub fn new(dir: Direction, pos: WorldCoords) -> Self {
         Self {
             direction: dir,
@@ -154,12 +154,12 @@ mod tests {
     }
 
     #[test]
-    fn conveyor() {
+    fn belt() {
         let mut app = test_app();
 
         let world = app.world_mut();
         let belt_entity = world.spawn_empty().id();
-        world.write_message(CreateConveyor {
+        world.write_message(CreateBelt {
             entity: belt_entity,
             pos: WorldCoords { x: 0, y: 0 },
             dir: Direction::East,
@@ -168,26 +168,26 @@ mod tests {
         app.update();
         let world = app.world_mut();
         let mut q = world.query::<&Transform>();
-        let conveyor = q.get(world, belt_entity).unwrap();
-        assert_eq!(conveyor.translation.x, 0.0);
-        assert_eq!(conveyor.translation.y, 0.0);
+        let belt = q.get(world, belt_entity).unwrap();
+        assert_eq!(belt.translation.x, 0.0);
+        assert_eq!(belt.translation.y, 0.0);
     }
 
     #[test]
-    fn item_on_conveyor() {
+    fn item_on_belt() {
         let mut app = test_app();
         let world = app.world_mut();
-        let conveyor = world.spawn_empty().id();
-        world.write_message(CreateConveyor {
-            entity: conveyor,
+        let belt = world.spawn_empty().id();
+        world.write_message(CreateBelt {
+            entity: belt,
             pos: WorldCoords { x: 0, y: 0 },
             dir: Direction::East,
         });
 
         let item = world.spawn_empty().id();
-        world.write_message(CreateConveyorItem {
+        world.write_message(CreateBeltItem {
             entity: item,
-            conveyor,
+            belt,
             position: 0,
         });
         app.update();

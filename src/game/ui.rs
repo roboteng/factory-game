@@ -6,7 +6,7 @@ pub struct UIPlugin;
 impl Plugin for UIPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, startup_camera);
-        app.add_systems(Update, (create_tile, create_conveyor, create_item));
+        app.add_systems(Update, (create_tile, create_belt, create_item));
     }
 }
 
@@ -21,19 +21,15 @@ fn create_tile(mut msgs: MessageReader<CreateTile>, mut cmd: Commands, assets: R
     }
 }
 
-fn create_conveyor(
-    mut msgs: MessageReader<CreateConveyor>,
-    mut cmd: Commands,
-    assets: Res<AssetServer>,
-) {
-    for CreateConveyor { entity, .. } in msgs.read() {
+fn create_belt(mut msgs: MessageReader<CreateBelt>, mut cmd: Commands, assets: Res<AssetServer>) {
+    for CreateBelt { entity, .. } in msgs.read() {
         cmd.entity(*entity)
-            .insert(Sprite::from_image(assets.load("sprites/conveyor.png")));
+            .insert(Sprite::from_image(assets.load("sprites/belt.png")));
     }
 }
 
 fn create_item(
-    mut msgs: MessageReader<CreateConveyorItem>,
+    mut msgs: MessageReader<CreateBeltItem>,
     mut cmd: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,

@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 
 use crate::game::{
-    BeltItem, Conveyor, CreateConveyorItem, Direction, POSITIONS_PER_TILE, TILE_SIZE, WorldCoords,
+    Belt, BeltItem, CreateBeltItem, Direction, POSITIONS_PER_TILE, TILE_SIZE, WorldCoords,
 };
 
 pub struct SimPlugin;
@@ -19,14 +19,14 @@ impl Plugin for SimPlugin {
 #[derive(Component)]
 pub struct ExpectedMovement(u16);
 
-fn create_item(mut msgs: MessageReader<CreateConveyorItem>, mut cmd: Commands) {
+fn create_item(mut msgs: MessageReader<CreateBeltItem>, mut cmd: Commands) {
     for item in msgs.read() {
         cmd.entity(item.entity).insert(ExpectedMovement(0));
     }
 }
 
 fn plan_item_movement(
-    belts: Query<&mut Conveyor>,
+    belts: Query<&mut Belt>,
     mut items: Query<(&BeltItem, Mut<ExpectedMovement>)>,
 ) {
     for mut belt in belts {
@@ -34,18 +34,17 @@ fn plan_item_movement(
             if let Ok((_, mut expected_movement)) = items.get_mut(item.1) {
                 let space = item.0 - (index as u16) * 64;
                 expected_movement.0 = space.min(8);
-                info!("Moving by {}", expected_movement.0);
             }
         }
     }
 }
 
 fn move_items(
-    mut items: Query<(Mut<Transform>, &ExpectedMovement), Without<Conveyor>>,
-    mut belts: Query<&mut Conveyor>,
+    mut items: Query<(Mut<Transform>, &ExpectedMovement), Without<Belt>>,
+    mut belts: Query<&mut Belt>,
 ) {
     for belt in belts.iter_mut() {
-        let Conveyor {
+        let Belt {
             direction,
             pos: coords,
             lane,
@@ -54,9 +53,8 @@ fn move_items(
             if let Ok((mut transform, expected_movement)) = items.get_mut(*entity) {
                 *pos -= expected_movement.0;
                 transform.translation = item_position(*coords, *direction, *pos);
-                info!("pos: {pos}, translation: {}", transform.translation);
             } else {
-                info!("Couldn't find {entity}");
+                warn!("Couldn't find lane: {entity}");
             }
         }
     }
@@ -69,7 +67,6 @@ fn item_position(coords: WorldCoords, dir: Direction, pos: u16) -> Vec3 {
     k.x += diff.x;
     k.y += diff.y;
     k.z = 2.0;
-    info!("Calculated {}", k);
     k
 }
 
@@ -96,20 +93,20 @@ mod tests {
     }
 
     #[test]
-    fn item_on_conveyor() {
+    fn item_on_belt() {
         let mut app = test_app();
         let world = app.world_mut();
-        let conveyor = world.spawn_empty().id();
-        world.write_message(CreateConveyor {
-            entity: conveyor,
+        let belt = world.spawn_empty().id();
+        world.write_message(CreateBelt {
+            entity: belt,
             pos: WorldCoords { x: 0, y: 0 },
             dir: Direction::East,
         });
 
         let item = world.spawn_empty().id();
-        world.write_message(CreateConveyorItem {
+        world.write_message(CreateBeltItem {
             entity: item,
-            conveyor,
+            belt,
             position: 0,
         });
         app.update();

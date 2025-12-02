@@ -14,8 +14,8 @@ fn main() {
 
 fn startup(
     mut tiles: MessageWriter<CreateTile>,
-    mut conveyors: MessageWriter<CreateConveyor>,
-    mut items: MessageWriter<CreateConveyorItem>,
+    mut belts: MessageWriter<CreateBelt>,
+    mut items: MessageWriter<CreateBeltItem>,
     mut cmds: Commands,
 ) {
     for x in -5..=5 {
@@ -27,7 +27,7 @@ fn startup(
     let mut belt: Option<Entity> = None;
     for x in 0..=4 {
         let entity = cmds.spawn_empty().id();
-        conveyors.write(CreateConveyor {
+        belts.write(CreateBelt {
             entity,
             pos: WorldCoords { x, y: 0 },
             dir: game::Direction::East,
@@ -37,9 +37,9 @@ fn startup(
         }
     }
     let entity = cmds.spawn_empty().id();
-    items.write(CreateConveyorItem {
+    items.write(CreateBeltItem {
         entity,
-        conveyor: belt.unwrap(),
+        belt: belt.unwrap(),
         position: POSITIONS_PER_TILE - 1,
     });
 }
