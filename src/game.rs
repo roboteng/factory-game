@@ -24,7 +24,7 @@ impl Plugin for CorePlugin {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Component, Hash)]
 pub struct WorldCoords {
     pub x: i32,
     pub y: i32,
@@ -39,11 +39,30 @@ impl From<WorldCoords> for Vec3 {
 #[derive(Message)]
 pub struct CreateTile(pub Entity, pub WorldCoords);
 
-#[derive(Message)]
+#[derive(Message, Clone)]
 pub struct CreateBelt {
     pub entity: Entity,
-    pub pos: WorldCoords,
+    pub coords: WorldCoords,
     pub dir: Direction,
+}
+
+impl CreateBelt {
+    fn forward(&self) -> WorldCoords {
+        let mut coords = self.coords;
+        match self.dir {
+            Direction::East => coords.x += 1,
+            _ => todo!(),
+        };
+        coords
+    }
+    fn backward(&self) -> WorldCoords {
+        let mut coords = self.coords;
+        match self.dir {
+            Direction::East => coords.x -= 1,
+            _ => todo!(),
+        };
+        coords
+    }
 }
 
 #[derive(Message)]
@@ -61,18 +80,24 @@ fn create_tile(mut msgs: MessageReader<CreateTile>, mut cmd: Commands) {
 }
 
 fn create_belt(mut msgs: MessageReader<CreateBelt>, mut cmd: Commands) {
-    for CreateBelt { entity, pos, dir } in msgs.read() {
+    for CreateBelt {
+        entity,
+        coords,
+        dir,
+    } in msgs.read()
+    {
         let rot = match dir {
             Direction::North => 0.25,
             Direction::East => 0.0,
             Direction::South => 0.75,
             Direction::West => 0.5,
         };
-        let mut t = Transform::from_translation(Vec3::from(*pos));
+        let mut t = Transform::from_translation(Vec3::from(*coords));
         t.translation.z = 1.0;
         cmd.entity(*entity).insert((
             t.with_rotation(Quat::from_rotation_z(rot * 2.0 * PI)),
-            Belt::new(*dir, *pos),
+            Belt::new(*dir),
+            *coords,
         ));
     }
 }
@@ -80,24 +105,8 @@ fn create_belt(mut msgs: MessageReader<CreateBelt>, mut cmd: Commands) {
 #[derive(Component)]
 pub struct BeltItem;
 
-// #[derive(Component)]
-// pub struct BeltGroup;
-// /// Mapping from Belt Entity to Which group it belongs to
-// #[derive(Resource)]
-// struct BeltGroupMap(HashMap<Entity, Entity>);
-
-fn create_belt_item(
-    mut msgs: MessageReader<CreateBeltItem>,
-    mut cmd: Commands,
-    mut belts: Query<&mut Belt>,
-) {
+fn create_belt_item(mut msgs: MessageReader<CreateBeltItem>, mut cmd: Commands) {
     for item in msgs.read() {
-        if let Ok(mut belt) = belts.get_mut(item.belt) {
-            belt.lane.push((item.position, item.entity));
-            belt.lane.sort_by(|a, b| a.0.cmp(&b.0));
-        } else {
-            panic!("Couldn't find belt {}", item.belt);
-        }
         cmd.entity(item.entity)
             .insert((Transform::from_xyz(0.0, 0.0, 2.0), BeltItem));
     }
@@ -125,17 +134,21 @@ impl From<Direction> for Vec2 {
 #[derive(Component)]
 pub struct Belt {
     direction: Direction,
-    pos: WorldCoords,
-    lane: Vec<(u16, Entity)>,
 }
 
 impl Belt {
-    pub fn new(dir: Direction, pos: WorldCoords) -> Self {
-        Self {
-            direction: dir,
-            pos,
-            lane: vec![],
-        }
+    pub fn new(dir: Direction) -> Self {
+        Self { direction: dir }
+    }
+
+    pub fn item_position(&self, coords: WorldCoords, pos: u16) -> Vec3 {
+        let start = Vec2::from(self.direction);
+        let diff = (start / 2.0 - start * pos as f32 / POSITIONS_PER_TILE as f32) * TILE_SIZE;
+        let mut k = Vec3::from(coords);
+        k.x += diff.x;
+        k.y += diff.y;
+        k.z = 2.0;
+        k
     }
 }
 
@@ -159,7 +172,7 @@ mod tests {
         let belt_entity = world.spawn_empty().id();
         world.write_message(CreateBelt {
             entity: belt_entity,
-            pos: WorldCoords { x: 0, y: 0 },
+            coords: WorldCoords { x: 0, y: 0 },
             dir: Direction::East,
         });
 
@@ -178,7 +191,7 @@ mod tests {
         let belt = world.spawn_empty().id();
         world.write_message(CreateBelt {
             entity: belt,
-            pos: WorldCoords { x: 0, y: 0 },
+            coords: WorldCoords { x: 0, y: 0 },
             dir: Direction::East,
         });
 

@@ -29,7 +29,7 @@ fn startup(
         let entity = cmds.spawn_empty().id();
         belts.write(CreateBelt {
             entity,
-            pos: WorldCoords { x, y: 0 },
+            coords: WorldCoords { x, y: 0 },
             dir: game::Direction::East,
         });
         if belt.is_none() {
