@@ -2,10 +2,7 @@ use std::{collections::HashMap, ops::Range};
 
 use bevy::{ecs::system::SystemState, prelude::*};
 
-use crate::game::{
-    Belt, BeltItem, CreateBelt, CreateBeltItem, Direction, POSITIONS_PER_TILE, TILE_SIZE,
-    WorldCoords,
-};
+use crate::game::{Belt, BeltItem, CreateBelt, CreateBeltItem, WorldCoords};
 
 pub struct SimPlugin;
 
@@ -24,22 +21,18 @@ impl Plugin for SimPlugin {
 #[derive(Component)]
 pub struct ExpectedMovement(u16);
 
+#[derive(Debug, PartialEq)]
 struct OrderedBelts {
     belts: Vec<(Range<u16>, Entity)>,
 }
 
 impl OrderedBelts {
-    fn belt_at_pos(&self, pos: u16) -> Option<&Entity> {
-        for belt in self.belts.iter() {
-            if belt.0.contains(&pos) {
-                return Some(&belt.1);
-            }
-        }
-        None
+    fn belt_at_pos(&self, pos: u16) -> Option<&(Range<u16>, Entity)> {
+        self.belts.iter().find(|&belt| belt.0.contains(&pos))
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Debug, PartialEq)]
 struct Lane {
     lane: Vec<(u16, Entity)>,
 }
@@ -56,7 +49,7 @@ impl Lane {
     }
 }
 
-#[derive(Component)]
+#[derive(Component, Debug, PartialEq)]
 struct BeltGroup {
     belts: OrderedBelts,
     lane: Lane,
@@ -71,10 +64,18 @@ impl BeltGroup {
             lane: Default::default(),
         }
     }
-    fn add_belt_at_tail(&mut self, belt: Entity) {
-        self.belts.belts.push((0..256, belt));
+    fn add_belt_at_tail(&mut self, belt: Entity, n_pos: u16) {
+        if self.belts.belts.iter().any(|b| b.1 == belt) {
+            panic!("adding a belt twice");
+        }
+        let start = self.belts.belts.last().map(|b| b.0.end).unwrap_or(0);
+        let end = start + n_pos;
+        self.belts.belts.push((start..end, belt));
     }
     fn add_belt_at_head(&mut self, belt: Entity, n_pos: u16) {
+        if self.belts.belts.iter().any(|b| b.1 == belt) {
+            panic!("adding a belt twice");
+        }
         for slot in self.belts.belts.iter_mut() {
             slot.0.end += n_pos;
             slot.0.start += n_pos;
@@ -119,16 +120,17 @@ fn create_item(
     }
 }
 
-fn create_belt(world: &mut World) {
-    let mut system_state: SystemState<(
+fn create_belt(
+    world: &mut World,
+    state: &mut SystemState<(
         MessageReader<CreateBelt>,
         ResMut<BeltGroups>,
         ResMut<BeltCoords>,
-    )> = SystemState::new(world);
-
-    let (mut msgs, _, _) = system_state.get_mut(world);
+    )>,
+) {
+    let (mut msgs, _, _) = state.get_mut(world);
     let messages: Vec<_> = msgs.read().cloned().collect();
-    system_state.apply(world);
+    state.apply(world);
 
     for belt in messages {
         let mut system_state: SystemState<(ResMut<BeltGroups>, ResMut<BeltCoords>)> =
@@ -143,7 +145,6 @@ fn create_belt(world: &mut World) {
             (None, None) => {
                 let group = BeltGroup::from_belt(belt.entity);
                 system_state.apply(world);
-                // Spawn immediately using world
                 let g = world.spawn(group).id();
                 let mut groups_cache = world.resource_mut::<BeltGroups>();
                 groups_cache.0.insert(belt.entity, g);
@@ -154,12 +155,11 @@ fn create_belt(world: &mut World) {
                     .get(&belt_ahead)
                     .expect("all belts should be in cache");
                 system_state.apply(world);
-                // Access the group that was just spawned
                 world
                     .entity_mut(group)
                     .get_mut::<BeltGroup>()
                     .expect("the group should exist")
-                    .add_belt_at_tail(belt.entity);
+                    .add_belt_at_tail(belt.entity, 256);
                 let mut groups_cache = world.resource_mut::<BeltGroups>();
                 groups_cache.0.insert(belt.entity, group);
             }
@@ -206,26 +206,18 @@ fn move_items(
     for group in belt_groups.iter_mut() {
         let BeltGroup { belts, lane } = group.into_inner();
         for (pos, item_entity) in lane.lane.iter_mut() {
-            let belt_entity = *belts.belt_at_pos(*pos).unwrap();
-            let (belt, &coords) = belts_q.get(belt_entity).unwrap();
             if let Ok((mut transform, expected_movement)) = items.get_mut(*item_entity) {
                 *pos -= expected_movement.0;
-                transform.translation = belt.item_position(coords, *pos);
+                let (range, belt_entity) = belts.belt_at_pos(*pos).cloned().unwrap();
+                let (belt, &coords) = belts_q.get(belt_entity).unwrap();
+                let local_pos = *pos - range.start;
+
+                transform.translation = belt.item_position(coords, local_pos);
             } else {
                 warn!("Couldn't find lane: {item_entity}");
             }
         }
     }
-}
-
-fn item_position(coords: WorldCoords, dir: Direction, pos: u16) -> Vec3 {
-    let start = Vec2::from(dir);
-    let diff = (start / 2.0 - start * pos as f32 / POSITIONS_PER_TILE as f32) * TILE_SIZE;
-    let mut k = Vec3::from(coords);
-    k.x += diff.x;
-    k.y += diff.y;
-    k.z = 2.0;
-    k
 }
 
 #[cfg(test)]
@@ -237,6 +229,120 @@ mod tests {
     use super::*;
     use bevy::time::TimeUpdateStrategy;
     use pretty_assertions::{assert_eq, assert_ne};
+
+    #[test]
+    fn test_from_belt() {
+        let belt = Entity::from_bits(1);
+        let actual = BeltGroup::from_belt(belt);
+        let expected = BeltGroup {
+            belts: OrderedBelts {
+                belts: vec![(0..256, belt)],
+            },
+            lane: Lane { lane: vec![] },
+        };
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_add_belt_at_tail() {
+        let belt1 = Entity::from_bits(1);
+        let belt2 = Entity::from_bits(2);
+        let belt3 = Entity::from_bits(3);
+
+        let mut actual = BeltGroup::from_belt(belt1);
+        actual.add_belt_at_tail(belt2, 256);
+        actual.add_belt_at_tail(belt3, 256);
+
+        let expected = BeltGroup {
+            belts: OrderedBelts {
+                belts: vec![(0..256, belt1), (256..512, belt2), (512..768, belt3)],
+            },
+            lane: Lane::default(),
+        };
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_add_belt_at_head() {
+        let belt1 = Entity::from_bits(1);
+        let belt2 = Entity::from_bits(2);
+
+        let mut actual = BeltGroup::from_belt(belt1);
+        actual.add_belt_at_head(belt2, 256);
+
+        let expected = BeltGroup {
+            belts: OrderedBelts {
+                belts: vec![(0..256, belt2), (256..512, belt1)],
+            },
+            lane: Lane::default(),
+        };
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_add_belt_at_head_shifts_items() {
+        let belt1 = Entity::from_bits(1);
+        let belt2 = Entity::from_bits(2);
+        let item = Entity::from_bits(100);
+
+        let mut actual = BeltGroup::from_belt(belt1);
+        actual.lane.add_item_at(128, item);
+        actual.add_belt_at_head(belt2, 256);
+
+        let expected = BeltGroup {
+            belts: OrderedBelts {
+                belts: vec![(0..256, belt2), (256..512, belt1)],
+            },
+            lane: Lane {
+                lane: vec![(384, item)], // 128 + 256
+            },
+        };
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_belt_ranges_match_world_coords() {
+        let mut t = TestBuilder::new();
+
+        // Create 5 belts at x=0,1,2,3,4 (like in main.rs)
+        let belt0 = t.spawn_belt(WorldCoords { x: 0, y: 0 }, Direction::East);
+        let belt1 = t.spawn_belt(WorldCoords { x: 1, y: 0 }, Direction::East);
+        let belt2 = t.spawn_belt(WorldCoords { x: 2, y: 0 }, Direction::East);
+        let belt3 = t.spawn_belt(WorldCoords { x: 3, y: 0 }, Direction::East);
+        let belt4 = t.spawn_belt(WorldCoords { x: 4, y: 0 }, Direction::East);
+
+        t.app.update();
+
+        // Get the actual belt group
+        let world = t.app.world_mut();
+        let groups = world.resource::<BeltGroups>();
+        let group_entity = *groups.0.get(&belt0).expect("belt0 should have group");
+
+        let mut group_query = world.query::<&BeltGroup>();
+        let actual = group_query
+            .get(world, group_entity)
+            .expect("group should exist");
+
+        // Expected: belts should be in order from x=0 to x=4
+        // with contiguous ranges [0..256), [256..512), etc.
+        let expected = BeltGroup {
+            belts: OrderedBelts {
+                belts: vec![
+                    (0..256, belt4),
+                    (256..512, belt3),
+                    (512..768, belt2),
+                    (768..1024, belt1),
+                    (1024..1280, belt0),
+                ],
+            },
+            lane: Lane::default(),
+        };
+
+        assert_eq!(*actual, expected);
+    }
 
     struct TestBuilder {
         app: App,
@@ -296,30 +402,6 @@ mod tests {
         let item = t.with_item_at(0);
         t.app.update();
         let _ = t.get_transform(item);
-    }
-
-    #[test]
-    fn item_positions() {
-        for (input, expected) in [
-            (
-                (WorldCoords { x: 0, y: 0 }, Direction::East, 0),
-                Vec3::new(16.0, 0.0, 2.0),
-            ),
-            (
-                (WorldCoords { x: 0, y: 0 }, Direction::East, 128),
-                Vec3::new(0.0, 0.0, 2.0),
-            ),
-            (
-                (WorldCoords { x: 0, y: 0 }, Direction::East, 256),
-                Vec3::new(-16.0, 0.0, 2.0),
-            ),
-        ] {
-            let actual = item_position(input.0, input.1, input.2);
-            assert_eq!(
-                actual, expected,
-                "when passing \n\t{input:?},\nexpected\n\t{expected},\nbut got\n\t{actual}"
-            );
-        }
     }
 
     #[test]
