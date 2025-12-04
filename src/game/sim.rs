@@ -1,8 +1,8 @@
 use std::{collections::HashMap, ops::Range};
 
-use bevy::{ecs::system::SystemState, prelude::*};
+use bevy::prelude::*;
 
-use crate::game::{Belt, BeltItem, CreateBelt, CreateBeltItem, WorldCoords};
+use crate::game::*;
 
 pub struct SimPlugin;
 
@@ -10,7 +10,8 @@ impl Plugin for SimPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<BeltGroups>();
         app.init_resource::<BeltCoords>();
-        app.add_systems(PreUpdate, (create_belt, create_item).chain());
+        app.add_observer(on_create_belt);
+        app.add_observer(on_create_item);
         app.add_systems(
             Update,
             (plan_item_movement, move_items.after(plan_item_movement)),
@@ -39,11 +40,9 @@ struct Lane {
 
 impl Lane {
     fn add_item_at(&mut self, pos: u16, item: Entity) {
-        // Binary search for the correct insertion position
-        // Vec is sorted in descending order by position
         let insert_idx = self
             .lane
-            .binary_search_by(|probe| probe.0.cmp(&pos).reverse())
+            .binary_search_by(|probe| probe.0.cmp(&pos))
             .unwrap_or_else(|idx| idx);
         self.lane.insert(insert_idx, (pos, item));
     }
@@ -85,16 +84,10 @@ impl BeltGroup {
         }
         self.belts.belts.insert(0, (0..n_pos, belt));
     }
-    fn add_item_at(&mut self, item: &CreateBeltItem) {
-        let slot = self
-            .belts
-            .belts
-            .iter()
-            .find(|slot| slot.1 == item.belt)
-            .unwrap();
-        let start = slot.0.start;
-        let position = start + item.position;
-        self.lane.add_item_at(position, item.entity);
+    fn add_item_at(&mut self, belt: Entity, position: u16, item_entity: Entity) {
+        let slot = self.belts.belts.iter().find(|slot| slot.1 == belt).unwrap();
+        let global_position = slot.0.start + position;
+        self.lane.add_item_at(global_position, item_entity);
     }
 }
 
@@ -106,80 +99,59 @@ struct BeltGroups(HashMap<Entity, Entity>);
 #[derive(Resource, Default)]
 struct BeltCoords(HashMap<WorldCoords, Entity>);
 
-fn create_item(
-    mut msgs: MessageReader<CreateBeltItem>,
+fn on_create_item(
+    trigger: On<CreateBeltItem>,
     mut cmd: Commands,
     mut belt_groups: Query<&mut BeltGroup>,
     groups: Res<BeltGroups>,
 ) {
-    for item in msgs.read() {
-        let group = groups.0.get(&item.belt).unwrap();
-        let mut group = belt_groups.get_mut(*group).unwrap();
-        group.add_item_at(item);
-        cmd.entity(item.entity).insert(ExpectedMovement(0));
-    }
+    let item_entity = trigger.entity;
+    let group = groups.0.get(&trigger.belt).unwrap();
+    let mut group = belt_groups.get_mut(*group).unwrap();
+    group.add_item_at(trigger.belt, trigger.position, item_entity);
+    cmd.entity(item_entity).insert(ExpectedMovement(0));
 }
 
-fn create_belt(
-    world: &mut World,
-    state: &mut SystemState<(
-        MessageReader<CreateBelt>,
-        ResMut<BeltGroups>,
-        ResMut<BeltCoords>,
-    )>,
+fn on_create_belt(
+    trigger: On<CreateBelt>,
+    mut cmd: Commands,
+    mut groups: ResMut<BeltGroups>,
+    mut belt_coords: ResMut<BeltCoords>,
+    mut belt_groups_query: Query<&mut BeltGroup>,
 ) {
-    let (mut msgs, _, _) = state.get_mut(world);
-    let messages: Vec<_> = msgs.read().cloned().collect();
-    state.apply(world);
+    let belt_entity = trigger.entity;
+    belt_coords.0.insert(trigger.coords, belt_entity);
+    let belt_ahead = belt_coords.0.get(&trigger.forward()).copied();
+    let belt_behind = belt_coords.0.get(&trigger.backward()).copied();
 
-    for belt in messages {
-        let mut system_state: SystemState<(ResMut<BeltGroups>, ResMut<BeltCoords>)> =
-            SystemState::new(world);
-        let (groups_cache, mut belt_coords) = system_state.get_mut(world);
-
-        belt_coords.0.insert(belt.coords, belt.entity);
-        let belt_ahead = belt_coords.0.get(&belt.forward()).copied();
-        let belt_behind = belt_coords.0.get(&belt.backward()).copied();
-
-        match (belt_ahead, belt_behind) {
-            (None, None) => {
-                let group = BeltGroup::from_belt(belt.entity);
-                system_state.apply(world);
-                let g = world.spawn(group).id();
-                let mut groups_cache = world.resource_mut::<BeltGroups>();
-                groups_cache.0.insert(belt.entity, g);
+    match (belt_ahead, belt_behind) {
+        (None, None) => {
+            let group = BeltGroup::from_belt(belt_entity);
+            let group_entity = cmd.spawn(group).id();
+            groups.0.insert(belt_entity, group_entity);
+        }
+        (Some(belt_ahead), None) => {
+            if let Some(&group) = groups.0.get(&belt_ahead) {
+                if let Ok(mut belt_group) = belt_groups_query.get_mut(group) {
+                    belt_group.add_belt_at_tail(belt_entity, 256);
+                    groups.0.insert(belt_entity, group);
+                } else {
+                    panic!("Group should be created already");
+                }
             }
-            (Some(belt_ahead), None) => {
-                let group = *groups_cache
-                    .0
-                    .get(&belt_ahead)
-                    .expect("all belts should be in cache");
-                system_state.apply(world);
-                world
-                    .entity_mut(group)
-                    .get_mut::<BeltGroup>()
-                    .expect("the group should exist")
-                    .add_belt_at_tail(belt.entity, 256);
-                let mut groups_cache = world.resource_mut::<BeltGroups>();
-                groups_cache.0.insert(belt.entity, group);
+        }
+        (None, Some(belt_behind)) => {
+            if let Some(&group) = groups.0.get(&belt_behind) {
+                if let Ok(mut belt_group) = belt_groups_query.get_mut(group) {
+                    belt_group.add_belt_at_head(belt_entity, 256);
+                    groups.0.insert(belt_entity, group);
+                } else {
+                    panic!("Groupd should ber created already");
+                }
             }
-            (None, Some(belt_behind)) => {
-                let group = *groups_cache
-                    .0
-                    .get(&belt_behind)
-                    .expect("all belts should be in cache");
-                system_state.apply(world);
-                world
-                    .entity_mut(group)
-                    .get_mut::<BeltGroup>()
-                    .expect("the group should exist")
-                    .add_belt_at_head(belt.entity, 256);
-                let mut groups_cache = world.resource_mut::<BeltGroups>();
-                groups_cache.0.insert(belt.entity, group);
-            }
-            (Some(_belt_ahead), Some(_belt_behind)) => {
-                system_state.apply(world);
-            }
+        }
+        (Some(_belt_ahead), Some(_belt_behind)) => {
+            // TODO: merge groups
         }
     }
 }
@@ -358,7 +330,7 @@ mod tests {
         fn spawn_belt(&mut self, coords: WorldCoords, dir: Direction) -> Entity {
             let world = self.app.world_mut();
             let belt = world.spawn_empty().id();
-            world.write_message(CreateBelt {
+            world.trigger(CreateBelt {
                 entity: belt,
                 coords,
                 dir,
@@ -369,7 +341,7 @@ mod tests {
         fn with_item_at(&mut self, position: u16) -> Entity {
             let world = self.app.world_mut();
             let item = world.spawn_empty().id();
-            world.write_message(CreateBeltItem {
+            world.trigger(CreateBeltItem {
                 entity: item,
                 belt: self.last_belt_created.unwrap(),
                 position,

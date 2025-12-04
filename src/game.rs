@@ -10,17 +10,9 @@ pub const POSITIONS_PER_TILE: u16 = 256;
 pub struct CorePlugin;
 impl Plugin for CorePlugin {
     fn build(&self, app: &mut App) {
-        app.add_message::<CreateBelt>();
-        app.add_message::<CreateBeltItem>();
-        app.add_message::<CreateTile>();
-        app.add_systems(
-            PreUpdate,
-            (
-                create_belt,
-                create_tile,
-                create_belt_item.after(create_belt),
-            ),
-        );
+        app.add_observer(on_create_tile);
+        app.add_observer(on_create_belt);
+        app.add_observer(on_create_belt_item);
     }
 }
 
@@ -36,10 +28,13 @@ impl From<WorldCoords> for Vec3 {
     }
 }
 
-#[derive(Message)]
-pub struct CreateTile(pub Entity, pub WorldCoords);
+#[derive(EntityEvent, Clone)]
+pub struct CreateTile {
+    pub entity: Entity,
+    pub coords: WorldCoords,
+}
 
-#[derive(Message, Clone)]
+#[derive(EntityEvent, Clone)]
 pub struct CreateBelt {
     pub entity: Entity,
     pub coords: WorldCoords,
@@ -47,7 +42,7 @@ pub struct CreateBelt {
 }
 
 impl CreateBelt {
-    fn forward(&self) -> WorldCoords {
+    pub fn forward(&self) -> WorldCoords {
         let mut coords = self.coords;
         match self.dir {
             Direction::East => coords.x += 1,
@@ -55,7 +50,7 @@ impl CreateBelt {
         };
         coords
     }
-    fn backward(&self) -> WorldCoords {
+    pub fn backward(&self) -> WorldCoords {
         let mut coords = self.coords;
         match self.dir {
             Direction::East => coords.x -= 1,
@@ -65,51 +60,40 @@ impl CreateBelt {
     }
 }
 
-#[derive(Message)]
+#[derive(EntityEvent, Clone)]
 pub struct CreateBeltItem {
     pub entity: Entity,
     pub belt: Entity,
     pub position: u16,
 }
 
-fn create_tile(mut msgs: MessageReader<CreateTile>, mut cmd: Commands) {
-    for CreateTile(entity, vec) in msgs.read() {
-        cmd.entity(*entity)
-            .insert(Transform::from_translation(Vec3::from(*vec)));
-    }
+fn on_create_tile(trigger: On<CreateTile>, mut cmd: Commands) {
+    cmd.entity(trigger.entity)
+        .insert(Transform::from_translation(Vec3::from(trigger.coords)));
 }
 
-fn create_belt(mut msgs: MessageReader<CreateBelt>, mut cmd: Commands) {
-    for CreateBelt {
-        entity,
-        coords,
-        dir,
-    } in msgs.read()
-    {
-        let rot = match dir {
-            Direction::North => 0.25,
-            Direction::East => 0.0,
-            Direction::South => 0.75,
-            Direction::West => 0.5,
-        };
-        let mut t = Transform::from_translation(Vec3::from(*coords));
-        t.translation.z = 1.0;
-        cmd.entity(*entity).insert((
-            t.with_rotation(Quat::from_rotation_z(rot * 2.0 * PI)),
-            Belt::new(*dir),
-            *coords,
-        ));
-    }
+fn on_create_belt(trigger: On<CreateBelt>, mut cmd: Commands) {
+    let rot = match trigger.dir {
+        Direction::North => 0.25,
+        Direction::East => 0.0,
+        Direction::South => 0.75,
+        Direction::West => 0.5,
+    };
+    let mut t = Transform::from_translation(Vec3::from(trigger.coords));
+    t.translation.z = 1.0;
+    cmd.entity(trigger.entity).insert((
+        t.with_rotation(Quat::from_rotation_z(rot * 2.0 * PI)),
+        Belt::new(trigger.dir),
+        trigger.coords,
+    ));
 }
 
 #[derive(Component)]
 pub struct BeltItem;
 
-fn create_belt_item(mut msgs: MessageReader<CreateBeltItem>, mut cmd: Commands) {
-    for item in msgs.read() {
-        cmd.entity(item.entity)
-            .insert((Transform::from_xyz(0.0, 0.0, 2.0), BeltItem));
-    }
+fn on_create_belt_item(trigger: On<CreateBeltItem>, mut cmd: Commands) {
+    cmd.entity(trigger.entity)
+        .insert((Transform::from_xyz(0.0, 0.0, 2.0), BeltItem));
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -170,7 +154,7 @@ mod tests {
 
         let world = app.world_mut();
         let belt_entity = world.spawn_empty().id();
-        world.write_message(CreateBelt {
+        world.trigger(CreateBelt {
             entity: belt_entity,
             coords: WorldCoords { x: 0, y: 0 },
             dir: Direction::East,
@@ -189,14 +173,14 @@ mod tests {
         let mut app = test_app();
         let world = app.world_mut();
         let belt = world.spawn_empty().id();
-        world.write_message(CreateBelt {
+        world.trigger(CreateBelt {
             entity: belt,
             coords: WorldCoords { x: 0, y: 0 },
             dir: Direction::East,
         });
 
         let item = world.spawn_empty().id();
-        world.write_message(CreateBeltItem {
+        world.trigger(CreateBeltItem {
             entity: item,
             belt,
             position: 0,

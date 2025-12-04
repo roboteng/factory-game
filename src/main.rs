@@ -13,21 +13,21 @@ fn main() {
 }
 
 fn startup(
-    mut tiles: MessageWriter<CreateTile>,
-    mut belts: MessageWriter<CreateBelt>,
-    mut items: MessageWriter<CreateBeltItem>,
     mut cmds: Commands,
 ) {
     for x in -5..=5 {
         for y in -5..=5 {
             let entity = cmds.spawn_empty().id();
-            tiles.write(CreateTile(entity, WorldCoords { x, y }));
+            cmds.trigger(CreateTile {
+                entity,
+                coords: WorldCoords { x, y },
+            });
         }
     }
     let mut belt: Option<Entity> = None;
     for x in 0..=4 {
         let entity = cmds.spawn_empty().id();
-        belts.write(CreateBelt {
+        cmds.trigger(CreateBelt {
             entity,
             coords: WorldCoords { x, y: 0 },
             dir: game::Direction::East,
@@ -37,13 +37,13 @@ fn startup(
         }
     }
     let entity = cmds.spawn_empty().id();
-    items.write(CreateBeltItem {
+    cmds.trigger(CreateBeltItem {
         entity,
         belt: belt.unwrap(),
         position: POSITIONS_PER_TILE - 1,
     });
     let entity = cmds.spawn_empty().id();
-    items.write(CreateBeltItem {
+    cmds.trigger(CreateBeltItem {
         entity,
         belt: belt.unwrap(),
         position: POSITIONS_PER_TILE / 2 - 1,
