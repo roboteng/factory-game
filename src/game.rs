@@ -45,16 +45,20 @@ impl CreateBelt {
     pub fn forward(&self) -> WorldCoords {
         let mut coords = self.coords;
         match self.dir {
+            Direction::North => coords.y += 1,
             Direction::East => coords.x += 1,
-            _ => todo!(),
+            Direction::South => coords.y -= 1,
+            Direction::West => coords.x -= 1,
         };
         coords
     }
     pub fn backward(&self) -> WorldCoords {
         let mut coords = self.coords;
         match self.dir {
+            Direction::North => coords.y -= 1,
             Direction::East => coords.x -= 1,
-            _ => todo!(),
+            Direction::South => coords.y += 1,
+            Direction::West => coords.x += 1,
         };
         coords
     }

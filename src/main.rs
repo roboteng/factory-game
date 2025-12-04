@@ -12,9 +12,7 @@ fn main() {
         .run();
 }
 
-fn startup(
-    mut cmds: Commands,
-) {
+fn startup(mut cmds: Commands) {
     for x in -5..=5 {
         for y in -5..=5 {
             let entity = cmds.spawn_empty().id();
@@ -36,6 +34,24 @@ fn startup(
             belt = Some(entity);
         }
     }
+    let entity = cmds.spawn_empty().id();
+    cmds.trigger(CreateBelt {
+        entity,
+        coords: WorldCoords { x: -1, y: 0 },
+        dir: game::Direction::West,
+    });
+    let entity = cmds.spawn_empty().id();
+    cmds.trigger(CreateBelt {
+        entity,
+        coords: WorldCoords { x: 0, y: 1 },
+        dir: game::Direction::North,
+    });
+    let entity = cmds.spawn_empty().id();
+    cmds.trigger(CreateBelt {
+        entity,
+        coords: WorldCoords { x: 0, y: -1 },
+        dir: game::Direction::South,
+    });
     let entity = cmds.spawn_empty().id();
     cmds.trigger(CreateBeltItem {
         entity,

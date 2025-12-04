@@ -95,9 +95,9 @@ impl BeltGroup {
 #[derive(Resource, Default)]
 struct BeltGroups(HashMap<Entity, Entity>);
 
-/// Give a `WorldCoords`, get its `Belt`
+/// Give a `WorldCoords`, get its `Belt` and `Direction`
 #[derive(Resource, Default)]
-struct BeltCoords(HashMap<WorldCoords, Entity>);
+struct BeltCoords(HashMap<WorldCoords, (Entity, Direction)>);
 
 fn on_create_item(
     trigger: On<CreateBeltItem>,
@@ -115,23 +115,23 @@ fn on_create_item(
 
 fn on_create_belt(
     trigger: On<CreateBelt>,
-    mut cmd: Commands,
+    cmd: Commands,
     mut groups: ResMut<BeltGroups>,
     mut belt_coords: ResMut<BeltCoords>,
     mut belt_groups_query: Query<&mut BeltGroup>,
 ) {
     let belt_entity = trigger.entity;
-    belt_coords.0.insert(trigger.coords, belt_entity);
+    belt_coords
+        .0
+        .insert(trigger.coords, (belt_entity, trigger.dir));
     let belt_ahead = belt_coords.0.get(&trigger.forward()).copied();
     let belt_behind = belt_coords.0.get(&trigger.backward()).copied();
 
     match (belt_ahead, belt_behind) {
         (None, None) => {
-            let group = BeltGroup::from_belt(belt_entity);
-            let group_entity = cmd.spawn(group).id();
-            groups.0.insert(belt_entity, group_entity);
+            spawn_new_group(trigger.clone(), cmd, &mut groups);
         }
-        (Some(belt_ahead), None) => {
+        (Some((belt_ahead, _)), None) => {
             let &group = groups
                 .0
                 .get(&belt_ahead)
@@ -142,21 +142,32 @@ fn on_create_belt(
             belt_group.add_belt_at_tail(belt_entity, 256);
             groups.0.insert(belt_entity, group);
         }
-        (None, Some(belt_behind)) => {
-            let &group = groups
-                .0
-                .get(&belt_behind)
-                .expect("Belt should be a part of a group");
-            let mut belt_group = belt_groups_query
-                .get_mut(group)
-                .expect("Groupd should ber created already");
-            belt_group.add_belt_at_head(belt_entity, 256);
-            groups.0.insert(belt_entity, group);
+        (None, Some((belt_behind, dir))) => {
+            if dir == trigger.dir {
+                {
+                    let &group = groups
+                        .0
+                        .get(&belt_behind)
+                        .expect("Belt should be a part of a group");
+                    let mut belt_group = belt_groups_query
+                        .get_mut(group)
+                        .expect("Groupd should ber created already");
+                    belt_group.add_belt_at_head(belt_entity, 256);
+                    groups.0.insert(belt_entity, group);
+                }
+            } else {
+                spawn_new_group(trigger.clone(), cmd, &mut groups);
+            }
         }
         (Some(_belt_ahead), Some(_belt_behind)) => {
             todo!("merge groups");
         }
     }
+}
+fn spawn_new_group(trigger: CreateBelt, mut cmd: Commands, groups: &mut BeltGroups) {
+    let group = BeltGroup::from_belt(trigger.entity);
+    let group_entity = cmd.spawn(group).id();
+    groups.0.insert(trigger.entity, group_entity);
 }
 
 fn plan_item_movement(
@@ -436,5 +447,200 @@ mod tests {
             initial_position, final_position,
             "Item transform should have changed after update"
         );
+    }
+
+    // North direction tests
+    #[test]
+    fn item_moves_on_belt_north() {
+        let mut t = TestBuilder::new();
+        t.spawn_belt(WorldCoords::default(), Direction::North);
+        let item = t.with_item_at(128);
+        t.app.update();
+        let initial_transform = t.get_transform(item);
+        t.app.update();
+        let next_transform = t.get_transform(item);
+
+        assert!(
+            next_transform.translation.y > initial_transform.translation.y,
+            "Item should have moved along the belt (North direction means increasing Y as it progresses). Initial: {}, Final: {}",
+            initial_transform.translation.y,
+            next_transform.translation.y
+        );
+    }
+
+    #[test]
+    fn item_doesnt_move_at_end_of_belt_north() {
+        let mut t = TestBuilder::new();
+        t.spawn_belt(WorldCoords::default(), Direction::North);
+        let item = t.with_item_at(0);
+
+        t.app.update();
+
+        let initial_position = t.get_transform(item).translation;
+
+        t.app.update();
+
+        let final_position = t.get_transform(item).translation;
+
+        assert_eq!(
+            initial_position, final_position,
+            "Item transform should not have changed after update"
+        );
+    }
+
+    #[test]
+    fn item_moves_to_next_belt_north() {
+        let mut t = TestBuilder::new();
+        t.spawn_belt(WorldCoords { x: 0, y: 0 }, Direction::North);
+        let item = t.with_item_at(0);
+        t.spawn_belt(WorldCoords { x: 0, y: 1 }, Direction::North);
+
+        t.app.update();
+
+        let initial_position = t.get_transform(item).translation;
+
+        t.app.update();
+
+        let final_position = t.get_transform(item).translation;
+
+        assert_ne!(
+            initial_position, final_position,
+            "Item transform should have changed after update"
+        );
+    }
+
+    // South direction tests
+    #[test]
+    fn item_moves_on_belt_south() {
+        let mut t = TestBuilder::new();
+        t.spawn_belt(WorldCoords::default(), Direction::South);
+        let item = t.with_item_at(128);
+        t.app.update();
+        let initial_transform = t.get_transform(item);
+        t.app.update();
+        let next_transform = t.get_transform(item);
+
+        assert!(
+            next_transform.translation.y < initial_transform.translation.y,
+            "Item should have moved along the belt (South direction means decreasing Y as it progresses). Initial: {}, Final: {}",
+            initial_transform.translation.y,
+            next_transform.translation.y
+        );
+    }
+
+    #[test]
+    fn item_doesnt_move_at_end_of_belt_south() {
+        let mut t = TestBuilder::new();
+        t.spawn_belt(WorldCoords::default(), Direction::South);
+        let item = t.with_item_at(0);
+
+        t.app.update();
+
+        let initial_position = t.get_transform(item).translation;
+
+        t.app.update();
+
+        let final_position = t.get_transform(item).translation;
+
+        assert_eq!(
+            initial_position, final_position,
+            "Item transform should not have changed after update"
+        );
+    }
+
+    #[test]
+    fn item_moves_to_next_belt_south() {
+        let mut t = TestBuilder::new();
+        t.spawn_belt(WorldCoords { x: 0, y: 0 }, Direction::South);
+        let item = t.with_item_at(0);
+        t.spawn_belt(WorldCoords { x: 0, y: -1 }, Direction::South);
+
+        t.app.update();
+
+        let initial_position = t.get_transform(item).translation;
+
+        t.app.update();
+
+        let final_position = t.get_transform(item).translation;
+
+        assert_ne!(
+            initial_position, final_position,
+            "Item transform should have changed after update"
+        );
+    }
+
+    // West direction tests
+    #[test]
+    fn item_moves_on_belt_west() {
+        let mut t = TestBuilder::new();
+        t.spawn_belt(WorldCoords::default(), Direction::West);
+        let item = t.with_item_at(128);
+        t.app.update();
+        let initial_transform = t.get_transform(item);
+        t.app.update();
+        let next_transform = t.get_transform(item);
+
+        assert!(
+            next_transform.translation.x < initial_transform.translation.x,
+            "Item should have moved along the belt (West direction means decreasing X as it progresses). Initial: {}, Final: {}",
+            initial_transform.translation.x,
+            next_transform.translation.x
+        );
+    }
+
+    #[test]
+    fn item_doesnt_move_at_end_of_belt_west() {
+        let mut t = TestBuilder::new();
+        t.spawn_belt(WorldCoords::default(), Direction::West);
+        let item = t.with_item_at(0);
+
+        t.app.update();
+
+        let initial_position = t.get_transform(item).translation;
+
+        t.app.update();
+
+        let final_position = t.get_transform(item).translation;
+
+        assert_eq!(
+            initial_position, final_position,
+            "Item transform should not have changed after update"
+        );
+    }
+
+    #[test]
+    fn item_moves_to_next_belt_west() {
+        let mut t = TestBuilder::new();
+        t.spawn_belt(WorldCoords { x: 0, y: 0 }, Direction::West);
+        let item = t.with_item_at(0);
+        t.spawn_belt(WorldCoords { x: -1, y: 0 }, Direction::West);
+
+        t.app.update();
+
+        let initial_position = t.get_transform(item).translation;
+
+        t.app.update();
+
+        let final_position = t.get_transform(item).translation;
+
+        assert_ne!(
+            initial_position, final_position,
+            "Item transform should have changed after update"
+        );
+    }
+
+    #[test]
+    fn belt_is_different_direction_behind() {
+        let mut t = TestBuilder::new();
+        t.spawn_belt(WorldCoords { x: 0, y: 0 }, Direction::East);
+        let item = t.with_item_at(0);
+        t.spawn_belt(WorldCoords { x: 0, y: -1 }, Direction::South);
+
+        t.app.update();
+
+        let actual = t.get_transform(item).translation;
+        let expected = Vec3::new(16.0, 0.0, 2.0);
+
+        assert_eq!(actual, expected);
     }
 }
