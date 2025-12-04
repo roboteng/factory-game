@@ -105,9 +105,10 @@ fn on_create_item(
     mut belt_groups: Query<&mut BeltGroup>,
     groups: Res<BeltGroups>,
 ) {
-    let item_entity = trigger.entity;
     let group = groups.0.get(&trigger.belt).unwrap();
     let mut group = belt_groups.get_mut(*group).unwrap();
+
+    let item_entity = trigger.entity;
     group.add_item_at(trigger.belt, trigger.position, item_entity);
     cmd.entity(item_entity).insert(ExpectedMovement(0));
 }
@@ -131,27 +132,29 @@ fn on_create_belt(
             groups.0.insert(belt_entity, group_entity);
         }
         (Some(belt_ahead), None) => {
-            if let Some(&group) = groups.0.get(&belt_ahead) {
-                if let Ok(mut belt_group) = belt_groups_query.get_mut(group) {
-                    belt_group.add_belt_at_tail(belt_entity, 256);
-                    groups.0.insert(belt_entity, group);
-                } else {
-                    panic!("Group should be created already");
-                }
-            }
+            let &group = groups
+                .0
+                .get(&belt_ahead)
+                .expect("Belt should a part of a group");
+            let mut belt_group = belt_groups_query
+                .get_mut(group)
+                .expect("Group should be created already");
+            belt_group.add_belt_at_tail(belt_entity, 256);
+            groups.0.insert(belt_entity, group);
         }
         (None, Some(belt_behind)) => {
-            if let Some(&group) = groups.0.get(&belt_behind) {
-                if let Ok(mut belt_group) = belt_groups_query.get_mut(group) {
-                    belt_group.add_belt_at_head(belt_entity, 256);
-                    groups.0.insert(belt_entity, group);
-                } else {
-                    panic!("Groupd should ber created already");
-                }
-            }
+            let &group = groups
+                .0
+                .get(&belt_behind)
+                .expect("Belt should be a part of a group");
+            let mut belt_group = belt_groups_query
+                .get_mut(group)
+                .expect("Groupd should ber created already");
+            belt_group.add_belt_at_head(belt_entity, 256);
+            groups.0.insert(belt_entity, group);
         }
         (Some(_belt_ahead), Some(_belt_behind)) => {
-            // TODO: merge groups
+            todo!("merge groups");
         }
     }
 }
