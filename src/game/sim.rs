@@ -255,10 +255,21 @@ mod tests {
     use std::time::Duration;
 
     use crate::game::*;
+    use crate::game::tests::{TestBuilder, test_app as core_test_app};
 
     use super::*;
     use bevy::time::TimeUpdateStrategy;
     use pretty_assertions::{assert_eq, assert_ne};
+
+    const FRAME_TIME: f32 = 1.0 / 60.0;
+    fn test_app() -> App {
+        let mut app = core_test_app();
+        app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f32(
+            FRAME_TIME,
+        )));
+        app.add_plugins(SimPlugin);
+        app
+    }
 
     #[test]
     fn test_from_belt() {
@@ -335,7 +346,7 @@ mod tests {
 
     #[test]
     fn test_belt_ranges_match_world_coords() {
-        let mut t = TestBuilder::new();
+        let mut t = TestBuilder::new(test_app());
 
         // Create 5 belts at x=0,1,2,3,4 (like in main.rs)
         let belt0 = t.spawn_belt(WorldCoords { x: 0, y: 0 }, Direction::East);
@@ -374,60 +385,9 @@ mod tests {
         assert_eq!(*actual, expected);
     }
 
-    struct TestBuilder {
-        app: App,
-        last_belt_created: Option<Entity>,
-    }
-    impl TestBuilder {
-        fn new() -> Self {
-            Self {
-                app: test_app(),
-                last_belt_created: None,
-            }
-        }
-        fn spawn_belt(&mut self, coords: WorldCoords, dir: Direction) -> Entity {
-            let world = self.app.world_mut();
-            let belt = world.spawn_empty().id();
-            world.trigger(CreateBelt {
-                entity: belt,
-                coords,
-                dir,
-            });
-            self.last_belt_created = Some(belt);
-            belt
-        }
-        fn with_item_at(&mut self, position: u16) -> Entity {
-            let world = self.app.world_mut();
-            let item = world.spawn_empty().id();
-            world.trigger(CreateBeltItem {
-                entity: item,
-                belt: self.last_belt_created.unwrap(),
-                position,
-            });
-            item
-        }
-        fn get_transform(&mut self, entity: Entity) -> Transform {
-            let world = self.app.world_mut();
-            let mut q = world.query::<&Transform>();
-            *q.get(world, entity).unwrap()
-        }
-    }
-
-    const FRAME_TIME: f32 = 1.0 / 60.0;
-    fn test_app() -> App {
-        let mut app = App::new();
-        app.add_plugins(MinimalPlugins);
-        app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f32(
-            FRAME_TIME,
-        )));
-        app.add_plugins(CorePlugin);
-        app.add_plugins(SimPlugin);
-        app
-    }
-
     #[test]
     fn item_on_belt() {
-        let mut t = TestBuilder::new();
+        let mut t = TestBuilder::new(test_app());
         t.spawn_belt(WorldCoords::default(), Direction::East);
         let item = t.with_item_at(0);
         t.app.update();
@@ -436,7 +396,7 @@ mod tests {
 
     #[test]
     fn item_moves_on_belt() {
-        let mut t = TestBuilder::new();
+        let mut t = TestBuilder::new(test_app());
         t.spawn_belt(WorldCoords::default(), Direction::East);
         let item = t.with_item_at(128);
         t.app.update();
@@ -454,7 +414,7 @@ mod tests {
 
     #[test]
     fn item_doesnt_move_at_end_of_belt() {
-        let mut t = TestBuilder::new();
+        let mut t = TestBuilder::new(test_app());
         t.spawn_belt(WorldCoords::default(), Direction::East);
         let item = t.with_item_at(0);
 
@@ -474,7 +434,7 @@ mod tests {
 
     #[test]
     fn item_moves_to_next_belt() {
-        let mut t = TestBuilder::new();
+        let mut t = TestBuilder::new(test_app());
         t.spawn_belt(WorldCoords { x: 0, y: 0 }, Direction::East);
         let item = t.with_item_at(0);
         t.spawn_belt(WorldCoords { x: 1, y: 0 }, Direction::East);
@@ -496,7 +456,7 @@ mod tests {
     // North direction tests
     #[test]
     fn item_moves_on_belt_north() {
-        let mut t = TestBuilder::new();
+        let mut t = TestBuilder::new(test_app());
         t.spawn_belt(WorldCoords::default(), Direction::North);
         let item = t.with_item_at(128);
         t.app.update();
@@ -514,7 +474,7 @@ mod tests {
 
     #[test]
     fn item_doesnt_move_at_end_of_belt_north() {
-        let mut t = TestBuilder::new();
+        let mut t = TestBuilder::new(test_app());
         t.spawn_belt(WorldCoords::default(), Direction::North);
         let item = t.with_item_at(0);
 
@@ -534,7 +494,7 @@ mod tests {
 
     #[test]
     fn item_moves_to_next_belt_north() {
-        let mut t = TestBuilder::new();
+        let mut t = TestBuilder::new(test_app());
         t.spawn_belt(WorldCoords { x: 0, y: 0 }, Direction::North);
         let item = t.with_item_at(0);
         t.spawn_belt(WorldCoords { x: 0, y: 1 }, Direction::North);
@@ -556,7 +516,7 @@ mod tests {
     // South direction tests
     #[test]
     fn item_moves_on_belt_south() {
-        let mut t = TestBuilder::new();
+        let mut t = TestBuilder::new(test_app());
         t.spawn_belt(WorldCoords::default(), Direction::South);
         let item = t.with_item_at(128);
         t.app.update();
@@ -574,7 +534,7 @@ mod tests {
 
     #[test]
     fn item_doesnt_move_at_end_of_belt_south() {
-        let mut t = TestBuilder::new();
+        let mut t = TestBuilder::new(test_app());
         t.spawn_belt(WorldCoords::default(), Direction::South);
         let item = t.with_item_at(0);
 
@@ -594,7 +554,7 @@ mod tests {
 
     #[test]
     fn item_moves_to_next_belt_south() {
-        let mut t = TestBuilder::new();
+        let mut t = TestBuilder::new(test_app());
         t.spawn_belt(WorldCoords { x: 0, y: 0 }, Direction::South);
         let item = t.with_item_at(0);
         t.spawn_belt(WorldCoords { x: 0, y: -1 }, Direction::South);
@@ -616,7 +576,7 @@ mod tests {
     // West direction tests
     #[test]
     fn item_moves_on_belt_west() {
-        let mut t = TestBuilder::new();
+        let mut t = TestBuilder::new(test_app());
         t.spawn_belt(WorldCoords::default(), Direction::West);
         let item = t.with_item_at(128);
         t.app.update();
@@ -634,7 +594,7 @@ mod tests {
 
     #[test]
     fn item_doesnt_move_at_end_of_belt_west() {
-        let mut t = TestBuilder::new();
+        let mut t = TestBuilder::new(test_app());
         t.spawn_belt(WorldCoords::default(), Direction::West);
         let item = t.with_item_at(0);
 
@@ -654,7 +614,7 @@ mod tests {
 
     #[test]
     fn item_moves_to_next_belt_west() {
-        let mut t = TestBuilder::new();
+        let mut t = TestBuilder::new(test_app());
         t.spawn_belt(WorldCoords { x: 0, y: 0 }, Direction::West);
         let item = t.with_item_at(0);
         t.spawn_belt(WorldCoords { x: -1, y: 0 }, Direction::West);
@@ -675,7 +635,7 @@ mod tests {
 
     #[test]
     fn belt_is_different_direction_behind() {
-        let mut t = TestBuilder::new();
+        let mut t = TestBuilder::new(test_app());
         t.spawn_belt(WorldCoords { x: 0, y: 0 }, Direction::East);
         let item = t.with_item_at(0);
         t.spawn_belt(WorldCoords { x: 0, y: -1 }, Direction::South);
@@ -690,7 +650,7 @@ mod tests {
 
     #[test]
     fn place_belts_between_two_others() {
-        let mut t = TestBuilder::new();
+        let mut t = TestBuilder::new(test_app());
         t.spawn_belt(WorldCoords { x: 0, y: 0 }, Direction::East);
         let item = t.with_item_at(0);
         t.spawn_belt(WorldCoords { x: 2, y: 0 }, Direction::East);

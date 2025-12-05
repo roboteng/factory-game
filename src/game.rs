@@ -141,57 +141,78 @@ impl Belt {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
 
-    fn test_app() -> App {
+    pub fn test_app() -> App {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins);
         app.add_plugins(CorePlugin);
         app
     }
 
+    pub struct TestBuilder {
+        pub app: App,
+        last_belt_created: Option<Entity>,
+    }
+
+    impl TestBuilder {
+        pub fn new(app: App) -> Self {
+            Self {
+                app,
+                last_belt_created: None,
+            }
+        }
+
+        pub fn spawn_belt(&mut self, coords: WorldCoords, dir: Direction) -> Entity {
+            let world = self.app.world_mut();
+            let belt = world.spawn_empty().id();
+            world.trigger(CreateBelt {
+                entity: belt,
+                coords,
+                dir,
+            });
+            self.last_belt_created = Some(belt);
+            belt
+        }
+
+        pub fn with_item_at(&mut self, position: u16) -> Entity {
+            let world = self.app.world_mut();
+            let item = world.spawn_empty().id();
+            world.trigger(CreateBeltItem {
+                entity: item,
+                belt: self.last_belt_created.unwrap(),
+                position,
+            });
+            item
+        }
+
+        pub fn get_transform(&mut self, entity: Entity) -> Transform {
+            let world = self.app.world_mut();
+            let mut q = world.query::<&Transform>();
+            *q.get(world, entity).unwrap()
+        }
+    }
+
     #[test]
     fn belt() {
-        let mut app = test_app();
+        let mut t = TestBuilder::new(test_app());
+        let belt_entity = t.spawn_belt(WorldCoords { x: 0, y: 0 }, Direction::East);
 
-        let world = app.world_mut();
-        let belt_entity = world.spawn_empty().id();
-        world.trigger(CreateBelt {
-            entity: belt_entity,
-            coords: WorldCoords { x: 0, y: 0 },
-            dir: Direction::East,
-        });
-
-        app.update();
-        let world = app.world_mut();
-        let mut q = world.query::<&Transform>();
-        let belt = q.get(world, belt_entity).unwrap();
+        t.app.update();
+        let belt = t.get_transform(belt_entity);
         assert_eq!(belt.translation.x, 0.0);
         assert_eq!(belt.translation.y, 0.0);
     }
 
     #[test]
     fn item_on_belt() {
-        let mut app = test_app();
-        let world = app.world_mut();
-        let belt = world.spawn_empty().id();
-        world.trigger(CreateBelt {
-            entity: belt,
-            coords: WorldCoords { x: 0, y: 0 },
-            dir: Direction::East,
-        });
+        let mut t = TestBuilder::new(test_app());
+        t.spawn_belt(WorldCoords { x: 0, y: 0 }, Direction::East);
+        let item = t.with_item_at(0);
 
-        let item = world.spawn_empty().id();
-        world.trigger(CreateBeltItem {
-            entity: item,
-            belt,
-            position: 0,
-        });
-        app.update();
-        let world = app.world_mut();
-        let mut q = world.query::<&Transform>();
-        q.get(world, item).unwrap();
+        t.app.update();
+        let _ = t.get_transform(item);
     }
 }
