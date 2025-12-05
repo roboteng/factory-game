@@ -22,7 +22,7 @@ impl Plugin for SimPlugin {
 #[derive(Component)]
 pub struct ExpectedMovement(u16);
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 struct OrderedBelts {
     belts: Vec<(Range<u16>, Entity)>,
 }
@@ -33,7 +33,13 @@ impl OrderedBelts {
     }
 }
 
-#[derive(Default, Debug, PartialEq)]
+impl OrderedBelts {
+    fn count_positions(&self) -> u16 {
+        self.belts.last().expect("Belts should not be empty").0.end
+    }
+}
+
+#[derive(Default, Debug, PartialEq, Clone)]
 struct Lane {
     lane: Vec<(u16, Entity)>,
 }
@@ -48,7 +54,7 @@ impl Lane {
     }
 }
 
-#[derive(Component, Debug, PartialEq)]
+#[derive(Component, Debug, PartialEq, Clone)]
 struct BeltGroup {
     belts: OrderedBelts,
     lane: Lane,
@@ -89,6 +95,18 @@ impl BeltGroup {
         let global_position = slot.0.start + position;
         self.lane.add_item_at(global_position, item_entity);
     }
+    fn join(&mut self, joining_belt: Entity, n_pos: u16, other: Self) {
+        self.add_belt_at_tail(joining_belt, n_pos);
+        let offset = self.belts.count_positions();
+        let new_belts = other
+            .belts
+            .belts
+            .iter()
+            .map(|(range, e)| ((range.start + offset)..(range.end + offset), *e));
+        let new_lane = other.lane.lane.iter().map(|(pos, e)| (pos + offset, *e));
+        self.belts.belts.extend(new_belts);
+        self.lane.lane.extend(new_lane);
+    }
 }
 
 /// Give a `Belt`, get its `BeltGroup`
@@ -115,7 +133,7 @@ fn on_create_item(
 
 fn on_create_belt(
     trigger: On<CreateBelt>,
-    cmd: Commands,
+    mut cmd: Commands,
     mut groups: ResMut<BeltGroups>,
     mut belt_coords: ResMut<BeltCoords>,
     mut belt_groups_query: Query<&mut BeltGroup>,
@@ -159,8 +177,34 @@ fn on_create_belt(
                 spawn_new_group(trigger.clone(), cmd, &mut groups);
             }
         }
-        (Some(_belt_ahead), Some(_belt_behind)) => {
-            todo!("merge groups");
+        (Some(belt_ahead), Some(belt_behind)) => {
+            match (belt_ahead.1 == trigger.dir, belt_behind.1 == trigger.dir) {
+                (true, true) => {
+                    let &group_behind = groups
+                        .0
+                        .get(&belt_behind.0)
+                        .expect("Belt should be a part of a group");
+                    cmd.entity(group_behind).despawn();
+                    let group_behind = belt_groups_query
+                        .get_mut(group_behind)
+                        .expect("Groupd should ber created already")
+                        .clone();
+                    let &group_ahead_entity = groups
+                        .0
+                        .get(&belt_ahead.0)
+                        .expect("Belt should be a part of a group");
+                    let mut group_ahead = belt_groups_query
+                        .get_mut(group_ahead_entity)
+                        .expect("Groupd should ber created already");
+                    group_ahead.join(trigger.entity, 256, group_behind.clone());
+                    // We're ssetting all the belts that are already in the group
+                    // That is unneccassery, but we can change that if needed
+                    for (_, belt) in &group_ahead.belts.belts {
+                        groups.0.insert(*belt, group_ahead_entity);
+                    }
+                }
+                _ => todo!("Handle additional cases"),
+            }
         }
     }
 }
@@ -640,6 +684,24 @@ mod tests {
 
         let actual = t.get_transform(item).translation;
         let expected = Vec3::new(16.0, 0.0, 2.0);
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn place_belts_between_two_others() {
+        let mut t = TestBuilder::new();
+        t.spawn_belt(WorldCoords { x: 0, y: 0 }, Direction::East);
+        let item = t.with_item_at(0);
+        t.spawn_belt(WorldCoords { x: 2, y: 0 }, Direction::East);
+        t.spawn_belt(WorldCoords { x: 1, y: 0 }, Direction::East);
+
+        for _ in 0..64 {
+            t.app.update();
+        }
+
+        let actual = t.get_transform(item).translation;
+        let expected = Vec3::new(TILE_SIZE * 2.5, 0.0, 2.0);
 
         assert_eq!(actual, expected);
     }
