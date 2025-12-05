@@ -5,9 +5,10 @@ All sprites are 32x32 pixels.
 
 from PIL import Image, ImageDraw
 
+
 def create_player():
     """Create a player character - simple humanoid shape"""
-    img = Image.new('RGBA', (32, 32), (0, 0, 0, 0))
+    img = Image.new("RGBA", (32, 32), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
 
     # Head
@@ -37,9 +38,10 @@ def create_player():
 
     return img
 
+
 def create_miner():
     """Create a mining machine - industrial gray box with drill"""
-    img = Image.new('RGBA', (32, 32), (0, 0, 0, 0))
+    img = Image.new("RGBA", (32, 32), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
 
     # Main body - gray
@@ -73,9 +75,10 @@ def create_miner():
 
     return img
 
+
 def create_tile():
     """Create a ground tile - brown/gray with some texture"""
-    img = Image.new('RGBA', (32, 32), (0, 0, 0, 0))
+    img = Image.new("RGBA", (32, 32), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
 
     # Base brown color
@@ -85,16 +88,17 @@ def create_tile():
     for x in range(0, 32, 8):
         for y in range(0, 32, 8):
             if (x + y) % 16 == 0:
-                draw.rectangle([x, y, x+7, y+7], fill=(115, 95, 80, 255))
+                draw.rectangle([x, y, x + 7, y + 7], fill=(115, 95, 80, 255))
 
     # Border for visibility
     draw.rectangle([0, 0, 31, 31], outline=(80, 70, 60, 255), width=1)
 
     return img
 
+
 def create_ore():
     """Create an ore deposit - dark metallic gray with crystals"""
-    img = Image.new('RGBA', (32, 32), (0, 0, 0, 0))
+    img = Image.new("RGBA", (32, 32), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
 
     # Dark gray base
@@ -103,18 +107,19 @@ def create_ore():
     # Add some ore "crystals" - lighter spots
     ore_spots = [(10, 8), (18, 12), (14, 18), (20, 20), (10, 22)]
     for x, y in ore_spots:
-        draw.ellipse([x, y, x+4, y+4], fill=(120, 120, 140, 255))
+        draw.ellipse([x, y, x + 4, y + 4], fill=(120, 120, 140, 255))
         # Highlight
-        draw.ellipse([x+1, y+1, x+2, y+2], fill=(160, 160, 180, 255))
+        draw.ellipse([x + 1, y + 1, x + 2, y + 2], fill=(160, 160, 180, 255))
 
     # Border
     draw.ellipse([4, 4, 27, 27], outline=(40, 40, 50, 255), width=2)
 
     return img
 
+
 def create_crafter():
     """Create a crafting machine - blue/gray industrial box"""
-    img = Image.new('RGBA', (32, 32), (0, 0, 0, 0))
+    img = Image.new("RGBA", (32, 32), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
 
     # Main body - blue-gray
@@ -139,9 +144,10 @@ def create_crafter():
 
     return img
 
+
 def create_belt():
     """Create a belt belt - gray with yellow/black stripes"""
-    img = Image.new('RGBA', (32, 32), (0, 0, 0, 0))
+    img = Image.new("RGBA", (32, 32), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
 
     # Base gray
@@ -154,23 +160,26 @@ def create_belt():
     # Yellow/black stripes showing direction (moving right)
     for x in range(0, 32, 6):
         color = (220, 200, 50, 255) if (x // 6) % 2 == 0 else (40, 40, 40, 255)
-        draw.rectangle([x, 11, min(x+5, 31), 20], fill=color)
+        draw.rectangle([x, 11, min(x + 5, 31), 20], fill=color)
 
     # Arrow showing direction
     draw.polygon([(20, 14), (26, 16), (20, 18)], fill=(255, 255, 255, 200))
 
     return img
 
+
 def create_curved_belt():
-    """Create a curved belt belt - 90 degree turn from bottom to right"""
-    img = Image.new('RGBA', (32, 32), (0, 0, 0, 0))
+    """Create a curved belt - 90 degree turn from bottom to right"""
+    img = Image.new("RGBA", (32, 32), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
 
     # Create the curved belt path - quarter circle arc
-    # The belt enters from bottom and exits to the right
+    # The belt enters from bottom (270°) and exits to the right (0°)
     # Center point for the arc is at bottom-right corner
+    # This means we draw from 180° to 270°
 
     # Draw the base belt surface (outer arc)
+    # Bounding box positioned so the arc goes from bottom to right
     draw.pieslice([8, 8, 56, 56], 180, 270, fill=(80, 80, 80, 255))
 
     # Draw the inner rails (darker)
@@ -188,8 +197,7 @@ def create_curved_belt():
         color = (220, 200, 50, 255) if i % 2 == 0 else (40, 40, 40, 255)
 
         # Draw stripe as a filled arc segment
-        # We'll draw a pieslice and mask it with another pieslice
-        temp = Image.new('RGBA', (32, 32), (0, 0, 0, 0))
+        temp = Image.new("RGBA", (32, 32), (0, 0, 0, 0))
         temp_draw = ImageDraw.Draw(temp)
         temp_draw.pieslice([8, 8, 56, 56], angle_start, angle_end, fill=color)
         # Punch out the inner part
@@ -197,32 +205,34 @@ def create_curved_belt():
         img.paste(temp, (0, 0), temp)
 
     # Add a curved arrow showing direction (bottom to right)
-    # Arrow at about the middle of the curve
-    draw.polygon([(18, 22), (20, 18), (22, 22)], fill=(255, 255, 255, 200))
+    # Arrow at about the middle of the curve (around 225°)
+    draw.polygon([(18, 22), (14, 20), (18, 18)], fill=(255, 255, 255, 200))
 
     return img
+
 
 def main():
     """Generate all sprite files"""
     sprites = {
-        'player.png': create_player(),
-        'miner.png': create_miner(),
-        'tile.png': create_tile(),
-        'ore.png': create_ore(),
-        'crafter.png': create_crafter(),
-        'belt.png': create_belt(),
-        'belt_curved.png': create_curved_belt(),
+        "player.png": create_player(),
+        "miner.png": create_miner(),
+        "tile.png": create_tile(),
+        "ore.png": create_ore(),
+        "crafter.png": create_crafter(),
+        "belt.png": create_belt(),
+        "belt_curved.png": create_curved_belt(),
     }
 
-    output_dir = 'assets/sprites'
+    output_dir = "assets/sprites"
 
     for filename, sprite in sprites.items():
-        filepath = f'{output_dir}/{filename}'
+        filepath = f"{output_dir}/{filename}"
         sprite.save(filepath)
-        print(f'Created {filepath}')
+        print(f"Created {filepath}")
 
-    print('\nAll placeholder sprites generated successfully!')
-    print('Each sprite is 32x32 pixels in PNG format.')
+    print("\nAll placeholder sprites generated successfully!")
+    print("Each sprite is 32x32 pixels in PNG format.")
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()

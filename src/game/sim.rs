@@ -9,7 +9,7 @@ pub struct SimPlugin;
 impl Plugin for SimPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<BeltGroups>();
-        app.add_observer(on_create_belt);
+        app.add_observer(on_belt_created);
         app.add_observer(on_create_item);
         app.add_systems(
             Update,
@@ -126,8 +126,8 @@ fn on_create_item(
     cmd.entity(item_entity).insert(ExpectedMovement(0));
 }
 
-fn on_create_belt(
-    trigger: On<CreateBelt>,
+fn on_belt_created(
+    trigger: On<BeltCreated>,
     mut cmd: Commands,
     mut groups: ResMut<BeltGroups>,
     belt_coords: Res<BeltCoords>,
@@ -154,7 +154,7 @@ fn on_create_belt(
             groups.0.insert(belt_entity, group);
         }
         (None, Some((belt_behind, dir))) => {
-            if dir == trigger.dir {
+            if dir == trigger.output {
                 {
                     let &group = groups
                         .0
@@ -171,7 +171,10 @@ fn on_create_belt(
             }
         }
         (Some(belt_ahead), Some(belt_behind)) => {
-            match (belt_ahead.1 == trigger.dir, belt_behind.1 == trigger.dir) {
+            match (
+                belt_ahead.1 == trigger.output,
+                belt_behind.1 == trigger.output,
+            ) {
                 (true, true) => {
                     let &group_behind = groups
                         .0
@@ -201,7 +204,7 @@ fn on_create_belt(
         }
     }
 }
-fn spawn_new_group(trigger: CreateBelt, mut cmd: Commands, groups: &mut BeltGroups) {
+fn spawn_new_group(trigger: BeltCreated, mut cmd: Commands, groups: &mut BeltGroups) {
     let group = BeltGroup::from_belt(trigger.entity);
     let group_entity = cmd.spawn(group).id();
     groups.0.insert(trigger.entity, group_entity);

@@ -95,6 +95,33 @@ impl CreateBelt {
 }
 
 #[derive(EntityEvent, Clone)]
+pub struct BeltCreated {
+    pub entity: Entity,
+    pub coords: WorldCoords,
+    pub output: Direction,
+    pub input: Direction,
+}
+
+impl BeltCreated {
+    pub fn forward(&self) -> WorldCoords {
+        let value = CreateBelt {
+            entity: self.entity,
+            coords: self.coords,
+            dir: self.output,
+        };
+        value.forward()
+    }
+    pub fn backward(&self) -> WorldCoords {
+        let value = CreateBelt {
+            entity: self.entity,
+            coords: self.coords,
+            dir: self.input,
+        };
+        value.backward()
+    }
+}
+
+#[derive(EntityEvent, Clone)]
 pub struct CreateBeltItem {
     pub entity: Entity,
     pub belt: Entity,
@@ -141,6 +168,12 @@ fn on_create_belt(trigger: On<CreateBelt>, mut cmd: Commands, mut belt_coords: R
                 Belt::new(trigger.dir),
                 trigger.coords,
             ));
+            cmd.trigger(BeltCreated {
+                entity: trigger.entity,
+                coords: trigger.coords,
+                output: trigger.dir,
+                input: trigger.dir,
+            });
         }
         (true, false, false) => {
             let rot = match trigger.dir {
@@ -151,11 +184,18 @@ fn on_create_belt(trigger: On<CreateBelt>, mut cmd: Commands, mut belt_coords: R
             };
             let mut t = Transform::from_translation(Vec3::from(trigger.coords));
             t.translation.z = 1.0;
+            let input = trigger.dir.right();
             cmd.entity(trigger.entity).insert((
                 t.with_rotation(Quat::from_rotation_z(rot * 2.0 * PI)),
-                Belt::curved(trigger.dir.right(), trigger.dir).unwrap(),
+                Belt::curved(input, trigger.dir).unwrap(),
                 trigger.coords,
             ));
+            cmd.trigger(BeltCreated {
+                entity: trigger.entity,
+                coords: trigger.coords,
+                output: trigger.dir,
+                input,
+            });
         }
         (false, false, true) => {
             let rot = match trigger.dir {
@@ -166,11 +206,18 @@ fn on_create_belt(trigger: On<CreateBelt>, mut cmd: Commands, mut belt_coords: R
             };
             let mut t = Transform::from_translation(Vec3::from(trigger.coords));
             t.translation.z = 1.0;
+            let input = trigger.dir.left();
             cmd.entity(trigger.entity).insert((
                 t.with_rotation(Quat::from_rotation_z(rot * 2.0 * PI)),
-                Belt::curved(trigger.dir.left(), trigger.dir).unwrap(),
+                Belt::curved(input, trigger.dir).unwrap(),
                 trigger.coords,
             ));
+            cmd.trigger(BeltCreated {
+                entity: trigger.entity,
+                coords: trigger.coords,
+                output: trigger.dir,
+                input,
+            });
         }
     }
 }
@@ -267,7 +314,7 @@ impl Belt {
                 k.z = 2.0;
                 k
             }
-            BeltShape::Curve(direction, direction1) => todo!(),
+            BeltShape::Curve(_direction, _direction1) => todo!(),
         }
     }
 

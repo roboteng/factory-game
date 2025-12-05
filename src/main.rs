@@ -53,6 +53,18 @@ fn startup(mut cmds: Commands) {
         dir: game::Direction::South,
     });
     let entity = cmds.spawn_empty().id();
+    cmds.trigger(CreateBelt {
+        entity,
+        coords: WorldCoords { x: 0, y: 2 },
+        dir: game::Direction::East,
+    });
+    let entity = cmds.spawn_empty().id();
+    cmds.trigger(CreateBelt {
+        entity,
+        coords: WorldCoords { x: -2, y: 0 },
+        dir: game::Direction::South,
+    });
+    let entity = cmds.spawn_empty().id();
     cmds.trigger(CreateBeltItem {
         entity,
         belt: belt.unwrap(),

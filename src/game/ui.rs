@@ -21,9 +21,13 @@ fn on_create_tile(trigger: On<CreateTile>, mut cmd: Commands, assets: Res<AssetS
         .insert(Sprite::from_image(assets.load("sprites/tile.png")));
 }
 
-fn on_create_belt(trigger: On<CreateBelt>, mut cmd: Commands, assets: Res<AssetServer>) {
-    cmd.entity(trigger.entity)
-        .insert(Sprite::from_image(assets.load("sprites/belt.png")));
+fn on_create_belt(trigger: On<BeltCreated>, mut cmd: Commands, assets: Res<AssetServer>) {
+    let sprite = if trigger.input == trigger.output {
+        Sprite::from_image(assets.load("sprites/belt.png"))
+    } else {
+        Sprite::from_image(assets.load("sprites/belt_curved.png"))
+    };
+    cmd.entity(trigger.entity).insert(sprite);
 }
 
 fn on_create_item(
