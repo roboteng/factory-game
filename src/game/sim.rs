@@ -9,7 +9,6 @@ pub struct SimPlugin;
 impl Plugin for SimPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<BeltGroups>();
-        app.init_resource::<BeltCoords>();
         app.add_observer(on_create_belt);
         app.add_observer(on_create_item);
         app.add_systems(
@@ -113,10 +112,6 @@ impl BeltGroup {
 #[derive(Resource, Default)]
 struct BeltGroups(HashMap<Entity, Entity>);
 
-/// Give a `WorldCoords`, get its `Belt` and `Direction`
-#[derive(Resource, Default)]
-struct BeltCoords(HashMap<WorldCoords, (Entity, Direction)>);
-
 fn on_create_item(
     trigger: On<CreateBeltItem>,
     mut cmd: Commands,
@@ -135,13 +130,11 @@ fn on_create_belt(
     trigger: On<CreateBelt>,
     mut cmd: Commands,
     mut groups: ResMut<BeltGroups>,
-    mut belt_coords: ResMut<BeltCoords>,
+    belt_coords: Res<BeltCoords>,
     mut belt_groups_query: Query<&mut BeltGroup>,
 ) {
     let belt_entity = trigger.entity;
-    belt_coords
-        .0
-        .insert(trigger.coords, (belt_entity, trigger.dir));
+
     let belt_ahead = belt_coords.0.get(&trigger.forward()).copied();
     let belt_behind = belt_coords.0.get(&trigger.backward()).copied();
 
@@ -254,8 +247,8 @@ fn move_items(
 mod tests {
     use std::time::Duration;
 
-    use crate::game::*;
     use crate::game::tests::{TestBuilder, test_app as core_test_app};
+    use crate::game::*;
 
     use super::*;
     use bevy::time::TimeUpdateStrategy;
