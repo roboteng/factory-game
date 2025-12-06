@@ -1,11 +1,10 @@
+use crate::game::*;
 use std::{collections::HashMap, ops::Range};
 
-use bevy::prelude::*;
-
-use crate::game::*;
+const ITEM_SPACING: u16 = 64;
+const BELT_SPEED: u16 = 8;
 
 pub struct SimPlugin;
-
 impl Plugin for SimPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<BeltGroups>();
@@ -217,8 +216,8 @@ fn plan_item_movement(
     for mut group in belt_groups {
         for (index, item) in group.lane.lane.iter_mut().enumerate() {
             if let Ok((_, mut expected_movement)) = items.get_mut(item.1) {
-                let space = item.0 - (index as u16) * 64;
-                expected_movement.0 = space.min(8);
+                let space = item.0 - (index as u16) * ITEM_SPACING;
+                expected_movement.0 = space.min(BELT_SPEED);
             }
         }
     }

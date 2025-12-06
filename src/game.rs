@@ -134,38 +134,36 @@ fn on_create_tile(trigger: On<CreateTile>, mut cmd: Commands) {
 }
 
 fn create_belt(trigger: CreateBelt, belt_coords: &BeltCoords) -> (Belt, BeltCreated) {
-    let left = belt_coords
+    let fed_from_left = belt_coords
         .0
         .get(&trigger.coords.step(trigger.dir.left()))
         .map(|(_, dir)| *dir == trigger.dir.right())
         .unwrap_or(false);
 
-    let right = belt_coords
+    let fed_from_right = belt_coords
         .0
         .get(&trigger.coords.step(trigger.dir.right()))
         .map(|(_, dir)| *dir == trigger.dir.left())
         .unwrap_or(false);
-    let back = belt_coords
+    let fed_from_behind = belt_coords
         .0
         .get(&trigger.coords.step(trigger.dir.opposite()))
         .map(|(_, dir)| *dir == trigger.dir)
         .unwrap_or(false);
 
-    match (left, back, right) {
-        (false, _, false) | (true, _, true) | (_, true, _) => {
-            return (
-                Belt::straight(trigger.dir),
-                BeltCreated {
-                    entity: trigger.entity,
-                    coords: trigger.coords,
-                    output: trigger.dir,
-                    input: trigger.dir,
-                },
-            );
-        }
+    match (fed_from_left, fed_from_behind, fed_from_right) {
+        (false, _, false) | (true, _, true) | (_, true, _) => (
+            Belt::straight(trigger.dir),
+            BeltCreated {
+                entity: trigger.entity,
+                coords: trigger.coords,
+                output: trigger.dir,
+                input: trigger.dir,
+            },
+        ),
         (true, false, false) => {
             let input = trigger.dir.right();
-            return (
+            (
                 Belt::curved(input, trigger.dir).unwrap(),
                 BeltCreated {
                     entity: trigger.entity,
@@ -173,11 +171,11 @@ fn create_belt(trigger: CreateBelt, belt_coords: &BeltCoords) -> (Belt, BeltCrea
                     output: trigger.dir,
                     input,
                 },
-            );
+            )
         }
         (false, false, true) => {
             let input = trigger.dir.left();
-            return (
+            (
                 Belt::curved(input, trigger.dir).unwrap(),
                 BeltCreated {
                     entity: trigger.entity,
@@ -185,7 +183,7 @@ fn create_belt(trigger: CreateBelt, belt_coords: &BeltCoords) -> (Belt, BeltCrea
                     output: trigger.dir,
                     input,
                 },
-            );
+            )
         }
     }
 }
@@ -270,12 +268,7 @@ impl Direction {
     }
 
     pub fn right(&self) -> Self {
-        match self {
-            Direction::North => Direction::East,
-            Direction::East => Direction::South,
-            Direction::South => Direction::West,
-            Direction::West => Direction::North,
-        }
+        self.left().opposite()
     }
 }
 
