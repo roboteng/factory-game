@@ -660,4 +660,79 @@ mod tests {
 
         assert_eq!(actual, expected);
     }
+
+    #[test]
+    fn curved_belt_at_start_ccw() {
+        let mut t = TestBuilder::new(test_app());
+        t.spawn_belt(WorldCoords { x: 0, y: 0 }, Direction::East);
+        t.spawn_belt(WorldCoords { x: 1, y: 0 }, Direction::North);
+        let item = t.with_item_at(0);
+
+        t.app.update();
+
+        let actual = t.get_transform(item).translation;
+        let expected = Vec3::new(TILE_SIZE, TILE_SIZE / 2.0, 2.0);
+
+        assert_eq!(actual, expected);
+    }
+
+    fn assert_close(actual: Vec3, expected: Vec3) {
+        let dist = actual.distance(expected);
+
+        assert!(
+            dist < 1.0,
+            "Distance between \n{actual:?}\nand\n{expected:?}\nis {dist}",
+        );
+    }
+
+    #[test]
+    fn curved_belt_halfway_ccw() {
+        let mut t = TestBuilder::new(test_app());
+        t.spawn_belt(WorldCoords { x: 0, y: 0 }, Direction::East);
+        t.spawn_belt(WorldCoords { x: 1, y: 0 }, Direction::North);
+        let item = t.with_item_at(101);
+
+        t.app.update();
+
+        let actual = t.get_transform(item).translation;
+        let expected = Vec3::new(
+            TILE_SIZE * (0.5 + 0.5 * (PI / 4.0).cos()),
+            TILE_SIZE * (0.5 - 0.5 * (PI / 4.0).sin()),
+            2.0,
+        );
+        assert_close(actual, expected);
+    }
+
+    #[test]
+    fn curved_belt_at_start_cw() {
+        let mut t = TestBuilder::new(test_app());
+        t.spawn_belt(WorldCoords { x: 0, y: 0 }, Direction::East);
+        t.spawn_belt(WorldCoords { x: 1, y: 0 }, Direction::South);
+        let item = t.with_item_at(0);
+
+        t.app.update();
+
+        let actual = t.get_transform(item).translation;
+        let expected = Vec3::new(TILE_SIZE, -TILE_SIZE / 2.0, 2.0);
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn curved_belt_halfway_cw() {
+        let mut t = TestBuilder::new(test_app());
+        t.spawn_belt(WorldCoords { x: 0, y: 0 }, Direction::East);
+        t.spawn_belt(WorldCoords { x: 1, y: 0 }, Direction::South);
+        let item = t.with_item_at(101);
+
+        t.app.update();
+
+        let actual = t.get_transform(item).translation;
+        let expected = Vec3::new(
+            TILE_SIZE * (0.5 + 0.5 * (PI / 4.0).cos()),
+            -TILE_SIZE * (0.5 - 0.5 * (PI / 4.0).sin()),
+            2.0,
+        );
+        assert_close(actual, expected);
+    }
 }

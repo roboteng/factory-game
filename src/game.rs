@@ -319,7 +319,27 @@ impl Belt {
                 k.z = 2.0;
                 k
             }
-            BeltShape::Curve(_direction, _direction1) => todo!(),
+            BeltShape::Curve(input, output) => {
+                const CURVED_BELT_POSITIONS: u16 = 201; // PI * (256/2) / 2
+                let center_of_tile = Vec3::from(coords);
+                let curve_center_offset = (Vec2::from(input.opposite()) + Vec2::from(output)) / 2.0;
+                // 0 => 0.0
+                // 201 => PI/2
+                // 804 => 2*PI
+                let angle = (pos as f32 / CURVED_BELT_POSITIONS as f32) * PI / 2.0;
+                let angle = if self.input_direction.right() == self.output_direction {
+                    angle
+                } else {
+                    -angle
+                };
+                println!("angle: {}", angle / PI);
+                center_of_tile
+                    + Vec3::new(
+                        TILE_SIZE * (curve_center_offset.x + angle.cos() / 2.0),
+                        TILE_SIZE * (curve_center_offset.y + angle.sin() / 2.0),
+                        2.0,
+                    )
+            }
         }
     }
 
@@ -431,7 +451,7 @@ pub mod tests {
     }
 
     #[test]
-    fn placing_belt_beh_curves_it() {
+    fn placing_belt_behind_curves_it() {
         let mut t = TestBuilder::new(test_app());
         let curved_belt_entity = t.spawn_belt(WorldCoords { x: 1, y: 0 }, Direction::North);
         let _ = t.spawn_belt(WorldCoords { x: 0, y: 0 }, Direction::East);
