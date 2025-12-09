@@ -22,14 +22,14 @@ fn on_create_tile(trigger: On<CreateTile>, mut cmd: Commands, assets: Res<AssetS
 }
 
 fn on_create_belt(trigger: On<BeltCreated>, mut cmd: Commands, assets: Res<AssetServer>) {
-    let sprite = if trigger.input == trigger.output {
-        Sprite::from_image(assets.load("sprites/belt.png"))
-    } else if trigger.input == trigger.output.left() {
-        Sprite::from_image(assets.load("sprites/belt_curved.png"))
-    } else {
-        let mut s = Sprite::from_image(assets.load("sprites/belt_curved.png"));
-        s.flip_y = true;
-        s
+    let sprite = match trigger.new_belt.curvature() {
+        Curvature::Straight => Sprite::from_image(assets.load("sprites/belt.png")),
+        Curvature::Counterclockwise => Sprite::from_image(assets.load("sprites/belt_curved.png")),
+        Curvature::Clockwise => {
+            let mut s = Sprite::from_image(assets.load("sprites/belt_curved.png"));
+            s.flip_y = true;
+            s
+        }
     };
     cmd.entity(trigger.entity).insert(sprite);
 }

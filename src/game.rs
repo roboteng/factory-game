@@ -58,6 +58,23 @@ impl From<WorldCoords> for Vec3 {
 #[derive(Resource, Default)]
 struct BeltCoords(HashMap<WorldCoords, (Entity, Direction)>);
 
+impl BeltCoords {
+    fn insert(&mut self, coords: WorldCoords, entity: Entity, direction: Direction) {
+        self.0.insert(coords, (entity, direction));
+    }
+
+    fn get(&self, coords: &WorldCoords) -> Option<(Entity, Direction)> {
+        self.0.get(coords).copied()
+    }
+
+    fn has_belt_with_direction(&self, coords: &WorldCoords, direction: Direction) -> bool {
+        self.0
+            .get(coords)
+            .map(|(_, dir)| *dir == direction)
+            .unwrap_or(false)
+    }
+}
+
 #[derive(EntityEvent, Clone)]
 pub struct CreateTile {
     pub entity: Entity,
@@ -98,27 +115,14 @@ impl CreateBelt {
 pub struct BeltCreated {
     pub entity: Entity,
     pub coords: WorldCoords,
-    pub output: Direction,
-    pub input: Direction,
+    pub new_belt: Belt,
+    pub old_belt: Option<Belt>,
 }
 
-impl BeltCreated {
-    pub fn forward(&self) -> WorldCoords {
-        let value = CreateBelt {
-            entity: self.entity,
-            coords: self.coords,
-            dir: self.output,
-        };
-        value.forward()
-    }
-    pub fn backward(&self) -> WorldCoords {
-        let value = CreateBelt {
-            entity: self.entity,
-            coords: self.coords,
-            dir: self.input,
-        };
-        value.backward()
-    }
+pub enum Curvature {
+    Straight,
+    Clockwise,
+    Counterclockwise,
 }
 
 #[derive(EntityEvent, Clone)]
@@ -134,54 +138,55 @@ fn on_create_tile(trigger: On<CreateTile>, mut cmd: Commands) {
 }
 
 fn create_belt(trigger: CreateBelt, belt_coords: &BeltCoords) -> (Belt, BeltCreated) {
-    let fed_from_left = belt_coords
-        .0
-        .get(&trigger.coords.step(trigger.dir.left()))
-        .map(|(_, dir)| *dir == trigger.dir.right())
-        .unwrap_or(false);
+    let fed_from_left = belt_coords.has_belt_with_direction(
+        &trigger.coords.step(trigger.dir.left()),
+        trigger.dir.right(),
+    );
 
-    let fed_from_right = belt_coords
-        .0
-        .get(&trigger.coords.step(trigger.dir.right()))
-        .map(|(_, dir)| *dir == trigger.dir.left())
-        .unwrap_or(false);
+    let fed_from_right = belt_coords.has_belt_with_direction(
+        &trigger.coords.step(trigger.dir.right()),
+        trigger.dir.left(),
+    );
+
     let fed_from_behind = belt_coords
-        .0
-        .get(&trigger.coords.step(trigger.dir.opposite()))
-        .map(|(_, dir)| *dir == trigger.dir)
-        .unwrap_or(false);
+        .has_belt_with_direction(&trigger.coords.step(trigger.dir.opposite()), trigger.dir);
 
     match (fed_from_left, fed_from_behind, fed_from_right) {
-        (false, _, false) | (true, _, true) | (_, true, _) => (
-            Belt::straight(trigger.dir),
-            BeltCreated {
-                entity: trigger.entity,
-                coords: trigger.coords,
-                output: trigger.dir,
-                input: trigger.dir,
-            },
-        ),
-        (true, false, false) => {
-            let input = trigger.dir.right();
+        (false, _, false) | (true, _, true) | (_, true, _) => {
+            let belt = Belt::straight(trigger.dir);
             (
-                Belt::curved(input, trigger.dir).unwrap(),
+                belt,
                 BeltCreated {
                     entity: trigger.entity,
                     coords: trigger.coords,
-                    output: trigger.dir,
-                    input,
+                    new_belt: belt,
+                    old_belt: None,
+                },
+            )
+        }
+        (true, false, false) => {
+            let input = trigger.dir.right();
+            let belt = Belt::curved(input, trigger.dir).unwrap();
+            (
+                belt,
+                BeltCreated {
+                    entity: trigger.entity,
+                    coords: trigger.coords,
+                    new_belt: belt,
+                    old_belt: None,
                 },
             )
         }
         (false, false, true) => {
             let input = trigger.dir.left();
+            let belt = Belt::curved(input, trigger.dir).unwrap();
             (
-                Belt::curved(input, trigger.dir).unwrap(),
+                belt,
                 BeltCreated {
                     entity: trigger.entity,
                     coords: trigger.coords,
-                    output: trigger.dir,
-                    input,
+                    new_belt: belt,
+                    old_belt: None,
                 },
             )
         }
@@ -194,9 +199,7 @@ fn on_create_belt(
     mut belt_coords: ResMut<BeltCoords>,
     belts: Query<&Belt>,
 ) {
-    belt_coords
-        .0
-        .insert(trigger.coords, (trigger.entity, trigger.dir));
+    belt_coords.insert(trigger.coords, trigger.entity, trigger.dir);
     let (belt, belt_created) = create_belt(trigger.clone(), &belt_coords);
     let rot = match trigger.dir {
         Direction::North => 0.25,
@@ -214,19 +217,19 @@ fn on_create_belt(
     cmd.trigger(belt_created);
 
     let ahead = belt_coords
-        .0
         .get(&trigger.coords.step(trigger.dir))
         .filter(|(_, dir)| *dir == trigger.dir.right() || *dir == trigger.dir.left());
     if let Some((e, dir)) = ahead {
         let k = CreateBelt {
-            entity: *e,
+            entity: e,
             coords: trigger.coords.step(trigger.dir),
-            dir: *dir,
+            dir: dir,
         };
-        let (new_belt, belt_created) = create_belt(k, &belt_coords);
-        let b = belts.get(*e).unwrap();
-        if b.input_direction != new_belt.input_direction {
-            cmd.entity(*e).insert(new_belt);
+        let (new_belt, mut belt_created) = create_belt(k, &belt_coords);
+        let b = belts.get(e).unwrap();
+        if b.input_direction() != new_belt.input_direction() {
+            cmd.entity(e).insert(new_belt);
+            belt_created.old_belt = Some(*b);
             cmd.trigger(belt_created);
         }
     }
@@ -284,16 +287,28 @@ impl From<Direction> for Vec2 {
 }
 
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Belt {
-    input_direction: Direction,
-    output_direction: Direction,
+pub enum Belt {
+    StraightNorth,
+    StraightEast,
+    StraightSouth,
+    StraightWest,
+    CurveNorthToEast,
+    CurveNorthToWest,
+    CurveSouthToEast,
+    CurveSouthToWest,
+    CurveEastToNorth,
+    CurveEastToSouth,
+    CurveWestToNorth,
+    CurveWestToSouth,
 }
 
 impl Belt {
     pub fn straight(dir: Direction) -> Self {
-        Self {
-            input_direction: dir,
-            output_direction: dir,
+        match dir {
+            Direction::North => Self::StraightNorth,
+            Direction::East => Self::StraightEast,
+            Direction::South => Self::StraightSouth,
+            Direction::West => Self::StraightWest,
         }
     }
     /// Returns `None` if input and output are opposite
@@ -301,15 +316,57 @@ impl Belt {
         if input.opposite() == output {
             return None;
         }
-        Some(Self {
-            input_direction: input,
-            output_direction: output,
-        })
+        match (input, output) {
+            (Direction::North, Direction::East) => Some(Self::CurveNorthToEast),
+            (Direction::North, Direction::West) => Some(Self::CurveNorthToWest),
+            (Direction::South, Direction::East) => Some(Self::CurveSouthToEast),
+            (Direction::South, Direction::West) => Some(Self::CurveSouthToWest),
+            (Direction::East, Direction::North) => Some(Self::CurveEastToNorth),
+            (Direction::East, Direction::South) => Some(Self::CurveEastToSouth),
+            (Direction::West, Direction::North) => Some(Self::CurveWestToNorth),
+            (Direction::West, Direction::South) => Some(Self::CurveWestToSouth),
+            _ => None,
+        }
+    }
+
+    pub fn input_direction(&self) -> Direction {
+        match self {
+            Self::StraightNorth => Direction::North,
+            Self::StraightSouth => Direction::South,
+            Self::StraightEast => Direction::East,
+            Self::StraightWest => Direction::West,
+            Self::CurveNorthToEast => Direction::North,
+            Self::CurveNorthToWest => Direction::North,
+            Self::CurveSouthToEast => Direction::South,
+            Self::CurveSouthToWest => Direction::South,
+            Self::CurveEastToNorth => Direction::East,
+            Self::CurveEastToSouth => Direction::East,
+            Self::CurveWestToNorth => Direction::West,
+            Self::CurveWestToSouth => Direction::West,
+        }
+    }
+
+    pub fn output_direction(&self) -> Direction {
+        match self {
+            Self::StraightNorth => Direction::North,
+            Self::StraightSouth => Direction::South,
+            Self::StraightEast => Direction::East,
+            Self::StraightWest => Direction::West,
+            Self::CurveNorthToEast => Direction::East,
+            Self::CurveNorthToWest => Direction::West,
+            Self::CurveSouthToEast => Direction::East,
+            Self::CurveSouthToWest => Direction::West,
+            Self::CurveEastToNorth => Direction::North,
+            Self::CurveEastToSouth => Direction::South,
+            Self::CurveWestToNorth => Direction::North,
+            Self::CurveWestToSouth => Direction::South,
+        }
     }
 
     pub fn item_position(&self, coords: WorldCoords, pos: u16) -> Vec3 {
-        match self.shape() {
-            BeltShape::Straight(dir) => {
+        match self {
+            Self::StraightEast | Self::StraightWest | Self::StraightNorth | Self::StraightSouth => {
+                let dir = self.output_direction();
                 let start = Vec2::from(dir);
                 let diff =
                     (start / 2.0 - start * pos as f32 / POSITIONS_PER_TILE as f32) * TILE_SIZE;
@@ -319,20 +376,26 @@ impl Belt {
                 k.z = 2.0;
                 k
             }
-            BeltShape::Curve(input, output) => {
+            _ => {
+                let input = self.input_direction();
+                let output = self.output_direction();
                 const CURVED_BELT_POSITIONS: u16 = 201; // PI * (256/2) / 2
                 let center_of_tile = Vec3::from(coords);
                 let curve_center_offset = (Vec2::from(input.opposite()) + Vec2::from(output)) / 2.0;
-                // 0 => 0.0
-                // 201 => PI/2
-                // 804 => 2*PI
-                let angle = (pos as f32 / CURVED_BELT_POSITIONS as f32) * PI / 2.0;
-                let angle = if self.input_direction.right() == self.output_direction {
-                    angle
-                } else {
-                    -angle
+
+                let base_angle = match input {
+                    Direction::East => 0.0,
+                    Direction::North => PI / 2.0,
+                    Direction::West => PI,
+                    Direction::South => 3.0 * PI / 2.0,
                 };
-                println!("angle: {}", angle / PI);
+                let angle_delta = (pos as f32 / CURVED_BELT_POSITIONS as f32) * PI / 2.0;
+                let angle = if self.input_direction().right() == self.output_direction() {
+                    base_angle + angle_delta // Clockwise
+                } else {
+                    base_angle - angle_delta // Counterclockwise
+                };
+
                 center_of_tile
                     + Vec3::new(
                         TILE_SIZE * (curve_center_offset.x + angle.cos() / 2.0),
@@ -343,12 +406,28 @@ impl Belt {
         }
     }
 
-    fn shape(&self) -> BeltShape {
-        match (self.input_direction, self.output_direction) {
+    pub fn shape(&self) -> BeltShape {
+        match (self.input_direction(), self.output_direction()) {
             (input, output) if input == output => BeltShape::Straight(input),
             (input, output) if input == output.right() => BeltShape::Curve(input, output),
             (input, output) if input == output.left() => BeltShape::Curve(input, output),
             _ => unreachable!("Belt directions should be set correctly in new"),
+        }
+    }
+
+    pub fn curvature(&self) -> Curvature {
+        match (self.input_direction(), self.output_direction()) {
+            (input, output) if input == output => Curvature::Straight,
+            (input, output) if input == output.right() => Curvature::Clockwise,
+            (input, output) if input == output.left() => Curvature::Counterclockwise,
+            _ => unreachable!("Belt directions should be set correctly in new"),
+        }
+    }
+
+    pub fn number_of_positions(&self) -> u16 {
+        match self.shape() {
+            BeltShape::Straight(_) => POSITIONS_PER_TILE,
+            BeltShape::Curve(_, _) => 201,
         }
     }
 }
@@ -443,10 +522,7 @@ pub mod tests {
         t.app.update();
         let world = t.app.world_mut();
         let actual = world.get_mut::<Belt>(new_belt_entity).unwrap().clone();
-        let expected = Belt {
-            input_direction: Direction::East,
-            output_direction: Direction::North,
-        };
+        let expected = Belt::CurveEastToNorth;
         assert_eq!(actual, expected);
     }
 
@@ -459,10 +535,7 @@ pub mod tests {
         t.app.update();
         let world = t.app.world_mut();
         let actual = world.get_mut::<Belt>(curved_belt_entity).unwrap().clone();
-        let expected = Belt {
-            input_direction: Direction::East,
-            output_direction: Direction::North,
-        };
+        let expected = Belt::CurveEastToNorth;
         assert_eq!(actual, expected);
     }
 }

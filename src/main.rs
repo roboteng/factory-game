@@ -28,7 +28,11 @@ fn startup(mut cmds: Commands) {
         cmds.trigger(CreateBelt {
             entity,
             coords: WorldCoords { x, y: 0 },
-            dir: game::Direction::East,
+            dir: if x == 4 {
+                game::Direction::North
+            } else {
+                game::Direction::East
+            },
         });
         if belt.is_none() {
             belt = Some(entity);
@@ -45,6 +49,13 @@ fn startup(mut cmds: Commands) {
         entity,
         coords: WorldCoords { x: 0, y: 1 },
         dir: game::Direction::North,
+    });
+
+    let item_entity = cmds.spawn_empty().id();
+    cmds.trigger(CreateBeltItem {
+        entity: item_entity,
+        belt: entity,
+        position: POSITIONS_PER_TILE - 1,
     });
     let entity = cmds.spawn_empty().id();
     cmds.trigger(CreateBelt {

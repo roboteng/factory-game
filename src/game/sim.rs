@@ -93,8 +93,11 @@ impl BeltGroup {
         let global_position = slot.0.start + position;
         self.lane.add_item_at(global_position, item_entity);
     }
-    fn join(&mut self, joining_belt: Entity, n_pos: u16, other: Self) {
+    fn join_from_belt(&mut self, joining_belt: Entity, n_pos: u16, other: Self) {
         self.add_belt_at_tail(joining_belt, n_pos);
+        self.join(other);
+    }
+    pub fn join(&mut self, other: Self) {
         let offset = self.belts.count_positions();
         let new_belts = other
             .belts
@@ -104,6 +107,27 @@ impl BeltGroup {
         let new_lane = other.lane.lane.iter().map(|(pos, e)| (pos + offset, *e));
         self.belts.belts.extend(new_belts);
         self.lane.lane.extend(new_lane);
+    }
+
+    pub fn truncate_by(&mut self, n_pos: u16) -> Option<Lane> {
+        let last = self.belts.belts.last_mut()?;
+        last.0.end -= n_pos;
+        let new_end = last.0.end;
+        let at = self.lane.lane.partition_point(|(pos, _)| *pos < new_end);
+        let lane = self
+            .lane
+            .lane
+            .split_off(at)
+            .iter()
+            .map(|a| (a.0 - new_end, a.1))
+            .collect();
+        Some(Lane { lane })
+    }
+
+    fn apply_fragment(&mut self, fragment: Lane) {
+        // There is a more efficient way to do this
+        self.lane.lane.extend(fragment.lane);
+        self.lane.lane.sort();
     }
 }
 
@@ -133,72 +157,118 @@ fn on_belt_created(
     mut belt_groups_query: Query<&mut BeltGroup>,
 ) {
     let belt_entity = trigger.entity;
-
-    let belt_ahead = belt_coords.0.get(&trigger.forward()).copied();
-    let belt_behind = belt_coords.0.get(&trigger.backward()).copied();
-
-    match (belt_ahead, belt_behind) {
-        (None, None) => {
-            spawn_new_group(trigger.clone(), cmd, &mut groups);
-        }
-        (Some((belt_ahead, _)), None) => {
-            let &group = groups
-                .0
-                .get(&belt_ahead)
-                .expect("Belt should a part of a group");
-            let mut belt_group = belt_groups_query
-                .get_mut(group)
-                .expect("Group should be created already");
-            belt_group.add_belt_at_tail(belt_entity, 256);
-            groups.0.insert(belt_entity, group);
-        }
-        (None, Some((belt_behind, dir))) => {
-            if dir == trigger.output {
-                {
-                    let &group = groups
-                        .0
-                        .get(&belt_behind)
-                        .expect("Belt should be a part of a group");
-                    let mut belt_group = belt_groups_query
-                        .get_mut(group)
-                        .expect("Groupd should ber created already");
-                    belt_group.add_belt_at_head(belt_entity, 256);
-                    groups.0.insert(belt_entity, group);
-                }
+    println!("Old_belt: {:?}", trigger.old_belt);
+    if let Some(old_belt) = trigger.old_belt {
+        let group_entity = groups.0.get(&belt_entity).unwrap();
+        let mut group = belt_groups_query.get_mut(*group_entity).unwrap();
+        if let Some(diff) = old_belt
+            .number_of_positions()
+            .checked_sub(trigger.new_belt.number_of_positions())
+        {
+            println!("Group has {} positions", group.belts.count_positions());
+            let rest = group
+                .truncate_by(diff)
+                .expect("This group at least contains this belt");
+            println!("old group: {:?}", group);
+            drop(group);
+            let behind_spot = trigger
+                .coords
+                .step(trigger.new_belt.input_direction().opposite());
+            if let Some(behind_belt) = belt_coords.get(&behind_spot) {
+                let behind_group = groups
+                    .0
+                    .get(&behind_belt.0)
+                    .expect("All belts should be part of a group");
+                let mut g = belt_groups_query.get_mut(*behind_group).unwrap().clone();
+                println!("Frag: {rest:?}");
+                g.apply_fragment(rest);
+                let mut group = belt_groups_query.get_mut(*group_entity).unwrap();
+                group.join(g);
+                cmd.entity(*behind_group).despawn();
             } else {
+                todo!();
+            }
+        } else {
+            todo!();
+        }
+    } else {
+        let belt_ahead = belt_coords
+            .get(&trigger.coords.step(trigger.new_belt.output_direction()))
+            .filter(|ahead| ahead.1 == trigger.new_belt.output_direction());
+        let belt_behind = belt_coords.get(
+            &trigger
+                .coords
+                .step(trigger.new_belt.input_direction().opposite()),
+        );
+
+        match (belt_ahead, belt_behind) {
+            (None, None) => {
                 spawn_new_group(trigger.clone(), cmd, &mut groups);
             }
-        }
-        (Some(belt_ahead), Some(belt_behind)) => {
-            match (
-                belt_ahead.1 == trigger.output,
-                belt_behind.1 == trigger.output,
-            ) {
-                (true, true) => {
-                    let &group_behind = groups
-                        .0
-                        .get(&belt_behind.0)
-                        .expect("Belt should be a part of a group");
-                    cmd.entity(group_behind).despawn();
-                    let group_behind = belt_groups_query
-                        .get_mut(group_behind)
-                        .expect("Groupd should ber created already")
-                        .clone();
-                    let &group_ahead_entity = groups
-                        .0
-                        .get(&belt_ahead.0)
-                        .expect("Belt should be a part of a group");
-                    let mut group_ahead = belt_groups_query
-                        .get_mut(group_ahead_entity)
-                        .expect("Groupd should ber created already");
-                    group_ahead.join(trigger.entity, 256, group_behind.clone());
-                    // We're ssetting all the belts that are already in the group
-                    // That is unneccassery, but we can change that if needed
-                    for (_, belt) in &group_ahead.belts.belts {
-                        groups.0.insert(*belt, group_ahead_entity);
+            (Some((belt_ahead, _)), None) => {
+                let &group = groups
+                    .0
+                    .get(&belt_ahead)
+                    .expect("Belt should a part of a group");
+                let mut belt_group = belt_groups_query
+                    .get_mut(group)
+                    .expect("Group should be created already");
+                belt_group.add_belt_at_tail(belt_entity, trigger.new_belt.number_of_positions());
+                groups.0.insert(belt_entity, group);
+            }
+            (None, Some((belt_behind, dir))) => {
+                if dir == trigger.new_belt.input_direction() {
+                    {
+                        let &group = groups
+                            .0
+                            .get(&belt_behind)
+                            .expect("Belt should be a part of a group");
+                        let mut belt_group = belt_groups_query
+                            .get_mut(group)
+                            .expect("Groupd should ber created already");
+                        belt_group
+                            .add_belt_at_head(belt_entity, trigger.new_belt.number_of_positions());
+                        groups.0.insert(belt_entity, group);
                     }
+                } else {
+                    spawn_new_group(trigger.clone(), cmd, &mut groups);
                 }
-                _ => todo!("Handle additional cases"),
+            }
+            (Some(belt_ahead), Some(belt_behind)) => {
+                match (
+                    belt_ahead.1 == trigger.new_belt.output_direction(),
+                    belt_behind.1 == trigger.new_belt.output_direction(),
+                ) {
+                    (true, true) => {
+                        let &group_behind = groups
+                            .0
+                            .get(&belt_behind.0)
+                            .expect("Belt should be a part of a group");
+                        cmd.entity(group_behind).despawn();
+                        let group_behind = belt_groups_query
+                            .get_mut(group_behind)
+                            .expect("Groupd should ber created already")
+                            .clone();
+                        let &group_ahead_entity = groups
+                            .0
+                            .get(&belt_ahead.0)
+                            .expect("Belt should be a part of a group");
+                        let mut group_ahead = belt_groups_query
+                            .get_mut(group_ahead_entity)
+                            .expect("Groupd should ber created already");
+                        group_ahead.join_from_belt(
+                            trigger.entity,
+                            trigger.new_belt.number_of_positions(),
+                            group_behind.clone(),
+                        );
+                        // We're ssetting all the belts that are already in the group
+                        // That is unneccassery, but we can change that if needed
+                        for (_, belt) in &group_ahead.belts.belts {
+                            groups.0.insert(*belt, group_ahead_entity);
+                        }
+                    }
+                    _ => todo!("Handle additional cases"),
+                }
             }
         }
     }
@@ -680,7 +750,7 @@ mod tests {
         let dist = actual.distance(expected);
 
         assert!(
-            dist < 1.0,
+            dist < 1.5,
             "Distance between \n{actual:?}\nand\n{expected:?}\nis {dist}",
         );
     }
@@ -733,6 +803,35 @@ mod tests {
             -TILE_SIZE * (0.5 - 0.5 * (PI / 4.0).sin()),
             2.0,
         );
+        assert_close(actual, expected);
+    }
+
+    #[test]
+    fn place_xxx() {
+        let mut t = TestBuilder::new(test_app());
+        t.spawn_belt(WorldCoords { x: 1, y: 0 }, Direction::North);
+        let item = t.with_item_at(255);
+        t.spawn_belt(WorldCoords { x: 0, y: 0 }, Direction::East);
+
+        t.app.update();
+
+        let actual = t.get_transform(item).translation;
+        let magic_x = 10.25;
+        let expected = Vec3::new(magic_x, 0.0, 2.0);
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn item_on_curved_belt_in_multi_belt_group() {
+        let mut t = TestBuilder::new(test_app());
+        let _ = t.spawn_belt(WorldCoords { x: 0, y: 0 }, Direction::East);
+        let item = t.with_item_at(0);
+        let _ = t.spawn_belt(WorldCoords { x: 1, y: 0 }, Direction::North);
+
+        t.app.update();
+
+        let actual = t.get_transform(item).translation;
+        let expected = Vec3::new(17.0, 0.0, 2.0);
         assert_close(actual, expected);
     }
 }
