@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::f32::consts::PI;
 
+use bevy::log::debug;
+use bevy::log::tracing::instrument;
 use bevy::prelude::*;
 pub mod sim;
 pub mod ui;
@@ -55,22 +57,22 @@ impl From<WorldCoords> for Vec3 {
 }
 
 /// Give a `WorldCoords`, get its `Belt` and `Direction`
-#[derive(Resource, Default)]
-struct BeltCoords(HashMap<WorldCoords, (Entity, Direction)>);
+#[derive(Resource, Default, Debug)]
+struct BeltCoords(HashMap<WorldCoords, (Entity, Belt)>);
 
 impl BeltCoords {
-    fn insert(&mut self, coords: WorldCoords, entity: Entity, direction: Direction) {
-        self.0.insert(coords, (entity, direction));
+    fn insert(&mut self, coords: WorldCoords, entity: Entity, belt: Belt) {
+        self.0.insert(coords, (entity, belt));
     }
 
-    fn get(&self, coords: &WorldCoords) -> Option<(Entity, Direction)> {
+    fn get(&self, coords: &WorldCoords) -> Option<(Entity, Belt)> {
         self.0.get(coords).copied()
     }
 
-    fn has_belt_with_direction(&self, coords: &WorldCoords, direction: Direction) -> bool {
+    fn has_belt_with_output(&self, coords: &WorldCoords, direction: Direction) -> bool {
         self.0
             .get(coords)
-            .map(|(_, dir)| *dir == direction)
+            .map(|(_, belt)| belt.output_direction() == direction)
             .unwrap_or(false)
     }
 }
@@ -81,42 +83,23 @@ pub struct CreateTile {
     pub coords: WorldCoords,
 }
 
-#[derive(EntityEvent, Clone)]
+#[derive(EntityEvent, Clone, Debug)]
 pub struct CreateBelt {
     pub entity: Entity,
     pub coords: WorldCoords,
     pub dir: Direction,
 }
 
-impl CreateBelt {
-    pub fn forward(&self) -> WorldCoords {
-        let mut coords = self.coords;
-        match self.dir {
-            Direction::North => coords.y += 1,
-            Direction::East => coords.x += 1,
-            Direction::South => coords.y -= 1,
-            Direction::West => coords.x -= 1,
-        };
-        coords
-    }
-    pub fn backward(&self) -> WorldCoords {
-        let mut coords = self.coords;
-        match self.dir {
-            Direction::North => coords.y -= 1,
-            Direction::East => coords.x -= 1,
-            Direction::South => coords.y += 1,
-            Direction::West => coords.x += 1,
-        };
-        coords
-    }
-}
-
-#[derive(EntityEvent, Clone)]
+#[derive(EntityEvent, Clone, Debug)]
 pub struct BeltCreated {
     pub entity: Entity,
     pub coords: WorldCoords,
     pub new_belt: Belt,
     pub old_belt: Option<Belt>,
+    /// Belt ahead at the time of creation (for checking connections)
+    pub belt_ahead: Option<(Entity, Belt)>,
+    /// Belt behind at the time of creation (for checking connections)
+    pub belt_behind: Option<(Entity, Belt)>,
 }
 
 pub enum Curvature {
@@ -137,19 +120,20 @@ fn on_create_tile(trigger: On<CreateTile>, mut cmd: Commands) {
         .insert(Transform::from_translation(Vec3::from(trigger.coords)));
 }
 
+#[instrument]
 fn create_belt(trigger: CreateBelt, belt_coords: &BeltCoords) -> (Belt, BeltCreated) {
-    let fed_from_left = belt_coords.has_belt_with_direction(
+    let fed_from_left = belt_coords.has_belt_with_output(
         &trigger.coords.step(trigger.dir.left()),
         trigger.dir.right(),
     );
 
-    let fed_from_right = belt_coords.has_belt_with_direction(
+    let fed_from_right = belt_coords.has_belt_with_output(
         &trigger.coords.step(trigger.dir.right()),
         trigger.dir.left(),
     );
 
-    let fed_from_behind = belt_coords
-        .has_belt_with_direction(&trigger.coords.step(trigger.dir.opposite()), trigger.dir);
+    let fed_from_behind =
+        belt_coords.has_belt_with_output(&trigger.coords.step(trigger.dir.opposite()), trigger.dir);
 
     match (fed_from_left, fed_from_behind, fed_from_right) {
         (false, _, false) | (true, _, true) | (_, true, _) => {
@@ -161,6 +145,8 @@ fn create_belt(trigger: CreateBelt, belt_coords: &BeltCoords) -> (Belt, BeltCrea
                     coords: trigger.coords,
                     new_belt: belt,
                     old_belt: None,
+                    belt_ahead: None,
+                    belt_behind: None,
                 },
             )
         }
@@ -174,6 +160,8 @@ fn create_belt(trigger: CreateBelt, belt_coords: &BeltCoords) -> (Belt, BeltCrea
                     coords: trigger.coords,
                     new_belt: belt,
                     old_belt: None,
+                    belt_ahead: None,
+                    belt_behind: None,
                 },
             )
         }
@@ -187,20 +175,30 @@ fn create_belt(trigger: CreateBelt, belt_coords: &BeltCoords) -> (Belt, BeltCrea
                     coords: trigger.coords,
                     new_belt: belt,
                     old_belt: None,
+                    belt_ahead: None,
+                    belt_behind: None,
                 },
             )
         }
     }
 }
 
+#[instrument(skip_all, fields(belt_coords = ?belt_coords.0, trigger = ?trigger))]
 fn on_create_belt(
     trigger: On<CreateBelt>,
     mut cmd: Commands,
     mut belt_coords: ResMut<BeltCoords>,
     belts: Query<&Belt>,
 ) {
-    belt_coords.insert(trigger.coords, trigger.entity, trigger.dir);
-    let (belt, belt_created) = create_belt(trigger.clone(), &belt_coords);
+    let (belt, mut belt_created) = create_belt(trigger.clone(), &belt_coords);
+
+    // Capture belt ahead/behind state before updating belt_coords
+    belt_created.belt_ahead = belt_coords.get(&trigger.coords.step(trigger.dir));
+    belt_created.belt_behind = belt_coords.get(&trigger.coords.step(trigger.dir.opposite()));
+
+    // Update belt_coords immediately
+    belt_coords.insert(trigger.coords, trigger.entity, belt);
+
     let rot = match trigger.dir {
         Direction::North => 0.25,
         Direction::East => 0.0,
@@ -216,20 +214,36 @@ fn on_create_belt(
     ));
     cmd.trigger(belt_created);
 
-    let ahead = belt_coords
-        .get(&trigger.coords.step(trigger.dir))
-        .filter(|(_, dir)| *dir == trigger.dir.right() || *dir == trigger.dir.left());
-    if let Some((e, dir)) = ahead {
+    let ahead = belt_coords.get(&trigger.coords.step(trigger.dir));
+    if let Some((e, belt)) = ahead {
         let k = CreateBelt {
             entity: e,
             coords: trigger.coords.step(trigger.dir),
-            dir: dir,
+            dir: belt.output_direction(),
         };
         let (new_belt, mut belt_created) = create_belt(k, &belt_coords);
         let b = belts.get(e).unwrap();
-        if b.input_direction() != new_belt.input_direction() {
+        if *b != new_belt {
             cmd.entity(e).insert(new_belt);
             belt_created.old_belt = Some(*b);
+
+            // Capture belt ahead/behind state before updating belt_coords
+            let ahead_coords = belt_created.coords.step(new_belt.output_direction());
+            let behind_coords = belt_created
+                .coords
+                .step(new_belt.input_direction().opposite());
+            belt_created.belt_ahead = belt_coords.get(&ahead_coords);
+            belt_created.belt_behind = belt_coords.get(&behind_coords);
+
+            // Update belt_coords immediately
+            belt_coords.insert(belt_created.coords, belt_created.entity, new_belt);
+            debug!(
+                coords = ?belt_created.coords,
+                entity = ?belt_created.entity,
+                new_belt = ?new_belt,
+                "Updated BeltCoords for belt ahead"
+            );
+
             cmd.trigger(belt_created);
         }
     }
@@ -433,7 +447,9 @@ impl Belt {
 }
 
 pub enum BeltShape {
+    #[expect(dead_code)]
     Straight(Direction),
+    #[expect(dead_code)]
     Curve(Direction, Direction),
 }
 

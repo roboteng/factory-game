@@ -1,4 +1,6 @@
 use crate::game::*;
+use bevy::log::tracing::instrument;
+use bevy::log::{debug, info, warn};
 use std::{collections::HashMap, ops::Range};
 
 const ITEM_SPACING: u16 = 64;
@@ -99,6 +101,11 @@ impl BeltGroup {
     }
     pub fn join(&mut self, other: Self) {
         let offset = self.belts.count_positions();
+        debug!(
+            offset = offset,
+            joining_belts = ?other.belts.belts.iter().map(|(_, b)| b).collect::<Vec<_>>(),
+            "Joining belt groups"
+        );
         let new_belts = other
             .belts
             .belts
@@ -109,8 +116,12 @@ impl BeltGroup {
         self.lane.lane.extend(new_lane);
     }
 
-    pub fn truncate_by(&mut self, n_pos: u16) -> Option<Lane> {
-        let last = self.belts.belts.last_mut()?;
+    pub fn truncate_by(&mut self, n_pos: u16) -> Lane {
+        let last = self
+            .belts
+            .belts
+            .last_mut()
+            .expect("Groups should always have belts");
         last.0.end -= n_pos;
         let new_end = last.0.end;
         let at = self.lane.lane.partition_point(|(pos, _)| *pos < new_end);
@@ -121,7 +132,64 @@ impl BeltGroup {
             .iter()
             .map(|a| (a.0 - new_end, a.1))
             .collect();
-        Some(Lane { lane })
+        Lane { lane }
+    }
+
+    pub fn expand_by(&mut self, n_pos: u16) -> u16 {
+        let last = self
+            .belts
+            .belts
+            .last_mut()
+            .expect("Group should have belts");
+        let old_end = last.0.end;
+        last.0.end += n_pos;
+        old_end
+    }
+
+    pub fn split_off_after(&mut self, belt: Entity) -> Option<BeltGroup> {
+        // Find the belt in the group
+        let belt_idx = self.belts.belts.iter().position(|(_, e)| *e == belt)?;
+
+        debug!(
+            belt = ?belt,
+            belt_idx = belt_idx,
+            total_belts = self.belts.belts.len(),
+            "Splitting belt group after belt"
+        );
+
+        // Split off all belts after this one
+        let remaining_belts = self.belts.belts.split_off(belt_idx + 1);
+
+        if remaining_belts.is_empty() {
+            debug!("No belts after split point, returning None");
+            return None;
+        }
+
+        // Calculate the split point (end of the kept belt)
+        let split_point = self.belts.belts.last()?.0.end;
+
+        // Split items at the split point
+        let item_split_idx = self
+            .lane
+            .lane
+            .partition_point(|(pos, _)| *pos < split_point);
+        let remaining_items = self.lane.lane.split_off(item_split_idx);
+
+        // Adjust positions in the new group to start from 0
+        let new_belts = remaining_belts
+            .into_iter()
+            .map(|(range, e)| ((range.start - split_point)..(range.end - split_point), e))
+            .collect();
+
+        let new_items = remaining_items
+            .into_iter()
+            .map(|(pos, e)| (pos - split_point, e))
+            .collect();
+
+        Some(BeltGroup {
+            belts: OrderedBelts { belts: new_belts },
+            lane: Lane { lane: new_items },
+        })
     }
 
     fn apply_fragment(&mut self, fragment: Lane) {
@@ -132,7 +200,7 @@ impl BeltGroup {
 }
 
 /// Give a `Belt`, get its `BeltGroup`
-#[derive(Resource, Default)]
+#[derive(Resource, Default, Debug)]
 struct BeltGroups(HashMap<Entity, Entity>);
 
 fn on_create_item(
@@ -149,6 +217,7 @@ fn on_create_item(
     cmd.entity(item_entity).insert(ExpectedMovement(0));
 }
 
+#[instrument(skip_all, fields(belt_coords = ?belt_coords.0, trigger = ?trigger, groups = ?groups))]
 fn on_belt_created(
     trigger: On<BeltCreated>,
     mut cmd: Commands,
@@ -156,50 +225,42 @@ fn on_belt_created(
     belt_coords: Res<BeltCoords>,
     mut belt_groups_query: Query<&mut BeltGroup>,
 ) {
+    info!(
+        entity = ?trigger.entity,
+        coords = ?trigger.coords,
+        belt = ?trigger.new_belt,
+        old_belt = ?trigger.old_belt,
+        "Belt created/updated"
+    );
     let belt_entity = trigger.entity;
-    println!("Old_belt: {:?}", trigger.old_belt);
     if let Some(old_belt) = trigger.old_belt {
-        let group_entity = groups.0.get(&belt_entity).unwrap();
-        let mut group = belt_groups_query.get_mut(*group_entity).unwrap();
-        if let Some(diff) = old_belt
-            .number_of_positions()
-            .checked_sub(trigger.new_belt.number_of_positions())
-        {
-            println!("Group has {} positions", group.belts.count_positions());
-            let rest = group
-                .truncate_by(diff)
-                .expect("This group at least contains this belt");
-            println!("old group: {:?}", group);
-            drop(group);
-            let behind_spot = trigger
-                .coords
-                .step(trigger.new_belt.input_direction().opposite());
-            if let Some(behind_belt) = belt_coords.get(&behind_spot) {
-                let behind_group = groups
-                    .0
-                    .get(&behind_belt.0)
-                    .expect("All belts should be part of a group");
-                let mut g = belt_groups_query.get_mut(*behind_group).unwrap().clone();
-                println!("Frag: {rest:?}");
-                g.apply_fragment(rest);
-                let mut group = belt_groups_query.get_mut(*group_entity).unwrap();
-                group.join(g);
-                cmd.entity(*behind_group).despawn();
-            } else {
-                todo!();
-            }
-        } else {
-            todo!();
-        }
-    } else {
-        let belt_ahead = belt_coords
-            .get(&trigger.coords.step(trigger.new_belt.output_direction()))
-            .filter(|ahead| ahead.1 == trigger.new_belt.output_direction());
-        let belt_behind = belt_coords.get(
-            &trigger
-                .coords
-                .step(trigger.new_belt.input_direction().opposite()),
+        replace_belt(
+            trigger.clone(),
+            belt_coords.into_inner(),
+            groups.into_inner(),
+            belt_groups_query,
+            cmd,
+            old_belt,
         );
+    } else {
+        debug!("Creating new belt group");
+        debug!(
+            belt_ahead = ?trigger.belt_ahead,
+            belt_behind = ?trigger.belt_behind,
+            output_direction = ?trigger.new_belt.output_direction(),
+            "Checking belt connections from event"
+        );
+        let belt_ahead = trigger.belt_ahead.filter(|ahead| {
+            let matches = ahead.1.input_direction() == trigger.new_belt.output_direction();
+            debug!(
+                ahead_input = ?ahead.1.input_direction(),
+                new_output = ?trigger.new_belt.output_direction(),
+                matches = matches,
+                "Filter result for belt ahead connection"
+            );
+            matches
+        });
+        let belt_behind = trigger.belt_behind;
 
         match (belt_ahead, belt_behind) {
             (None, None) => {
@@ -215,9 +276,14 @@ fn on_belt_created(
                     .expect("Group should be created already");
                 belt_group.add_belt_at_tail(belt_entity, trigger.new_belt.number_of_positions());
                 groups.0.insert(belt_entity, group);
+                info!(
+                    belt = ?belt_entity,
+                    group = ?group,
+                    "Added belt to tail of group"
+                );
             }
-            (None, Some((belt_behind, dir))) => {
-                if dir == trigger.new_belt.input_direction() {
+            (None, Some((belt_behind, belt))) => {
+                if belt.output_direction() == trigger.new_belt.input_direction() {
                     {
                         let &group = groups
                             .0
@@ -229,6 +295,11 @@ fn on_belt_created(
                         belt_group
                             .add_belt_at_head(belt_entity, trigger.new_belt.number_of_positions());
                         groups.0.insert(belt_entity, group);
+                        info!(
+                            belt = ?belt_entity,
+                            group = ?group,
+                            "Added belt to head of group"
+                        );
                     }
                 } else {
                     spawn_new_group(trigger.clone(), cmd, &mut groups);
@@ -236,8 +307,8 @@ fn on_belt_created(
             }
             (Some(belt_ahead), Some(belt_behind)) => {
                 match (
-                    belt_ahead.1 == trigger.new_belt.output_direction(),
-                    belt_behind.1 == trigger.new_belt.output_direction(),
+                    belt_ahead.1.input_direction() == trigger.new_belt.output_direction(),
+                    belt_behind.1.output_direction() == trigger.new_belt.input_direction(),
                 ) {
                     (true, true) => {
                         let &group_behind = groups
@@ -273,10 +344,114 @@ fn on_belt_created(
         }
     }
 }
+
+#[instrument(skip_all)]
+fn replace_belt(
+    trigger: BeltCreated,
+    belt_coords: &BeltCoords,
+    groups: &mut BeltGroups,
+    mut belt_groups_query: Query<&mut BeltGroup>,
+    mut cmd: Commands,
+    old_belt: Belt,
+) {
+    info!("Replacing belt due to direction change");
+    assert_ne!(
+        old_belt.input_direction(),
+        trigger.new_belt.input_direction(),
+        "We assume the input direction of the old belt is different from the new belt"
+    );
+    // todo: check for input direction
+    let old = belt_coords.get(&trigger.coords.step(old_belt.input_direction().opposite()));
+    let new = belt_coords.get(
+        &trigger
+            .coords
+            .step(trigger.new_belt.input_direction().opposite()),
+    );
+    match (old, new) {
+        (None, None) => todo!("None, None"),
+        (None, Some(new_belt)) => {
+            let group = groups.0.get(&new_belt.0).unwrap().clone();
+            let mut new_belt_group = belt_groups_query.get(group).unwrap().clone();
+            let current_group_ent = groups.0.get(&trigger.entity).unwrap().clone();
+            let mut current_group = belt_groups_query.get_mut(current_group_ent).unwrap();
+            // Length change
+            if trigger.new_belt.number_of_positions() < old_belt.number_of_positions() {
+                let frag = current_group.truncate_by(
+                    old_belt.number_of_positions() - trigger.new_belt.number_of_positions(),
+                );
+                new_belt_group.apply_fragment(frag);
+            } else {
+                todo!("Handle this case");
+            }
+            current_group.join(new_belt_group);
+            reassing_belts_to_group(groups, current_group_ent, &current_group);
+            cmd.entity(group).despawn();
+        }
+        (Some(_), None) => todo!("Some, None"),
+        (Some(old), Some(new_fed_from_belt)) => {
+            assert_ne!(old.0, new_fed_from_belt.0, "Entities should be different");
+            // We are replacing a belt with a new one
+            // There are belts feeding into this one from the old belt and new belt
+
+            // split from previous
+            let current_group_ent = groups.0.get(&trigger.entity).unwrap();
+            let mut current_group = belt_groups_query.get_mut(*current_group_ent).unwrap();
+            debug!(current_group = ?&current_group, after = ?trigger.entity, "splitting group");
+            let leftover = current_group
+                .split_off_after(trigger.entity)
+                .expect("We should have been fed from this belt");
+            assert!(
+                !leftover
+                    .belts
+                    .belts
+                    .iter()
+                    .any(|b| b.1 == new_fed_from_belt.0)
+            );
+            let leftover_ent = cmd.spawn(leftover.clone()).id();
+            reassing_belts_to_group(groups, leftover_ent, &leftover);
+
+            // Join to new
+            let new_fed_from_group_ent = groups.0.get(&new_fed_from_belt.0).unwrap();
+            let new_fed_from_group = belt_groups_query
+                .get(*new_fed_from_group_ent)
+                .unwrap()
+                .clone();
+            assert!(
+                old_belt.number_of_positions() < trigger.new_belt.number_of_positions(),
+                "Belt should be straight"
+            );
+            let diff = trigger.new_belt.number_of_positions() - old_belt.number_of_positions();
+            let current_group_ent = groups.0.get(&trigger.entity).unwrap().clone();
+            let mut current_group = belt_groups_query.get_mut(current_group_ent).unwrap();
+
+            current_group.expand_by(diff);
+            current_group.join(new_fed_from_group);
+            reassing_belts_to_group(groups, current_group_ent, &current_group);
+        }
+    }
+}
+
+fn reassing_belts_to_group(groups: &mut BeltGroups, new_group_entity: Entity, group: &BeltGroup) {
+    for (_, belt) in &group.belts.belts {
+        groups.0.insert(*belt, new_group_entity);
+    }
+    info!(
+        new_group = ?new_group_entity,
+        belts = ?group.belts.belts.iter().map(|(_, b)| b).collect::<Vec<_>>(),
+        "Reassigned belts to new group"
+    );
+}
+
 fn spawn_new_group(trigger: BeltCreated, mut cmd: Commands, groups: &mut BeltGroups) {
     let group = BeltGroup::from_belt(trigger.entity);
-    let group_entity = cmd.spawn(group).id();
+    let group_entity = cmd.spawn(group.clone()).id();
     groups.0.insert(trigger.entity, group_entity);
+    info!(
+        belt = ?trigger.entity,
+        group = ?group_entity,
+        coords = ?trigger.coords,
+        "Spawned new belt group"
+    );
 }
 
 fn plan_item_movement(
@@ -327,7 +502,26 @@ mod tests {
     use pretty_assertions::{assert_eq, assert_ne};
 
     const FRAME_TIME: f32 = 1.0 / 60.0;
+
+    fn init_test_tracing() {
+        use std::sync::Once;
+        static INIT: Once = Once::new();
+        INIT.call_once(|| {
+            // Initialize tracing for tests - use RUST_LOG env var to control level
+            // Example: RUST_LOG=debug cargo test
+            let _ = bevy::log::tracing_subscriber::fmt()
+                .with_test_writer()
+                .without_time()
+                .with_env_filter(
+                    bevy::log::tracing_subscriber::EnvFilter::from_default_env()
+                        .add_directive("factory_game=debug".parse().unwrap()),
+                )
+                .try_init();
+        });
+    }
+
     fn test_app() -> App {
+        init_test_tracing();
         let mut app = core_test_app();
         app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f32(
             FRAME_TIME,
@@ -833,5 +1027,58 @@ mod tests {
         let actual = t.get_transform(item).translation;
         let expected = Vec3::new(17.0, 0.0, 2.0);
         assert_close(actual, expected);
+    }
+
+    #[test]
+    fn item_on_north_to_west_curve_at_halfway() {
+        let mut t = TestBuilder::new(test_app());
+        t.spawn_belt(WorldCoords { x: 0, y: 0 }, Direction::North);
+        t.spawn_belt(WorldCoords { x: 0, y: 1 }, Direction::West);
+        let item = t.with_item_at(101);
+
+        t.app.update();
+
+        let actual = t.get_transform(item).translation;
+        // At position 101 (halfway through curve), should be at 45 degrees
+        let expected = Vec3::new(
+            -TILE_SIZE * (0.5 - 0.5 * (PI / 4.0).sin()),
+            TILE_SIZE * (0.5 + 0.5 * (PI / 4.0).cos()),
+            2.0,
+        );
+
+        assert_close(actual, expected);
+    }
+
+    #[test]
+    fn curved_belt_with_north_input() {
+        let mut t = TestBuilder::new(test_app());
+        t.spawn_belt(WorldCoords { x: 0, y: 0 }, Direction::North);
+        t.spawn_belt(WorldCoords { x: 0, y: 1 }, Direction::West);
+        let item = t.with_item_at(0);
+
+        t.app.update();
+
+        // Item at position 0 on North→West curve
+        // Should be at entry point of the curve
+        let actual = t.get_transform(item).translation;
+        let expected = Vec3::new(-TILE_SIZE / 2.0, TILE_SIZE, 2.0);
+
+        assert_close(actual, expected);
+    }
+
+    #[test]
+    fn two_belt_point_in() {
+        let mut t = TestBuilder::new(test_app());
+        t.spawn_belt(WorldCoords { x: 0, y: 0 }, Direction::North);
+        t.spawn_belt(WorldCoords { x: 1, y: 0 }, Direction::West);
+        t.spawn_belt(WorldCoords { x: 0, y: -1 }, Direction::North);
+        let item = t.with_item_at(0);
+
+        t.app.update();
+
+        let actual = t.get_transform(item).translation;
+        let expected = Vec3::new(0.0, -TILE_SIZE / 2.0 + 1.0, 2.0);
+        println!("Actual: {:?}, Expected: {:?}", actual, expected);
+        assert_eq!(actual, expected);
     }
 }
