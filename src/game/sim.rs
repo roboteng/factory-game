@@ -225,13 +225,6 @@ fn on_belt_created(
     belt_coords: Res<BeltCoords>,
     mut belt_groups_query: Query<&mut BeltGroup>,
 ) {
-    info!(
-        entity = ?trigger.entity,
-        coords = ?trigger.coords,
-        belt = ?trigger.new_belt,
-        old_belt = ?trigger.old_belt,
-        "Belt created/updated"
-    );
     let belt_entity = trigger.entity;
     if let Some(old_belt) = trigger.old_belt {
         replace_belt(
@@ -244,23 +237,17 @@ fn on_belt_created(
         );
     } else {
         debug!("Creating new belt group");
-        debug!(
-            belt_ahead = ?trigger.belt_ahead,
-            belt_behind = ?trigger.belt_behind,
-            output_direction = ?trigger.new_belt.output_direction(),
-            "Checking belt connections from event"
+        let belt_ahead = belt_coords
+            .get(&trigger.coords_ahead())
+            .filter(|b| trigger.new_belt.feeds(&b.1));
+        let belt_behind = trigger.new_belt_behind;
+
+        assert_eq!(
+            belt_behind,
+            belt_coords
+                .get(&trigger.coords_behind())
+                .filter(|b| b.1.feeds(&trigger.new_belt))
         );
-        let belt_ahead = trigger.belt_ahead.filter(|ahead| {
-            let matches = ahead.1.input_direction() == trigger.new_belt.output_direction();
-            debug!(
-                ahead_input = ?ahead.1.input_direction(),
-                new_output = ?trigger.new_belt.output_direction(),
-                matches = matches,
-                "Filter result for belt ahead connection"
-            );
-            matches
-        });
-        let belt_behind = trigger.belt_behind;
 
         match (belt_ahead, belt_behind) {
             (None, None) => {
@@ -283,7 +270,7 @@ fn on_belt_created(
                 );
             }
             (None, Some((belt_behind, belt))) => {
-                if belt.output_direction() == trigger.new_belt.input_direction() {
+                if belt.feeds(&trigger.new_belt) {
                     {
                         let &group = groups
                             .0
@@ -307,8 +294,8 @@ fn on_belt_created(
             }
             (Some(belt_ahead), Some(belt_behind)) => {
                 match (
-                    belt_ahead.1.input_direction() == trigger.new_belt.output_direction(),
-                    belt_behind.1.output_direction() == trigger.new_belt.input_direction(),
+                    trigger.new_belt.feeds(&belt_ahead.1),
+                    belt_behind.1.feeds(&trigger.new_belt),
                 ) {
                     (true, true) => {
                         let &group_behind = groups
@@ -361,13 +348,10 @@ fn replace_belt(
         "We assume the input direction of the old belt is different from the new belt"
     );
     // todo: check for input direction
-    let old = belt_coords.get(&trigger.coords.step(old_belt.input_direction().opposite()));
-    let new = belt_coords.get(
-        &trigger
-            .coords
-            .step(trigger.new_belt.input_direction().opposite()),
-    );
-    match (old, new) {
+    let old_behind = belt_coords.get(&trigger.coords.step(old_belt.output_direction().opposite()));
+    let new_behind = belt_coords.get(&trigger.coords_behind());
+
+    match (old_behind, new_behind) {
         (None, None) => todo!("None, None"),
         (None, Some(new_belt)) => {
             let group = groups.0.get(&new_belt.0).unwrap().clone();
@@ -940,11 +924,12 @@ mod tests {
         assert_eq!(actual, expected);
     }
 
+    #[track_caller]
     fn assert_close(actual: Vec3, expected: Vec3) {
         let dist = actual.distance(expected);
 
         assert!(
-            dist < 1.5,
+            dist < 0.99,
             "Distance between \n{actual:?}\nand\n{expected:?}\nis {dist}",
         );
     }

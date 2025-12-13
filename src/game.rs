@@ -95,11 +95,21 @@ pub struct BeltCreated {
     pub entity: Entity,
     pub coords: WorldCoords,
     pub new_belt: Belt,
+    /// What the belt used to be
     pub old_belt: Option<Belt>,
-    /// Belt ahead at the time of creation (for checking connections)
-    pub belt_ahead: Option<(Entity, Belt)>,
-    /// Belt behind at the time of creation (for checking connections)
-    pub belt_behind: Option<(Entity, Belt)>,
+    /// Belt behind at the time of creation
+    pub old_belt_behind: Option<(Entity, Belt)>,
+    /// Current belt behind
+    pub new_belt_behind: Option<(Entity, Belt)>,
+}
+
+impl BeltCreated {
+    pub fn coords_ahead(&self) -> WorldCoords {
+        self.coords.step(self.new_belt.output_direction())
+    }
+    pub fn coords_behind(&self) -> WorldCoords {
+        self.coords.step(self.new_belt.input_direction().opposite())
+    }
 }
 
 pub enum Curvature {
@@ -145,8 +155,10 @@ fn create_belt(trigger: CreateBelt, belt_coords: &BeltCoords) -> (Belt, BeltCrea
                     coords: trigger.coords,
                     new_belt: belt,
                     old_belt: None,
-                    belt_ahead: None,
-                    belt_behind: None,
+                    new_belt_behind: belt_coords
+                        .get(&trigger.coords.step(belt.input_direction().opposite()))
+                        .filter(|b| b.1.output_direction() == belt.input_direction()),
+                    old_belt_behind: None,
                 },
             )
         }
@@ -160,8 +172,10 @@ fn create_belt(trigger: CreateBelt, belt_coords: &BeltCoords) -> (Belt, BeltCrea
                     coords: trigger.coords,
                     new_belt: belt,
                     old_belt: None,
-                    belt_ahead: None,
-                    belt_behind: None,
+                    new_belt_behind: belt_coords
+                        .get(&trigger.coords.step(belt.input_direction().opposite()))
+                        .filter(|b| b.1.output_direction() == belt.input_direction()),
+                    old_belt_behind: None,
                 },
             )
         }
@@ -175,8 +189,10 @@ fn create_belt(trigger: CreateBelt, belt_coords: &BeltCoords) -> (Belt, BeltCrea
                     coords: trigger.coords,
                     new_belt: belt,
                     old_belt: None,
-                    belt_ahead: None,
-                    belt_behind: None,
+                    new_belt_behind: belt_coords
+                        .get(&trigger.coords.step(belt.input_direction().opposite()))
+                        .filter(|b| b.1.output_direction() == belt.input_direction()),
+                    old_belt_behind: None,
                 },
             )
         }
@@ -190,11 +206,7 @@ fn on_create_belt(
     mut belt_coords: ResMut<BeltCoords>,
     belts: Query<&Belt>,
 ) {
-    let (belt, mut belt_created) = create_belt(trigger.clone(), &belt_coords);
-
-    // Capture belt ahead/behind state before updating belt_coords
-    belt_created.belt_ahead = belt_coords.get(&trigger.coords.step(trigger.dir));
-    belt_created.belt_behind = belt_coords.get(&trigger.coords.step(trigger.dir.opposite()));
+    let (belt, belt_created) = create_belt(trigger.clone(), &belt_coords);
 
     // Update belt_coords immediately
     belt_coords.insert(trigger.coords, trigger.entity, belt);
@@ -222,20 +234,17 @@ fn on_create_belt(
             dir: belt.output_direction(),
         };
         let (new_belt, mut belt_created) = create_belt(k, &belt_coords);
-        let b = belts.get(e).unwrap();
-        if *b != new_belt {
+        let previous_belt = belts.get(e).unwrap();
+        if *previous_belt != new_belt {
             cmd.entity(e).insert(new_belt);
-            belt_created.old_belt = Some(*b);
+            belt_created.old_belt = Some(*previous_belt);
 
             // Capture belt ahead/behind state before updating belt_coords
-            let ahead_coords = belt_created.coords.step(new_belt.output_direction());
             let behind_coords = belt_created
                 .coords
-                .step(new_belt.input_direction().opposite());
-            belt_created.belt_ahead = belt_coords.get(&ahead_coords);
-            belt_created.belt_behind = belt_coords.get(&behind_coords);
+                .step(previous_belt.input_direction().opposite());
+            belt_created.old_belt_behind = belt_coords.get(&behind_coords);
 
-            // Update belt_coords immediately
             belt_coords.insert(belt_created.coords, belt_created.entity, new_belt);
             debug!(
                 coords = ?belt_created.coords,
@@ -443,6 +452,10 @@ impl Belt {
             BeltShape::Straight(_) => POSITIONS_PER_TILE,
             BeltShape::Curve(_, _) => 201,
         }
+    }
+
+    pub fn feeds(&self, other: &Self) -> bool {
+        self.output_direction() == other.input_direction()
     }
 }
 
