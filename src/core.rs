@@ -21,7 +21,7 @@ pub struct BeltPlaced {
     coords: WorldCoords,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Direction {
     North,
     East,
@@ -61,9 +61,12 @@ pub enum Belt {
 }
 
 fn on_place_belt(trigger: On<PlaceBelt>, mut cmd: Commands) {
-    debug!("Placing belt at {:?}", trigger.coords);
+    debug!(
+        "Placing belt at {:?} facing {:?}",
+        trigger.coords, trigger.dir
+    );
     cmd.entity(trigger.entity)
-        .insert((Belt::Straight(Direction::East), WorldCoords::new(0, 0)));
+        .insert((Belt::Straight(trigger.dir), WorldCoords::new(0, 0)));
 }
 
 #[cfg(test)]
@@ -93,23 +96,49 @@ mod tests {
         app
     }
 
+    trait AppExtension {
+        fn add_belt(&mut self, coords: impl Into<WorldCoords>, dir: Direction) -> Entity;
+        fn find_belt(&mut self, entity: Entity) -> Option<(Belt, WorldCoords)>;
+    }
+
+    impl AppExtension for App {
+        fn add_belt(&mut self, coords: impl Into<WorldCoords>, dir: Direction) -> Entity {
+            let entity = self.world_mut().spawn_empty().id();
+            self.world_mut().trigger(PlaceBelt {
+                entity,
+                dir,
+                coords: coords.into(),
+            });
+            entity
+        }
+        fn find_belt(&mut self, entity: Entity) -> Option<(Belt, WorldCoords)> {
+            self.world_mut()
+                .query::<(&Belt, &WorldCoords)>()
+                .get(self.world_mut(), entity)
+                .map(|(belt, coords)| (belt.clone(), coords.clone()))
+                .ok()
+        }
+    }
+
     #[test]
-    fn place_single_belt() {
+    fn place_single_belt_east() {
         let mut app = test_app();
-        let entity = app.world_mut().spawn_empty().id();
-        app.world_mut().trigger(PlaceBelt {
-            entity,
-            dir: Direction::East,
-            coords: (0, 0).into(),
-        });
+        let entity = app.add_belt((0, 0), Direction::East);
 
         app.update();
-        let world = app.world_mut();
-        let actual = world
-            .query::<(&Belt, &WorldCoords)>()
-            .get(world, entity)
-            .unwrap();
-        let expected = (&Belt::Straight(Direction::East), &(0, 0).into());
+        let actual = app.find_belt(entity).unwrap();
+        let expected = (Belt::Straight(Direction::East), (0, 0).into());
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn place_single_belt_north() {
+        let mut app = test_app();
+        let entity = app.add_belt((0, 0), Direction::North);
+
+        app.update();
+        let actual = app.find_belt(entity).unwrap();
+        let expected = (Belt::Straight(Direction::North), (0, 0).into());
         assert_eq!(actual, expected);
     }
 }
