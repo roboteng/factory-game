@@ -61,7 +61,7 @@ pub enum Belt {
 }
 
 fn on_place_belt(trigger: On<PlaceBelt>, mut cmd: Commands) {
-    println!("Placing belt at {:?}", trigger.coords);
+    debug!("Placing belt at {:?}", trigger.coords);
     cmd.entity(trigger.entity)
         .insert((Belt::Straight(Direction::East), WorldCoords::new(0, 0)));
 }
@@ -71,8 +71,22 @@ mod tests {
     use super::*;
     #[allow(unused_imports)]
     use pretty_assertions::{assert_eq, assert_ne, assert_str_eq};
+    use tracing_subscriber::{EnvFilter, fmt};
+
+    fn init_tracing() {
+        let _ = fmt()
+            .with_env_filter(
+                EnvFilter::try_from_default_env()
+                    .unwrap_or_else(|_| EnvFilter::new("warn,factory_game=debug")),
+            )
+            .with_target(false)
+            .with_test_writer()
+            .without_time()
+            .try_init();
+    }
 
     fn test_app() -> App {
+        init_tracing();
         let mut app = App::new();
         app.add_plugins(MinimalPlugins);
         app.add_plugins(CorePlugin);
