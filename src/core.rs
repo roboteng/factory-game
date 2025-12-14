@@ -10,7 +10,7 @@ impl Plugin for CorePlugin {
     }
 }
 
-#[derive(EntityEvent)]
+#[derive(EntityEvent, Clone, Debug, PartialEq, Eq)]
 pub struct PlaceBelt {
     entity: Entity,
     dir: Dir,
@@ -151,6 +151,26 @@ fn on_place_belt(trigger: On<PlaceBelt>, mut cmd: Commands, mut belt_coords: Res
         "Placing belt at {:?} facing {:?}",
         trigger.coords, trigger.dir
     );
+    place_belt(cmd.reborrow(), &mut belt_coords, trigger.event().clone());
+    let ahead = trigger.coords.step(trigger.dir);
+    belt_coords.get(ahead.clone()).map(|(entity, belt)| {
+        let place = PlaceBelt {
+            entity,
+            dir: belt.output(),
+            coords: ahead.clone(),
+        };
+        place_belt(cmd, &mut belt_coords, place);
+    });
+}
+
+fn place_belt(mut cmd: Commands, belt_coords: &mut BeltCoords, place: PlaceBelt) {
+    let belt = plan_belt_placement(&place, &belt_coords);
+    cmd.entity(place.entity)
+        .insert((belt, place.coords.clone()));
+    belt_coords.insert(place.coords.clone(), place.entity, belt);
+}
+
+fn plan_belt_placement(trigger: &PlaceBelt, belt_coords: &BeltCoords) -> Belt {
     let left = trigger.coords.step(trigger.dir.left());
     let right = trigger.coords.step(trigger.dir.right());
     let behind = trigger.coords.step(trigger.dir.opposite());
@@ -182,9 +202,7 @@ fn on_place_belt(trigger: On<PlaceBelt>, mut cmd: Commands, mut belt_coords: Res
         },
     };
     assert_eq!(belt.output(), trigger.dir);
-    cmd.entity(trigger.entity)
-        .insert((belt, trigger.coords.clone()));
-    belt_coords.insert(trigger.coords.clone(), trigger.entity, belt);
+    belt
 }
 
 #[cfg(test)]
@@ -315,6 +333,18 @@ mod tests {
         app.update();
         let actual = app.find_belt_at((0, 0)).unwrap();
         let expected = Belt::Straight(Dir::North);
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn place_belt_beside_curves_it() {
+        let mut app = test_app();
+        app.add_belt((1, 0), Dir::North);
+        app.add_belt((0, 0), Dir::East);
+
+        app.update();
+        let actual = app.find_belt_at((1, 0)).unwrap();
+        let expected = Belt::CurvedEastToNorth;
         assert_eq!(actual, expected);
     }
 }
