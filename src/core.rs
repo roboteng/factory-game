@@ -152,15 +152,36 @@ fn on_place_belt(trigger: On<PlaceBelt>, mut cmd: Commands, mut belt_coords: Res
         trigger.coords, trigger.dir
     );
     let left = trigger.coords.step(trigger.dir.left());
+    let right = trigger.coords.step(trigger.dir.right());
+    let behind = trigger.coords.step(trigger.dir.opposite());
     let fed_from_left = belt_coords
         .get(left)
         .map(|(_, belt)| belt.output() == trigger.dir.right())
         .unwrap_or(false);
-    let belt = if fed_from_left {
-        Belt::CurvedEastToNorth
-    } else {
-        Belt::Straight(trigger.dir)
+    let fed_from_right = belt_coords
+        .get(right)
+        .map(|(_, belt)| belt.output() == trigger.dir.left())
+        .unwrap_or(false);
+    let fed_from_behind = belt_coords
+        .get(behind)
+        .map(|(_, belt)| belt.output() == trigger.dir)
+        .unwrap_or(false);
+    let belt = match (fed_from_left, fed_from_behind, fed_from_right) {
+        (true, _, true) | (false, _, false) | (_, true, _) => Belt::Straight(trigger.dir),
+        (true, false, false) => match trigger.dir {
+            Dir::North => Belt::CurvedEastToNorth,
+            Dir::East => Belt::CurvedSouthToEast,
+            Dir::South => Belt::CurvedWestToSouth,
+            Dir::West => Belt::CurvedNorthToWest,
+        },
+        (false, false, true) => match trigger.dir {
+            Dir::North => Belt::CurvedWestToNorth,
+            Dir::East => Belt::CurvedNorthToEast,
+            Dir::South => Belt::CurvedEastToSouth,
+            Dir::West => Belt::CurvedSouthToWest,
+        },
     };
+    assert_eq!(belt.output(), trigger.dir);
     cmd.entity(trigger.entity)
         .insert((belt, trigger.coords.clone()));
     belt_coords.insert(trigger.coords.clone(), trigger.entity, belt);
@@ -269,6 +290,31 @@ mod tests {
         app.update();
         let actual = app.find_belt_at((1, 0)).unwrap();
         let expected = Belt::CurvedEastToNorth;
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn place_belt_ahead_curves_it_right() {
+        let mut app = test_app();
+        app.add_belt((0, 0), Dir::East);
+        app.add_belt((1, 0), Dir::South);
+
+        app.update();
+        let actual = app.find_belt_at((1, 0)).unwrap();
+        let expected = Belt::CurvedEastToSouth;
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn place_belt_two_inputs_straight() {
+        let mut app = test_app();
+        app.add_belt((1, 0), Dir::West);
+        app.add_belt((-1, 0), Dir::East);
+        app.add_belt((0, 0), Dir::North);
+
+        app.update();
+        let actual = app.find_belt_at((0, 0)).unwrap();
+        let expected = Belt::Straight(Dir::North);
         assert_eq!(actual, expected);
     }
 }
