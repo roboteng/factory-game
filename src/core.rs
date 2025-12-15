@@ -12,9 +12,9 @@ impl Plugin for CorePlugin {
 
 #[derive(EntityEvent, Clone, Debug, PartialEq, Eq)]
 pub struct PlaceBelt {
-    entity: Entity,
-    dir: Dir,
-    coords: WorldCoords,
+    pub entity: Entity,
+    pub dir: Dir,
+    pub coords: WorldCoords,
 }
 
 #[derive(EntityEvent, Clone, Debug, PartialEq, Eq)]
@@ -151,7 +151,12 @@ fn on_place_belt(trigger: On<PlaceBelt>, mut cmd: Commands, mut belt_coords: Res
         "Placing belt at {:?} facing {:?}",
         trigger.coords, trigger.dir
     );
-    place_belt(cmd.reborrow(), &mut belt_coords, trigger.event().clone());
+
+    let belt = plan_belt_placement(&trigger, &belt_coords);
+    cmd.entity(trigger.entity)
+        .insert((belt, trigger.coords.clone()));
+    belt_coords.insert(trigger.coords.clone(), trigger.entity, belt);
+
     let ahead = trigger.coords.step(trigger.dir);
     belt_coords.get(ahead.clone()).map(|(entity, belt)| {
         let place = PlaceBelt {
@@ -159,15 +164,11 @@ fn on_place_belt(trigger: On<PlaceBelt>, mut cmd: Commands, mut belt_coords: Res
             dir: belt.output(),
             coords: ahead.clone(),
         };
-        place_belt(cmd, &mut belt_coords, place);
+        let belt = plan_belt_placement(&place, &belt_coords);
+        cmd.entity(place.entity)
+            .insert((belt, place.coords.clone()));
+        belt_coords.insert(place.coords.clone(), place.entity, belt);
     });
-}
-
-fn place_belt(mut cmd: Commands, belt_coords: &mut BeltCoords, place: PlaceBelt) {
-    let belt = plan_belt_placement(&place, &belt_coords);
-    cmd.entity(place.entity)
-        .insert((belt, place.coords.clone()));
-    belt_coords.insert(place.coords.clone(), place.entity, belt);
 }
 
 fn plan_belt_placement(trigger: &PlaceBelt, belt_coords: &BeltCoords) -> Belt {
