@@ -2,10 +2,13 @@ use std::collections::HashMap;
 
 use bevy::prelude::*;
 
+pub const TILE_SIZE: f32 = 32.0;
+
 pub struct CorePlugin;
 impl Plugin for CorePlugin {
     fn build(&self, app: &mut App) {
         app.add_observer(on_place_belt);
+        app.add_observer(on_place_item);
         app.init_resource::<BeltCoords>();
     }
 }
@@ -15,6 +18,14 @@ pub struct PlaceBelt {
     pub entity: Entity,
     pub dir: Dir,
     pub coords: WorldCoords,
+}
+
+#[derive(EntityEvent, Clone, Debug, PartialEq, Eq)]
+pub struct PlaceItem {
+    pub entity: Entity,
+    pub belt: Entity,
+    pub pos: u16,
+    pub item: Item,
 }
 
 #[derive(EntityEvent, Clone, Debug, PartialEq, Eq)]
@@ -153,6 +164,9 @@ impl Belt {
     }
 }
 
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Item;
+
 #[derive(Resource, Default)]
 struct BeltCoords(HashMap<WorldCoords, (Entity, Belt)>);
 impl BeltCoords {
@@ -226,66 +240,106 @@ fn plan_belt_placement(trigger: &PlaceBelt, belt_coords: &BeltCoords) -> Belt {
     belt
 }
 
+fn on_place_item(trigger: On<PlaceItem>, mut cmd: Commands, belts: Query<&Belt>) {
+    let Ok(belt) = belts.get(trigger.belt) else {
+        return;
+    };
+    let transform = match belt {
+        Belt::Straight(dir) => match dir {
+            Dir::North => Transform::from_xyz(0.0, TILE_SIZE / 2.0, 2.0),
+            Dir::East => Transform::from_xyz(TILE_SIZE / 2.0, 0.0, 2.0),
+            _ => todo!(),
+        },
+        _ => todo!(),
+    };
+    cmd.entity(trigger.entity).insert((Item, transform));
+}
+
+#[cfg(test)]
+fn init_tracing() {
+    use tracing_subscriber::{EnvFilter, fmt};
+    let _ = fmt()
+        .with_env_filter(
+            EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| EnvFilter::new("warn,factory_game=debug")),
+        )
+        .with_target(false)
+        .with_test_writer()
+        .without_time()
+        .try_init();
+}
+
+#[cfg(test)]
+pub fn test_app() -> App {
+    init_tracing();
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins);
+    app.add_plugins(CorePlugin);
+    app
+}
+
+#[cfg(test)]
+pub trait AppExtension {
+    fn add_belt(&mut self, coords: impl Into<WorldCoords>, dir: Dir) -> Entity;
+    fn find_belt(&mut self, entity: Entity) -> Option<(Belt, WorldCoords)>;
+    fn find_belt_at(&mut self, coords: impl Into<WorldCoords>) -> Option<Belt>;
+    fn add_item(&mut self, belt: Entity, index: u16) -> Entity;
+    fn find_item(&mut self, item: Entity) -> Option<(Item, Transform)>;
+}
+
+#[cfg(test)]
+impl AppExtension for App {
+    fn add_belt(&mut self, coords: impl Into<WorldCoords>, dir: Dir) -> Entity {
+        let entity = self.world_mut().spawn_empty().id();
+        self.world_mut().trigger(PlaceBelt {
+            entity,
+            dir,
+            coords: coords.into(),
+        });
+        entity
+    }
+    fn find_belt(&mut self, entity: Entity) -> Option<(Belt, WorldCoords)> {
+        self.world_mut()
+            .query::<(&Belt, &WorldCoords)>()
+            .get(self.world_mut(), entity)
+            .map(|(belt, coords)| (belt.clone(), *coords))
+            .ok()
+    }
+
+    fn find_belt_at(&mut self, coords: impl Into<WorldCoords>) -> Option<Belt> {
+        let coords = coords.into();
+        self.world_mut()
+            .query::<(&Belt, &WorldCoords)>()
+            .iter(self.world_mut())
+            .find(|(_, coords2)| &&coords == coords2)
+            .map(|(belt, _)| belt.clone())
+    }
+    fn add_item(&mut self, belt: Entity, index: u16) -> Entity {
+        let entity = self.world_mut().spawn_empty().id();
+        self.world_mut().trigger(PlaceItem {
+            entity,
+            belt,
+            pos: index,
+            item: Item,
+        });
+        entity
+    }
+
+    fn find_item(&mut self, item: Entity) -> Option<(Item, Transform)> {
+        let world = self.world_mut();
+        world
+            .query::<(&Item, &Transform)>()
+            .get(world, item)
+            .ok()
+            .map(|(item, transform)| (*item, *transform))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     #[allow(unused_imports)]
     use pretty_assertions::{assert_eq, assert_ne, assert_str_eq};
-    use tracing_subscriber::{EnvFilter, fmt};
-
-    fn init_tracing() {
-        let _ = fmt()
-            .with_env_filter(
-                EnvFilter::try_from_default_env()
-                    .unwrap_or_else(|_| EnvFilter::new("warn,factory_game=debug")),
-            )
-            .with_target(false)
-            .with_test_writer()
-            .without_time()
-            .try_init();
-    }
-
-    fn test_app() -> App {
-        init_tracing();
-        let mut app = App::new();
-        app.add_plugins(MinimalPlugins);
-        app.add_plugins(CorePlugin);
-        app
-    }
-
-    trait AppExtension {
-        fn add_belt(&mut self, coords: impl Into<WorldCoords>, dir: Dir) -> Entity;
-        fn find_belt(&mut self, entity: Entity) -> Option<(Belt, WorldCoords)>;
-        fn find_belt_at(&mut self, coords: impl Into<WorldCoords>) -> Option<Belt>;
-    }
-
-    impl AppExtension for App {
-        fn add_belt(&mut self, coords: impl Into<WorldCoords>, dir: Dir) -> Entity {
-            let entity = self.world_mut().spawn_empty().id();
-            self.world_mut().trigger(PlaceBelt {
-                entity,
-                dir,
-                coords: coords.into(),
-            });
-            entity
-        }
-        fn find_belt(&mut self, entity: Entity) -> Option<(Belt, WorldCoords)> {
-            self.world_mut()
-                .query::<(&Belt, &WorldCoords)>()
-                .get(self.world_mut(), entity)
-                .map(|(belt, coords)| (belt.clone(), *coords))
-                .ok()
-        }
-
-        fn find_belt_at(&mut self, coords: impl Into<WorldCoords>) -> Option<Belt> {
-            let coords = coords.into();
-            self.world_mut()
-                .query::<(&Belt, &WorldCoords)>()
-                .iter(self.world_mut())
-                .find(|(_, coords2)| &&coords == coords2)
-                .map(|(belt, _)| belt.clone())
-        }
-    }
 
     #[test]
     fn place_single_belt_east() {
@@ -378,5 +432,35 @@ mod tests {
         let actual = app.find_belt_at((0, 0)).unwrap();
         assert_eq!(actual, Belt::Straight(Dir::North));
         assert!(app.find_belt(belt1).is_none());
+    }
+
+    #[test]
+    fn items_placed_on_belt_east() {
+        let mut app = test_app();
+        let belt = app.add_belt((0, 0), Dir::East);
+        app.update();
+
+        let item = app.add_item(belt, 0);
+        app.update();
+
+        assert_eq!(
+            app.find_item(item),
+            Some((Item, Transform::from_xyz(TILE_SIZE / 2.0, 0.0, 2.0)))
+        );
+    }
+
+    #[test]
+    fn items_placed_on_belt_north() {
+        let mut app = test_app();
+        let belt = app.add_belt((0, 0), Dir::North);
+        app.update();
+
+        let item = app.add_item(belt, 0);
+        app.update();
+
+        assert_eq!(
+            app.find_item(item),
+            Some((Item, Transform::from_xyz(0.0, TILE_SIZE / 2.0, 2.0)))
+        );
     }
 }

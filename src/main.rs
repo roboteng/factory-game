@@ -1,11 +1,13 @@
 use bevy::prelude::*;
 
 use crate::core::*;
-use crate::player::*;
-use crate::ui::*;
+use crate::player::PlayerPlugin;
+use crate::sim::SimPlugin;
+use crate::ui::UiPlugin;
 
 mod core;
 mod player;
+mod sim;
 mod ui;
 
 fn main() {
@@ -14,6 +16,7 @@ fn main() {
     app.add_plugins(CorePlugin);
     app.add_plugins(UiPlugin);
     app.add_plugins(PlayerPlugin);
+    app.add_plugins(SimPlugin);
     app.add_systems(Startup, startup);
     app.run();
 }
