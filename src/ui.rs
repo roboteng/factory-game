@@ -14,13 +14,15 @@ fn setup_ui(mut commands: Commands) {
 }
 
 fn apply_belt_sprites(
-    belts: Query<(Entity, &Belt), Changed<Belt>>,
+    belts: Query<(Entity, &Belt, &WorldCoords), Changed<Belt>>,
     assets: Res<AssetServer>,
     mut cmd: Commands,
 ) {
     let belt_mesh = assets.load("sprites/belt.png");
-    for (ent, belt) in belts.iter() {
-        cmd.entity(ent)
-            .insert(Sprite::from_image(belt_mesh.clone()));
+    for (ent, belt, coords) in belts.iter() {
+        cmd.entity(ent).insert((
+            Sprite::from_image(belt_mesh.clone()),
+            Transform::from_xyz(coords.x as f32 * 32.0, coords.y as f32 * 32.0, 1.0),
+        ));
     }
 }
