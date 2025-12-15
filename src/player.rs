@@ -97,7 +97,7 @@ fn update_ghost_preview(
 
             // Update the ghost with all components at once
             cmd.entity(ghost_entity).insert((
-                coords.clone(),
+                coords,
                 sprite,
                 Transform::from_xyz(coords.x as f32 * 32.0, coords.y as f32 * 32.0, 0.5)
                     .with_rotation(Quat::from_axis_angle(Vec3::Z, angle)),

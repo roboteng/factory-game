@@ -65,7 +65,7 @@ impl From<Dir> for Vec2 {
     }
 }
 
-#[derive(Component, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct WorldCoords {
     pub x: i32,
     pub y: i32,
@@ -170,10 +170,13 @@ fn on_place_belt(trigger: On<PlaceBelt>, mut cmd: Commands, mut belt_coords: Res
         trigger.coords, trigger.dir
     );
 
+    if let Some(prev) = belt_coords.get(trigger.coords) {
+        cmd.entity(prev.0).despawn();
+    }
+
     let belt = plan_belt_placement(&trigger, &belt_coords);
-    cmd.entity(trigger.entity)
-        .insert((belt, trigger.coords.clone()));
-    belt_coords.insert(trigger.coords.clone(), trigger.entity, belt);
+    cmd.entity(trigger.entity).insert((belt, trigger.coords));
+    belt_coords.insert(trigger.coords, trigger.entity, belt);
 
     let ahead = trigger.coords.step(trigger.dir);
     belt_coords.get(ahead.clone()).map(|(entity, belt)| {
@@ -183,9 +186,8 @@ fn on_place_belt(trigger: On<PlaceBelt>, mut cmd: Commands, mut belt_coords: Res
             coords: ahead.clone(),
         };
         let belt = plan_belt_placement(&place, &belt_coords);
-        cmd.entity(place.entity)
-            .insert((belt, place.coords.clone()));
-        belt_coords.insert(place.coords.clone(), place.entity, belt);
+        cmd.entity(place.entity).insert((belt, place.coords));
+        belt_coords.insert(place.coords, place.entity, belt);
     });
 }
 
@@ -271,7 +273,7 @@ mod tests {
             self.world_mut()
                 .query::<(&Belt, &WorldCoords)>()
                 .get(self.world_mut(), entity)
-                .map(|(belt, coords)| (belt.clone(), coords.clone()))
+                .map(|(belt, coords)| (belt.clone(), *coords))
                 .ok()
         }
 
@@ -365,5 +367,16 @@ mod tests {
         let actual = app.find_belt_at((1, 0)).unwrap();
         let expected = Belt::CurvedEastToNorth;
         assert_eq!(actual, expected);
+    }
+    #[test]
+    fn placing_belt_on_anther_belt_removes_it() {
+        let mut app = test_app();
+        let belt1 = app.add_belt((0, 0), Dir::East);
+        app.add_belt((0, 0), Dir::North);
+
+        app.update();
+        let actual = app.find_belt_at((0, 0)).unwrap();
+        assert_eq!(actual, Belt::Straight(Dir::North));
+        assert!(app.find_belt(belt1).is_none());
     }
 }
