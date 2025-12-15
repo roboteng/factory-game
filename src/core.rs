@@ -54,6 +54,17 @@ impl Dir {
     }
 }
 
+impl From<Dir> for Vec2 {
+    fn from(dir: Dir) -> Self {
+        match dir {
+            Dir::North => Vec2::Y,
+            Dir::East => Vec2::X,
+            Dir::South => Vec2::NEG_Y,
+            Dir::West => Vec2::NEG_X,
+        }
+    }
+}
+
 #[derive(Component, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct WorldCoords {
     pub x: i32,
