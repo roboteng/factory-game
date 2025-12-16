@@ -1,9 +1,10 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, f32::consts::PI};
 
 use bevy::prelude::*;
 
 pub const TILE_SIZE: f32 = 32.0;
 pub const POSITIONS_PER_TILE: u16 = 256;
+pub const POSITIONS_PER_CURVED_TILE: u16 = 201; // POSITIONS_PER_TILE * Pi / 4
 
 pub struct CorePlugin;
 impl Plugin for CorePlugin {
@@ -84,7 +85,6 @@ pub struct WorldCoords {
 }
 
 impl WorldCoords {
-    #[expect(dead_code)]
     pub fn new(x: i32, y: i32) -> Self {
         Self { x, y }
     }
@@ -173,19 +173,65 @@ impl Belt {
 
     pub fn item_transform(&self, pos: u16, coords: WorldCoords) -> Transform {
         let world_offset = Vec2::from(coords);
-        let start = Vec2::from(self.output());
-        let end = Vec2::from(self.input().opposite());
-        let mid = start.lerp(end, pos as f32 / POSITIONS_PER_TILE as f32);
-        Transform::from_xyz(
-            world_offset.x + mid.x * TILE_SIZE / 2.0,
-            world_offset.y + mid.y * TILE_SIZE / 2.0,
-            2.0,
-        )
+        match self {
+            Self::Straight(_) => {
+                let start = Vec2::from(self.output());
+                let end = Vec2::from(self.input().opposite());
+                let mid = start.lerp(end, pos as f32 / POSITIONS_PER_TILE as f32);
+                Item::transform(world_offset + mid * TILE_SIZE / 2.0)
+            }
+            _ => {
+                let center_offset =
+                    (Vec2::from(self.input().opposite()) + Vec2::from(self.output())) * TILE_SIZE
+                        / 2.0;
+                let angle = pos as f32 / POSITIONS_PER_CURVED_TILE as f32 * PI / 2.0;
+                let angle_offset = Vec2::X.angle_to(Vec2::from(self.input()));
+                debug!(
+                    "angle_offset: {}*PI, angle: {}*PI",
+                    angle_offset / PI,
+                    angle / PI
+                );
+                let angle = match self.curvature().unwrap() {
+                    CurveDir::CW => angle + angle_offset,
+                    CurveDir::CCW => -angle + angle_offset,
+                };
+                Item::transform(
+                    Vec2::from_angle(angle) * TILE_SIZE / 2.0 + center_offset + world_offset,
+                )
+            }
+        }
     }
+
+    pub fn curvature(&self) -> Option<CurveDir> {
+        match self {
+            Self::Straight(_) => None,
+            Self::CurvedEastToNorth
+            | Self::CurvedNorthToWest
+            | Self::CurvedWestToSouth
+            | Self::CurvedSouthToEast => Some(CurveDir::CCW),
+            Self::CurvedNorthToEast
+            | Self::CurvedEastToSouth
+            | Self::CurvedSouthToWest
+            | Self::CurvedWestToNorth => Some(CurveDir::CW),
+        }
+    }
+}
+
+pub enum CurveDir {
+    /// Clockwise
+    CW,
+    /// Counter-clockwise
+    CCW,
 }
 
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Item;
+
+impl Item {
+    pub fn transform(vec: Vec2) -> Transform {
+        Transform::from_xyz(vec.x, vec.y, 2.0)
+    }
+}
 
 #[derive(Resource, Default)]
 pub struct BeltCoords(HashMap<WorldCoords, (Entity, Belt)>);
@@ -351,6 +397,8 @@ impl AppExtension for App {
 
 #[cfg(test)]
 mod tests {
+    use std::f32::consts::PI;
+
     use super::*;
     #[allow(unused_imports)]
     use pretty_assertions::{assert_eq, assert_ne, assert_str_eq};
@@ -505,6 +553,118 @@ mod tests {
         assert_eq!(
             app.find_item(item),
             Some((Item, Transform::from_xyz(0.0, 0.0, 2.0)))
+        );
+    }
+
+    #[test]
+    fn items_placed_on_curved_belt() {
+        let mut app = test_app();
+        app.add_belt((-1, 0), Dir::East);
+        let belt = app.add_belt((0, 0), Dir::North);
+        app.update();
+
+        let item = app.add_item(belt, 0);
+        app.update();
+
+        assert_eq!(
+            app.find_item(item),
+            Some((Item, Transform::from_xyz(0.0, TILE_SIZE / 2.0, 2.0)))
+        );
+    }
+
+    #[test]
+    fn items_placed_on_curved_belt_halfway() {
+        let mut app = test_app();
+        app.add_belt((-1, 0), Dir::East);
+        let belt = app.add_belt((0, 0), Dir::North);
+        app.update();
+
+        let item = app.add_item(belt, POSITIONS_PER_CURVED_TILE / 2);
+        app.update();
+        let actual = app.find_item(item).unwrap().1;
+        let expected = Transform::from_xyz(
+            -TILE_SIZE / 2.0 + (PI / 4.0).cos() * TILE_SIZE / 2.0,
+            TILE_SIZE / 2.0 - (PI / 4.0).cos() * TILE_SIZE / 2.0,
+            2.0,
+        );
+        let dist = actual.translation.distance(expected.translation);
+        let margin = 0.1;
+        assert!(
+            dist < margin,
+            "Distance between\n\t{:?}\nand\n\t{:?}\nwas not within margin",
+            actual.translation,
+            expected.translation
+        );
+    }
+
+    #[test]
+    fn items_placed_on_curved_belt_north_to_west() {
+        let mut app = test_app();
+        app.add_belt((0, -1), Dir::North);
+        let belt = app.add_belt((0, 0), Dir::West);
+        app.update();
+
+        let item = app.add_item(belt, 0);
+        app.update();
+        let actual = app.find_item(item).unwrap().1;
+        let expected = Transform::from_xyz(-TILE_SIZE / 2.0, 0.0, 2.0);
+        let dist = actual.translation.distance(expected.translation);
+        let margin = 0.1;
+        assert!(
+            dist < margin,
+            "Distance between\n\t{:?}\nand\n\t{:?}\nwas not within margin",
+            actual.translation,
+            expected.translation
+        );
+    }
+
+    #[test]
+    fn items_placed_on_curved_belt_north_to_west_halfway() {
+        let mut app = test_app();
+        app.add_belt((0, -1), Dir::North);
+        let belt = app.add_belt((0, 0), Dir::West);
+        app.update();
+
+        let item = app.add_item(belt, POSITIONS_PER_CURVED_TILE / 2);
+        app.update();
+        let actual = app.find_item(item).unwrap().1;
+        let expected = Transform::from_xyz(
+            -TILE_SIZE / 2.0 + (PI / 4.0).cos() * TILE_SIZE / 2.0,
+            -TILE_SIZE / 2.0 + (PI / 4.0).cos() * TILE_SIZE / 2.0,
+            2.0,
+        );
+        let dist = actual.translation.distance(expected.translation);
+        let margin = 0.1;
+        assert!(
+            dist < margin,
+            "Distance between\n\t{:?}\nand\n\t{:?}\nwas not within margin",
+            actual.translation,
+            expected.translation
+        );
+    }
+
+    #[test]
+    fn items_placed_on_curved_belt_north_to_east_halfway() {
+        let mut app = test_app();
+        app.add_belt((0, -1), Dir::North);
+        let belt = app.add_belt((0, 0), Dir::East);
+        app.update();
+
+        let item = app.add_item(belt, POSITIONS_PER_CURVED_TILE / 2);
+        app.update();
+        let actual = app.find_item(item).unwrap().1;
+        let expected = Transform::from_xyz(
+            TILE_SIZE / 2.0 - (PI / 4.0).cos() * TILE_SIZE / 2.0,
+            -TILE_SIZE / 2.0 + (PI / 4.0).cos() * TILE_SIZE / 2.0,
+            2.0,
+        );
+        let dist = actual.translation.distance(expected.translation);
+        let margin = 0.1;
+        assert!(
+            dist < margin,
+            "Distance between\n\t{:?}\nand\n\t{:?}\nwas not within margin",
+            actual.translation,
+            expected.translation
         );
     }
 }
