@@ -1,11 +1,11 @@
 use crate::core::*;
-use bevy::prelude::*;
+use bevy::{color::palettes::css::GRAY, prelude::*};
 
 pub struct UiPlugin;
 impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, setup_ui);
-        app.add_systems(Update, apply_belt_sprites);
+        app.add_systems(Update, (apply_belt_sprites, apply_item_sprites));
     }
 }
 
@@ -49,6 +49,15 @@ fn apply_belt_sprites(
             sprite,
             Transform::from_xyz(coords.x as f32 * 32.0, coords.y as f32 * 32.0, 1.0)
                 .with_rotation(quat),
+        ));
+    }
+}
+
+fn apply_item_sprites(items: Query<Entity, Added<Item>>, mut cmd: Commands) {
+    for ent in items.iter() {
+        cmd.entity(ent).insert(Sprite::from_color(
+            GRAY,
+            Vec2::new(TILE_SIZE / 5.0, TILE_SIZE / 5.0),
         ));
     }
 }

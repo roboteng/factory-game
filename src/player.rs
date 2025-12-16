@@ -6,7 +6,7 @@ pub struct PlayerPlugin;
 impl Plugin for PlayerPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<PlaceDirection>();
-        app.add_systems(PreUpdate, mouse_input);
+        app.add_systems(PreUpdate, (mouse_input, place_item));
         app.add_systems(
             Update,
             (change_place_direction, update_ghost_preview).chain(),
@@ -48,6 +48,37 @@ fn mouse_input(
             entity,
             dir,
             coords,
+        });
+    }
+}
+
+fn place_item(
+    mut cmd: Commands,
+    buttons: Res<ButtonInput<MouseButton>>,
+    window: Single<&Window, With<PrimaryWindow>>,
+    dir: Res<PlaceDirection>,
+    belts: Res<BeltCoords>,
+) {
+    if buttons.just_pressed(MouseButton::Left) {
+        let Some(coords) = WorldCoords::from_cursor(&window) else {
+            debug!("Not placing item because no coords");
+            return;
+        };
+        if dir.0.is_some() {
+            debug!("Not placing item because dir is some");
+            return;
+        }
+        let Some((belt_entity, _)) = belts.get(coords) else {
+            debug!("Not placing item because couldn't find belt");
+            return;
+        };
+        debug!("placing item at {coords:?}");
+        let entity = cmd.spawn_empty().id();
+        cmd.trigger(PlaceItem {
+            entity,
+            belt: belt_entity,
+            pos: POSITIONS_PER_TILE / 2,
+            item: Item,
         });
     }
 }

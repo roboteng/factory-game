@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use bevy::prelude::*;
 
 pub const TILE_SIZE: f32 = 32.0;
+pub const POSITIONS_PER_TILE: u16 = 256;
 
 pub struct CorePlugin;
 impl Plugin for CorePlugin {
@@ -83,6 +84,7 @@ pub struct WorldCoords {
 }
 
 impl WorldCoords {
+    #[expect(dead_code)]
     pub fn new(x: i32, y: i32) -> Self {
         Self { x, y }
     }
@@ -118,6 +120,12 @@ impl WorldCoords {
 impl From<(i32, i32)> for WorldCoords {
     fn from((x, y): (i32, i32)) -> Self {
         Self { x, y }
+    }
+}
+
+impl From<WorldCoords> for Vec2 {
+    fn from(coords: WorldCoords) -> Self {
+        Vec2::new(coords.x as f32 * TILE_SIZE, coords.y as f32 * TILE_SIZE)
     }
 }
 
@@ -162,18 +170,30 @@ impl Belt {
             Belt::CurvedWestToSouth => Dir::South,
         }
     }
+
+    pub fn item_transform(&self, pos: u16, coords: WorldCoords) -> Transform {
+        let world_offset = Vec2::from(coords);
+        let start = Vec2::from(self.output());
+        let end = Vec2::from(self.input().opposite());
+        let mid = start.lerp(end, pos as f32 / POSITIONS_PER_TILE as f32);
+        Transform::from_xyz(
+            world_offset.x + mid.x * TILE_SIZE / 2.0,
+            world_offset.y + mid.y * TILE_SIZE / 2.0,
+            2.0,
+        )
+    }
 }
 
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Item;
 
 #[derive(Resource, Default)]
-struct BeltCoords(HashMap<WorldCoords, (Entity, Belt)>);
+pub struct BeltCoords(HashMap<WorldCoords, (Entity, Belt)>);
 impl BeltCoords {
-    fn insert(&mut self, coords: WorldCoords, entity: Entity, belt: Belt) {
+    pub fn insert(&mut self, coords: WorldCoords, entity: Entity, belt: Belt) {
         self.0.insert(coords, (entity, belt));
     }
-    fn get(&self, coords: WorldCoords) -> Option<(Entity, Belt)> {
+    pub fn get(&self, coords: WorldCoords) -> Option<(Entity, Belt)> {
         self.0.get(&coords).map(|(entity, belt)| (*entity, *belt))
     }
 }
@@ -240,18 +260,12 @@ fn plan_belt_placement(trigger: &PlaceBelt, belt_coords: &BeltCoords) -> Belt {
     belt
 }
 
-fn on_place_item(trigger: On<PlaceItem>, mut cmd: Commands, belts: Query<&Belt>) {
-    let Ok(belt) = belts.get(trigger.belt) else {
+fn on_place_item(trigger: On<PlaceItem>, mut cmd: Commands, belts: Query<(&Belt, &WorldCoords)>) {
+    let Ok((belt, coords)) = belts.get(trigger.belt) else {
+        warn!("Couldn't find belt when trying to place item");
         return;
     };
-    let transform = match belt {
-        Belt::Straight(dir) => match dir {
-            Dir::North => Transform::from_xyz(0.0, TILE_SIZE / 2.0, 2.0),
-            Dir::East => Transform::from_xyz(TILE_SIZE / 2.0, 0.0, 2.0),
-            _ => todo!(),
-        },
-        _ => todo!(),
-    };
+    let transform = belt.item_transform(trigger.pos, *coords);
     cmd.entity(trigger.entity).insert((Item, transform));
 }
 
@@ -461,6 +475,36 @@ mod tests {
         assert_eq!(
             app.find_item(item),
             Some((Item, Transform::from_xyz(0.0, TILE_SIZE / 2.0, 2.0)))
+        );
+    }
+
+    #[test]
+    fn items_placed_on_belt_diff_coords() {
+        let mut app = test_app();
+        let belt = app.add_belt((1, 2), Dir::South);
+        app.update();
+
+        let item = app.add_item(belt, 0);
+        app.update();
+
+        assert_eq!(
+            app.find_item(item),
+            Some((Item, Transform::from_xyz(TILE_SIZE, TILE_SIZE * 1.5, 2.0)))
+        );
+    }
+
+    #[test]
+    fn items_placed_on_belt_halfway() {
+        let mut app = test_app();
+        let belt = app.add_belt((0, 0), Dir::North);
+        app.update();
+
+        let item = app.add_item(belt, POSITIONS_PER_TILE / 2);
+        app.update();
+
+        assert_eq!(
+            app.find_item(item),
+            Some((Item, Transform::from_xyz(0.0, 0.0, 2.0)))
         );
     }
 }
