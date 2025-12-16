@@ -31,7 +31,8 @@ pub struct PlaceItem {
     pub item: Item,
 }
 
-#[derive(EntityEvent, Clone, Debug, PartialEq, Eq)]
+#[expect(dead_code)]
+// #[derive(EntityEvent, Clone, Debug, PartialEq, Eq)]
 pub struct BeltPlaced {
     entity: Entity,
     belt: Belt,
@@ -267,16 +268,16 @@ fn on_place_belt(trigger: On<PlaceBelt>, mut cmd: Commands, mut belt_coords: Res
     belt_coords.insert(trigger.coords, trigger.entity, belt);
 
     let ahead = trigger.coords.step(trigger.dir);
-    belt_coords.get(ahead.clone()).map(|(entity, belt)| {
+    if let Some((entity, belt)) = belt_coords.get(ahead) {
         let place = PlaceBelt {
             entity,
             dir: belt.output(),
-            coords: ahead.clone(),
+            coords: ahead,
         };
         let belt = plan_belt_placement(&place, &belt_coords);
         cmd.entity(place.entity).insert((belt, place.coords));
         belt_coords.insert(place.coords, place.entity, belt);
-    });
+    }
 }
 
 fn plan_belt_placement(trigger: &PlaceBelt, belt_coords: &BeltCoords) -> Belt {

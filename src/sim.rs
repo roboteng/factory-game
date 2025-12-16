@@ -28,7 +28,7 @@ impl BeltInventory {
     pub fn has_space_at_tail(&self, belt: Belt) -> bool {
         self.item
             .last()
-            .map_or(true, |&(pos, _)| pos < belt.num_positions() - ITEM_SPACING)
+            .is_none_or(|&(pos, _)| pos < belt.num_positions() - ITEM_SPACING)
     }
 
     pub fn remove_first(&mut self) {
@@ -181,7 +181,7 @@ mod tests {
     fn item_moves_onto_next_belt() {
         let mut app = test_app();
         let belt1 = app.add_belt((0, 0), Dir::East);
-        let belt2 = app.add_belt((1, 0), Dir::East);
+        app.add_belt((1, 0), Dir::East);
         app.update();
         let item = app.add_item(belt1, 0);
         app.update();
