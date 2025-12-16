@@ -34,11 +34,15 @@ impl BeltInventory {
     pub fn remove_first(&mut self) {
         self.item.remove(0);
     }
+    pub fn sort(&mut self) {
+        self.item.sort();
+    }
 }
 
 fn on_place_item(trigger: On<PlaceItem>, mut belts: Query<&mut BeltInventory, With<Belt>>) {
     let mut inv = belts.get_mut(trigger.belt).unwrap();
     inv.add(trigger.pos, trigger.entity);
+    inv.sort();
 }
 
 fn on_place_belt(trigger: On<PlaceBelt>, mut cmd: Commands) {
@@ -110,8 +114,15 @@ fn move_items(
 ) {
     for (mut inv, belt, coords) in belts.iter_mut() {
         for (i, (pos, entity)) in &mut inv.item.iter_mut().enumerate() {
-            *pos = (*pos - i as u16 * ITEM_SPACING).saturating_sub(8);
-            *pos += i as u16 * ITEM_SPACING;
+            let i = i as u16;
+            if *pos < i * ITEM_SPACING {
+                warn!("Items are overcompressed");
+                continue;
+            }
+            let next_pos = (*pos - i * ITEM_SPACING).saturating_sub(8) + i * ITEM_SPACING;
+            if next_pos < *pos {
+                *pos = next_pos;
+            }
             let mut transform = items.get_mut(*entity).unwrap();
             *transform = belt.item_transform(*pos, *coords);
         }
@@ -207,6 +218,19 @@ mod tests {
         app.update();
         let (_, actual) = app.find_item(item).unwrap();
         let expected = Transform::from_xyz(TILE_SIZE / 2.0 + 1.0, 0.0, 2.0);
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn handles_items_too_close_together() {
+        let mut app = test_app();
+        let belt1 = app.add_belt((0, 0), Dir::East);
+        app.update();
+        app.add_item(belt1, 0);
+        let item = app.add_item(belt1, 1);
+        app.update();
+        let (_, actual) = app.find_item(item).unwrap();
+        let expected = Transform::from_xyz(TILE_SIZE / 2.0 - 4.0 / TILE_SIZE, 0.0, 2.0);
         assert_eq!(actual, expected);
     }
 }
