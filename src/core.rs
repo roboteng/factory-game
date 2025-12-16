@@ -215,6 +215,13 @@ impl Belt {
             | Self::CurvedWestToNorth => Some(CurveDir::CW),
         }
     }
+
+    pub fn num_positions(&self) -> u16 {
+        match self {
+            Self::Straight(_) => POSITIONS_PER_TILE,
+            _ => POSITIONS_PER_CURVED_TILE,
+        }
+    }
 }
 
 pub enum CurveDir {
