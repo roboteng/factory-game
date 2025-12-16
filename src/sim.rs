@@ -28,7 +28,7 @@ impl BeltInventory {
     pub fn has_space_at_tail(&self, belt: Belt) -> bool {
         self.item
             .last()
-            .map_or(true, |&(pos, _)| pos > belt.num_positions() - 64)
+            .map_or(true, |&(pos, _)| pos < belt.num_positions() - ITEM_SPACING)
     }
 
     pub fn remove_first(&mut self) {
@@ -109,8 +109,9 @@ fn move_items(
     mut belts: Query<(&mut BeltInventory, &Belt, &WorldCoords)>,
 ) {
     for (mut inv, belt, coords) in belts.iter_mut() {
-        for (pos, entity) in &mut inv.item {
-            *pos = pos.saturating_sub(8);
+        for (i, (pos, entity)) in &mut inv.item.iter_mut().enumerate() {
+            *pos = (*pos - i as u16 * ITEM_SPACING).saturating_sub(8);
+            *pos += i as u16 * ITEM_SPACING;
             let mut transform = items.get_mut(*entity).unwrap();
             *transform = belt.item_transform(*pos, *coords);
         }
@@ -171,6 +172,37 @@ mod tests {
         let belt1 = app.add_belt((0, 0), Dir::East);
         let belt2 = app.add_belt((1, 0), Dir::East);
         app.update();
+        let item = app.add_item(belt1, 0);
+        app.update();
+        let (_, actual) = app.find_item(item).unwrap();
+        let expected = Transform::from_xyz(TILE_SIZE / 2.0 + 1.0, 0.0, 2.0);
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn item_dont_get_too_close() {
+        let mut app = test_app();
+        let belt1 = app.add_belt((0, 0), Dir::East);
+        app.update();
+        app.add_item(belt1, 0);
+        let item = app.add_item(belt1, ITEM_SPACING);
+        app.update();
+        let (_, actual) = app.find_item(item).unwrap();
+        let expected = Transform::from_xyz(
+            TILE_SIZE / 2.0 - ITEM_SPACING as f32 / POSITIONS_PER_TILE as f32 * TILE_SIZE,
+            0.0,
+            2.0,
+        );
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn item_moves_to_next_belt_with_item() {
+        let mut app = test_app();
+        let belt1 = app.add_belt((0, 0), Dir::East);
+        let belt2 = app.add_belt((1, 0), Dir::East);
+        app.update();
+        app.add_item(belt2, 0);
         let item = app.add_item(belt1, 0);
         app.update();
         let (_, actual) = app.find_item(item).unwrap();

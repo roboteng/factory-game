@@ -5,6 +5,7 @@ use bevy::prelude::*;
 pub const TILE_SIZE: f32 = 32.0;
 pub const POSITIONS_PER_TILE: u16 = 256;
 pub const POSITIONS_PER_CURVED_TILE: u16 = 201; // POSITIONS_PER_TILE * Pi / 4
+pub const ITEM_SPACING: u16 = 64;
 
 pub struct CorePlugin;
 impl Plugin for CorePlugin {
