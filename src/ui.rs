@@ -47,8 +47,12 @@ fn apply_belt_sprites(
         };
         cmd.entity(ent).insert((
             sprite,
-            Transform::from_xyz(coords.x as f32 * 32.0, coords.y as f32 * 32.0, 1.0)
-                .with_rotation(quat),
+            Transform::from_xyz(
+                coords.x as f32 * TILE_SIZE,
+                coords.y as f32 * TILE_SIZE,
+                1.0,
+            )
+            .with_rotation(quat),
         ));
     }
 }

@@ -111,8 +111,8 @@ impl WorldCoords {
     pub fn from_cursor(window: &Window) -> Option<Self> {
         let pos = window.cursor_position()?;
         Some(Self {
-            x: ((-window.width() / 2.0 + pos.x) / 32.0).round() as i32,
-            y: ((window.height() / 2.0 - pos.y) / 32.0).round() as i32,
+            x: ((-window.width() / 2.0 + pos.x) / TILE_SIZE).round() as i32,
+            y: ((window.height() / 2.0 - pos.y) / TILE_SIZE).round() as i32,
         })
     }
 }
