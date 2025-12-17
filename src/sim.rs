@@ -7,6 +7,7 @@ impl Plugin for SimPlugin {
         app.init_resource::<PlannedMoves>();
         app.add_observer(on_place_item);
         app.add_observer(on_place_belt);
+        app.add_observer(on_remove_belt);
         app.add_systems(Update, (plan_moves, execute_moves, move_items).chain());
     }
 }
@@ -34,8 +35,13 @@ impl BeltInventory {
     pub fn remove_first(&mut self) {
         self.item.remove(0);
     }
+
     pub fn sort(&mut self) {
         self.item.sort();
+    }
+
+    pub fn items(&self) -> &Vec<(u16, Entity)> {
+        &self.item
     }
 }
 
@@ -47,6 +53,24 @@ fn on_place_item(trigger: On<PlaceItem>, mut belts: Query<&mut BeltInventory, Wi
 
 fn on_place_belt(trigger: On<PlaceBelt>, mut cmd: Commands) {
     cmd.entity(trigger.entity).insert(BeltInventory::default());
+}
+
+fn on_remove_belt(
+    trigger: On<RemoveBelt>,
+    mut cmd: Commands,
+    belts: Query<Option<&BeltInventory>>,
+) {
+    // Despawn all items on the belt if it has an inventory
+    if let Ok(Some(inventory)) = belts.get(trigger.entity) {
+        debug!(
+            "Despawning {} items from belt {:?}",
+            inventory.items().len(),
+            trigger.entity
+        );
+        for (_, item_entity) in inventory.items().iter() {
+            cmd.entity(*item_entity).despawn();
+        }
+    }
 }
 
 #[derive(Resource, Default, Clone)]

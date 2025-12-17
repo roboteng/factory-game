@@ -12,6 +12,7 @@ impl Plugin for CorePlugin {
     fn build(&self, app: &mut App) {
         app.add_observer(on_place_belt);
         app.add_observer(on_place_item);
+        app.add_observer(on_remove_belt);
         app.init_resource::<BeltCoords>();
     }
 }
@@ -29,6 +30,11 @@ pub struct PlaceItem {
     pub belt: Entity,
     pub pos: u16,
     pub item: Item,
+}
+
+#[derive(EntityEvent, Clone, Debug, PartialEq, Eq)]
+pub struct RemoveBelt {
+    pub entity: Entity,
 }
 
 #[expect(dead_code)]
@@ -251,6 +257,9 @@ impl BeltCoords {
     pub fn get(&self, coords: WorldCoords) -> Option<(Entity, Belt)> {
         self.0.get(&coords).map(|(entity, belt)| (*entity, *belt))
     }
+    pub fn remove(&mut self, coords: WorldCoords) -> Option<(Entity, Belt)> {
+        self.0.remove(&coords)
+    }
 }
 
 fn on_place_belt(trigger: On<PlaceBelt>, mut cmd: Commands, mut belt_coords: ResMut<BeltCoords>) {
@@ -324,6 +333,28 @@ fn on_place_item(trigger: On<PlaceItem>, mut cmd: Commands, belts: Query<(&Belt,
     cmd.entity(trigger.entity).insert((Item, transform));
 }
 
+fn on_remove_belt(
+    trigger: On<RemoveBelt>,
+    mut cmd: Commands,
+    mut belt_coords: ResMut<BeltCoords>,
+    belts: Query<&WorldCoords>,
+) {
+    // Query for the belt's coordinates
+    let Ok(coords) = belts.get(trigger.entity) else {
+        warn!(
+            "Attempted to remove belt entity {:?} but it doesn't exist",
+            trigger.entity
+        );
+        return;
+    };
+
+    debug!("Removing belt at {:?}", coords);
+
+    // Remove from resource and despawn belt entity
+    belt_coords.remove(*coords);
+    cmd.entity(trigger.entity).despawn();
+}
+
 #[cfg(test)]
 fn init_tracing() {
     use tracing_subscriber::{EnvFilter, fmt};
@@ -354,6 +385,7 @@ pub trait AppExtension {
     fn find_belt_at(&mut self, coords: impl Into<WorldCoords>) -> Option<Belt>;
     fn add_item(&mut self, belt: Entity, index: u16) -> Entity;
     fn find_item(&mut self, item: Entity) -> Option<(Item, Transform)>;
+    fn remove_belt(&mut self, coords: impl Into<WorldCoords>) -> bool;
 }
 
 #[cfg(test)]
@@ -401,6 +433,15 @@ impl AppExtension for App {
             .get(world, item)
             .ok()
             .map(|(item, transform)| (*item, *transform))
+    }
+
+    fn remove_belt(&mut self, coords: impl Into<WorldCoords>) -> bool {
+        let coords = coords.into();
+        let Some((entity, _)) = self.world_mut().resource::<BeltCoords>().get(coords) else {
+            return false;
+        };
+        self.world_mut().trigger(RemoveBelt { entity });
+        true
     }
 }
 
@@ -675,5 +716,103 @@ mod tests {
             actual.translation,
             expected.translation
         );
+    }
+
+    #[test]
+    fn remove_empty_belt() {
+        let mut app = test_app();
+        let entity = app.add_belt((0, 0), Dir::East);
+        app.update();
+
+        // Verify belt exists
+        assert!(app.find_belt(entity).is_some());
+        assert!(app.find_belt_at((0, 0)).is_some());
+
+        // Remove belt
+        assert!(app.remove_belt((0, 0)));
+        app.update();
+
+        // Verify belt is gone
+        assert!(app.find_belt(entity).is_none());
+        assert!(app.find_belt_at((0, 0)).is_none());
+    }
+
+    #[test]
+    fn remove_belt_with_items() {
+        let mut app = test_app();
+        let belt = app.add_belt((1, 1), Dir::North);
+        app.update();
+
+        let item1 = app.add_item(belt, 0);
+        let item2 = app.add_item(belt, ITEM_SPACING);
+        app.update();
+
+        // Verify items exist
+        assert!(app.find_item(item1).is_some());
+        assert!(app.find_item(item2).is_some());
+
+        // Remove belt
+        assert!(app.remove_belt((1, 1)));
+        app.update();
+
+        // Verify belt is gone (items don't need to be checked per requirements)
+        assert!(app.find_belt(belt).is_none());
+        assert!(app.find_belt_at((1, 1)).is_none());
+    }
+
+    #[test]
+    fn remove_nonexistent_belt() {
+        let mut app = test_app();
+
+        // Try to remove belt that doesn't exist
+        assert!(!app.remove_belt((5, 5)));
+        app.update();
+
+        // Should not crash or cause issues
+    }
+
+    #[test]
+    fn remove_belt_updates_belt_coords() {
+        let mut app = test_app();
+        app.add_belt((2, 3), Dir::West);
+        app.update();
+
+        // Verify in BeltCoords
+        assert!(app.find_belt_at((2, 3)).is_some());
+
+        // Remove belt
+        app.remove_belt((2, 3));
+        app.update();
+
+        // Verify removed from BeltCoords
+        assert!(app.find_belt_at((2, 3)).is_none());
+
+        // Can place new belt at same location
+        let new_belt = app.add_belt((2, 3), Dir::East);
+        app.update();
+        assert_eq!(
+            app.find_belt(new_belt),
+            Some((Belt::Straight(Dir::East), (2, 3).into()))
+        );
+    }
+
+    #[test]
+    fn remove_belt_from_chain() {
+        let mut app = test_app();
+        let belt1 = app.add_belt((0, 0), Dir::East);
+        let belt2 = app.add_belt((1, 0), Dir::East);
+        let belt3 = app.add_belt((2, 0), Dir::East);
+        app.update();
+
+        // Remove middle belt
+        app.remove_belt((1, 0));
+        app.update();
+
+        // Belt2 should be gone
+        assert!(app.find_belt(belt2).is_none());
+
+        // Belt1 and belt3 should still exist
+        assert!(app.find_belt(belt1).is_some());
+        assert!(app.find_belt(belt3).is_some());
     }
 }
