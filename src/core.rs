@@ -39,14 +39,6 @@ pub struct RemoveBelt {
     pub entity: Entity,
 }
 
-#[expect(dead_code)]
-// #[derive(EntityEvent, Clone, Debug, PartialEq, Eq)]
-pub struct BeltPlaced {
-    entity: Entity,
-    belt: Belt,
-    coords: WorldCoords,
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Dir {
     North,
@@ -458,7 +450,7 @@ fn on_remove_belt(
 }
 
 fn clear_changed_belts(mut changes: ResMut<BeltChanges>) {
-    changes.0.clear();
+    changes.clear();
 }
 
 #[cfg(test)]

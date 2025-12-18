@@ -48,10 +48,6 @@ impl BeltInventory {
     pub fn sort(&mut self) {
         self.item.sort();
     }
-
-    pub fn items(&self) -> &Vec<(u16, Entity)> {
-        &self.item
-    }
 }
 
 fn on_place_item(trigger: On<PlaceItem>, mut belts: Query<&mut BeltInventory, With<Belt>>) {
@@ -91,7 +87,6 @@ struct BeltConnection {
 
 fn calculate_belt_connections(
     mut cmd: Commands,
-    belts: Query<(Entity, AnyOf<(&Belt, &BeltFragment)>, &WorldCoords)>,
     belt_coords: Res<BeltCoords>,
     changed_belts: Res<BeltChanges>,
     query: Query<(Entity, Option<&BeltConnection>, &BeltInventory)>,
@@ -119,7 +114,7 @@ fn calculate_belt_connections(
                 old_belt,
                 coords,
             } => {
-                let items = remove_belt(
+                let _items = remove_belt(
                     cmd.reborrow(),
                     *entity,
                     *old_belt,
@@ -191,7 +186,15 @@ fn sideload_into(
         dir: side_belt.output(),
     };
     let frag_entity = cmd
-        .spawn((frag, BeltInventory::default(), main_coords))
+        .spawn((
+            frag,
+            BeltInventory::default(),
+            main_coords,
+            BeltConnection {
+                next_belt: main_entity,
+                num_positions: 128,
+            },
+        ))
         .id();
     cmd.entity(side_entity).insert(BeltConnection {
         next_belt: frag_entity,
@@ -201,7 +204,6 @@ fn sideload_into(
         "Making new fragment {:?} connecting {:?} into {:?}",
         frag_entity, side_entity, main_entity
     );
-    // TODO: Connect the fragment to the current belt
 }
 
 fn remove_belt(
@@ -221,7 +223,7 @@ fn remove_belt(
         let Ok((entity, Some(connection), _)) = query.get(c_entity) else {
             continue;
         };
-        // TODO: check where its a belt or blet fragemtn
+        // TODO: check where its a belt or blet fragment
         if connection.next_belt == entity {
             cmd.entity(c_entity).remove::<BeltConnection>();
         }
@@ -238,9 +240,6 @@ struct BeltFragment {
 impl BeltFragment {
     fn input(&self) -> Dir {
         self.dir
-    }
-    fn output(&self) -> Dir {
-        self.dir.opposite()
     }
     fn num_positions(&self) -> u16 {
         POSITIONS_PER_TILE as u16 / 2
@@ -266,18 +265,6 @@ impl BeltLike {
         match self {
             BeltLike::Belt(belt) => belt.item_transform(pos, coords),
             BeltLike::Fragment(fragment) => fragment.item_transform(pos, coords),
-        }
-    }
-    fn input(&self) -> Dir {
-        match self {
-            BeltLike::Belt(belt) => belt.input(),
-            BeltLike::Fragment(fragment) => fragment.input(),
-        }
-    }
-    fn output(&self) -> Dir {
-        match self {
-            BeltLike::Belt(belt) => belt.output(),
-            BeltLike::Fragment(fragment) => fragment.output(),
         }
     }
 }
@@ -524,6 +511,42 @@ mod tests {
         app.update();
         let (_, actual) = app.find_item(item).unwrap();
         let expected = Transform::from_xyz(TILE_SIZE / 2.0 + 1.0, 0.0, 2.0);
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn item_moves_onto_side_loaded_belt() {
+        let mut app = test_app();
+        let belt1 = app.add_belt((0, 0), Dir::East);
+        app.add_belt((1, 0), Dir::North);
+        app.add_belt((1, -1), Dir::North);
+        app.update();
+
+        let item = app.add_item(belt1, 0);
+        for _ in 0..(16 + 1) {
+            app.update();
+        }
+        let (_, actual) = app.find_item(item).unwrap();
+        let expected = Transform::from_xyz(TILE_SIZE, 1.0, 2.0);
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn item_moves_onto_side_loaded_belt_unless_full() {
+        let mut app = test_app();
+        let belt1 = app.add_belt((0, 0), Dir::East);
+        let belt2 = app.add_belt((1, 0), Dir::North);
+        app.add_belt((1, -1), Dir::North);
+        app.update();
+
+        let item = app.add_item(belt1, 0);
+        app.add_item(belt2, 0);
+        app.add_item(belt2, 64);
+        for _ in 0..(8 + 1) {
+            app.update();
+        }
+        let (_, actual) = app.find_item(item).unwrap();
+        let expected = Transform::from_xyz(TILE_SIZE * 3.0 / 4.0, 0.0, 2.0);
         assert_eq!(actual, expected);
     }
 }
