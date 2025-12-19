@@ -4,6 +4,11 @@ use bevy::prelude::*;
 #[cfg(feature = "invariant-ckeck")]
 mod invariants;
 
+#[cfg(all(test, feature = "proptests"))]
+mod proptest_actions;
+#[cfg(all(test, feature = "proptests"))]
+mod proptests;
+
 pub struct SimPlugin;
 impl Plugin for SimPlugin {
     fn build(&self, app: &mut App) {
@@ -552,5 +557,20 @@ mod tests {
         let (_, actual) = app.find_item(item).unwrap();
         let expected = Transform::from_xyz(TILE_SIZE * 3.0 / 4.0, 0.0, 2.0);
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    #[ignore = "todo"]
+    fn replace_belt_under_item() {
+        let mut app = test_app();
+        let belt1 = app.add_belt((0, 0), Dir::East);
+        app.update();
+        let item = app.add_item(belt1, 128);
+        app.update();
+        let init_pos = app.find_item(item);
+        app.add_belt((0, 0), Dir::East);
+        app.update();
+        let actual = app.find_item(item);
+        assert_ne!(actual, init_pos);
     }
 }

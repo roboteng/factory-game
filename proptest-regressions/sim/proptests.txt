@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 1887c926c538df9c07cb4b5368f88e07d4f050f156bea9c7b2ed12c4ea6c9881 # shrinks to actions = [Update, Update, Update, Update, Update, Update, Update, Update, Update, Update, Update, Update, Update, Update, Update, Update, Update, Update, Update, Update, Update, PlaceBelt { coords: WorldCoords { x: 0, y: 1 }, dir: North }, Update, Update, Update, Update, Update, Update, Update, Update, Update, Update, Update, Update, Update, Update, Update, Update, Update, Update, Update, Update, Update, Update, Update, Update, PlaceItem { belt_coords: WorldCoords { x: 0, y: 1 }, pos: 0 }, Update, Update, PlaceBelt { coords: WorldCoords { x: 0, y: 1 }, dir: North }]
+cc 0376585aaba6815a36e9a96ad26fe11c2ce5de842b3260bd269e63ff554eb0af # shrinks to actions = [PlaceBelt { coords: WorldCoords { x: 7, y: -1 }, dir: North }, PlaceItem { belt_coords: WorldCoords { x: 7, y: -1 }, pos: 0 }, PlaceBelt { coords: WorldCoords { x: 7, y: -1 }, dir: North }]
