@@ -3,6 +3,10 @@ name = "factory-game"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+default = ["invariant-ckeck"]
+invariant-ckeck = []
+
 [dependencies]
 bevy = "0.17.3"
 

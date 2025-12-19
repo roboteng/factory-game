@@ -1,9 +1,14 @@
 use crate::core::*;
 use bevy::prelude::*;
 
+#[cfg(feature = "invariant-ckeck")]
+mod invariants;
+
 pub struct SimPlugin;
 impl Plugin for SimPlugin {
     fn build(&self, app: &mut App) {
+        #[cfg(feature = "invariant-ckeck")]
+        app.add_plugins(invariants::InvariantsPlugin);
         app.init_resource::<PlannedMoves>();
         app.add_observer(on_place_item);
         app.add_observer(on_place_belt);
