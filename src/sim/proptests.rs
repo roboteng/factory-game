@@ -68,7 +68,6 @@ proptest! {
 
     /// Main property test: arbitrary sequences of actions should maintain all invariants
     #[test]
-    #[ignore = "Known bug: items are orphaned when belt is replaced"]
     fn arbitrary_action_sequences_maintain_invariants(
         actions in arb_action_sequence()
     ) {
@@ -175,7 +174,6 @@ fn place_item_on_nonexistent_belt() {
 }
 
 #[test]
-#[ignore = "Known bug: items are orphaned when belt is replaced"]
 fn replace_belt_with_item() {
     execute_action_sequence(vec![
         // Create belt with item

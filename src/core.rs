@@ -15,7 +15,10 @@ impl Plugin for CorePlugin {
         app.add_observer(on_remove_belt);
         app.init_resource::<BeltCoords>();
         app.init_resource::<BeltChanges>();
-        app.add_systems(PostUpdate, clear_changed_belts);
+        app.add_systems(
+            PostUpdate,
+            (despawn_old_belt_entities, clear_changed_belts).chain(),
+        );
     }
 }
 
@@ -309,6 +312,7 @@ impl From<ReplacedBelt> for RemovedBelt {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ReplacedBelt {
     pub entity: Entity,
+    pub old_entity: Option<Entity>,
     pub old_belt: Belt,
     pub new_belt: Belt,
     pub coords: WorldCoords,
@@ -351,6 +355,7 @@ impl BeltChanges {
                 (BeltChange::Replaced(old), BeltChange::Replaced(new)) => {
                     self.0[existing_idx] = ReplacedBelt {
                         entity,
+                        old_entity: old.old_entity,  // Keep original old_entity
                         old_belt: old.old_belt,
                         new_belt: new.new_belt,
                         coords: new.coords,
@@ -408,18 +413,29 @@ fn on_place_belt(
         trigger.entity, trigger.coords, trigger.dir
     );
 
-    if let Some(prev) = belt_coords.get(trigger.coords) {
-        cmd.entity(prev.0).despawn();
-    }
+    // Check if there's an old belt at these coords (don't despawn yet)
+    let old_entity_and_belt = belt_coords.get(trigger.coords);
 
     let belt = plan_belt_placement(&trigger, &belt_coords);
     cmd.entity(trigger.entity).insert((belt, trigger.coords));
     belt_coords.insert(trigger.coords, trigger.entity, belt);
-    changes.push(NewBelt {
-        entity: trigger.entity,
-        coords: trigger.coords,
-        belt,
-    });
+
+    // Emit Replaced if replacing an existing belt, otherwise New
+    if let Some((old_entity, old_belt)) = old_entity_and_belt {
+        changes.push(ReplacedBelt {
+            entity: trigger.entity,
+            old_entity: Some(old_entity),
+            old_belt,
+            new_belt: belt,
+            coords: trigger.coords,
+        });
+    } else {
+        changes.push(NewBelt {
+            entity: trigger.entity,
+            coords: trigger.coords,
+            belt,
+        });
+    }
 
     let ahead = trigger.coords.step(trigger.dir);
     if let Some((entity, belt)) = belt_coords.get(ahead) {
@@ -434,6 +450,7 @@ fn on_place_belt(
             belt_coords.insert(place.coords, place.entity, new_belt);
             changes.push(ReplacedBelt {
                 entity: place.entity,
+                old_entity: None,  // Same entity, just changed belt type
                 new_belt,
                 old_belt: belt,
                 coords: place.coords,
@@ -513,6 +530,18 @@ fn on_remove_belt(
         old_belt: *belt,
         coords: *coords,
     });
+}
+
+fn despawn_old_belt_entities(mut cmd: Commands, changes: Res<BeltChanges>) {
+    for change in &changes.0 {
+        if let BeltChange::Replaced(ReplacedBelt {
+            old_entity: Some(entity),
+            ..
+        }) = change
+        {
+            cmd.entity(*entity).despawn();
+        }
+    }
 }
 
 fn clear_changed_belts(mut changes: ResMut<BeltChanges>) {
@@ -1014,6 +1043,7 @@ mod tests {
             });
             k.push(ReplacedBelt {
                 entity,
+                old_entity: None,
                 old_belt: Belt::Straight(Dir::East),
                 new_belt: Belt::CurvedNorthToEast,
                 coords: (0, 0).into(),
@@ -1045,6 +1075,7 @@ mod tests {
             }));
             k.push(BeltChange::Replaced(ReplacedBelt {
                 entity,
+                old_entity: None,
                 old_belt: Belt::Straight(Dir::East),
                 new_belt: Belt::CurvedNorthToEast,
                 coords: (0, 0).into(),

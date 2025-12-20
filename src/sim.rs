@@ -60,9 +60,26 @@ impl BeltInventory {
     }
 }
 
-fn on_place_item(trigger: On<PlaceItem>, mut belts: Query<&mut BeltInventory, With<Belt>>) {
-    let mut inv = belts.get_mut(trigger.belt).unwrap();
-    inv.add(trigger.pos, trigger.entity);
+fn on_place_item(
+    trigger: On<PlaceItem>,
+    mut query: Query<(&mut BeltInventory, Option<&Belt>, Option<&BeltFragment>)>,
+) {
+    let (mut inv, belt, fragment) = query.get_mut(trigger.belt).unwrap();
+
+    // Determine max position for this belt/fragment
+    let max_pos = if let Some(b) = belt {
+        b.num_positions()
+    } else if fragment.is_some() {
+        POSITIONS_PER_TILE / 2
+    } else {
+        // Shouldn't happen, but default to full tile
+        POSITIONS_PER_TILE
+    };
+
+    // Clamp position to valid range [0, max_pos)
+    let clamped_pos = trigger.pos.min(max_pos - 1);
+
+    inv.add(clamped_pos, trigger.entity);
     inv.sort();
 }
 
@@ -110,18 +127,66 @@ fn calculate_belt_connections(
             }
             BeltChange::Removed(removed) => {
                 remove_belt(cmd.reborrow(), *removed, &belt_coords, &query);
+                despawn_items(cmd.reborrow(), removed.entity, &query);
             }
             BeltChange::Replaced(replaced) => {
-                let _items = remove_belt(
-                    cmd.reborrow(),
-                    RemovedBelt::from(*replaced),
-                    &belt_coords,
-                    &query,
-                );
+                if let Some(old_entity) = replaced.old_entity {
+                    // Transfer items from old entity to new entity
+                    // Items will teleport to their position on the new belt geometry
+                    transfer_inventory(&mut cmd, &query, old_entity, replaced.entity);
+
+                    // Remove connections/fragments from old entity (don't despawn items)
+                    remove_belt(
+                        cmd.reborrow(),
+                        RemovedBelt {
+                            entity: old_entity,
+                            old_belt: replaced.old_belt,
+                            coords: replaced.coords,
+                        },
+                        &belt_coords,
+                        &query,
+                    );
+                }
+                // Set up new belt connections
                 place_belt(cmd.reborrow(), &belt_coords, NewBelt::from(*replaced));
             }
         }
     }
+}
+
+fn transfer_inventory(
+    cmd: &mut Commands,
+    query: &Query<(Entity, Option<&BeltConnection>, &BeltInventory)>,
+    from_entity: Entity,
+    to_entity: Entity,
+) {
+    // Get items from old entity's inventory
+    let items = query
+        .get(from_entity)
+        .map(|(_, _, inv)| inv.item.clone())
+        .unwrap_or_default();
+
+    if items.is_empty() {
+        return;
+    }
+
+    // Get current inventory from new entity and merge
+    let mut new_inventory = query
+        .get(to_entity)
+        .map(|(_, _, inv)| inv.clone())
+        .unwrap_or_else(|_| BeltInventory::default());
+
+    // Add transferred items
+    for (pos, item_entity) in items {
+        new_inventory.add(pos, item_entity);
+    }
+    new_inventory.sort();
+
+    // Insert updated inventory using Commands
+    cmd.entity(to_entity).insert(new_inventory);
+
+    // Clear old entity's inventory to avoid duplicate items
+    cmd.entity(from_entity).insert(BeltInventory::default());
 }
 
 fn place_belt(
@@ -228,7 +293,7 @@ fn remove_belt(
         let Some((c_entity, _)) = belt_coords.get(stepped_coords) else {
             continue;
         };
-        let Ok((entity, Some(connection), _)) = query.get(c_entity) else {
+        let Ok((_, Some(connection), _)) = query.get(c_entity) else {
             continue;
         };
         // TODO: check where its a belt or blet fragment
@@ -236,8 +301,27 @@ fn remove_belt(
             cmd.entity(c_entity).remove::<BeltConnection>();
         }
     }
+
+    // Remove all belt-related components to prevent invariant violations
+    // (The entity itself will be despawned in PostUpdate if this is a replacement)
+    cmd.entity(entity)
+        .remove::<(Belt, WorldCoords, BeltInventory)>();
+
     let (_, _, inventory) = query.get(entity).ok()?;
     Some(inventory.clone())
+}
+
+fn despawn_items(
+    mut cmd: Commands,
+    entity: Entity,
+    query: &Query<(Entity, Option<&BeltConnection>, &BeltInventory)>,
+) {
+    let Ok((_, _, inventory)) = query.get(entity) else {
+        return;
+    };
+    for (_, item_entity) in &inventory.item {
+        cmd.entity(*item_entity).despawn();
+    }
 }
 
 #[derive(Component, Clone, Copy)]
@@ -560,13 +644,10 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "todo"]
     fn replace_belt_under_item() {
         let mut app = test_app();
         let belt1 = app.add_belt((0, 0), Dir::East);
-        app.update();
         let item = app.add_item(belt1, 128);
-        app.update();
         let init_pos = app.find_item(item);
         app.add_belt((0, 0), Dir::East);
         app.update();

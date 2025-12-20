@@ -1,4 +1,5 @@
 use crate::core::*;
+use crate::sim::BeltInventory;
 use bevy::prelude::*;
 use proptest::prelude::*;
 use std::collections::{HashMap, HashSet};
@@ -19,6 +20,8 @@ pub struct TestState {
     pub belt_entities: HashMap<WorldCoords, Entity>,
     /// Previous frame's item positions (for movement bound checking)
     pub previous_item_positions: HashMap<Entity, Vec3>,
+    /// Items that should skip movement bounds check this frame (on replaced belts)
+    pub skip_movement_check: HashSet<Entity>,
     /// Current frame number
     pub frame_count: usize,
 }
@@ -29,6 +32,7 @@ impl TestState {
             belt_coords: HashSet::new(),
             belt_entities: HashMap::new(),
             previous_item_positions: HashMap::new(),
+            skip_movement_check: HashSet::new(),
             frame_count: 0,
         }
     }
@@ -57,6 +61,10 @@ impl TestState {
         for (entity, transform) in query.iter(app.world()) {
             self.previous_item_positions.insert(entity, transform.translation);
         }
+
+        // Capture items that will skip movement bounds check (on replaced belts)
+        // This must happen BEFORE app.update() clears BeltChanges
+        self.skip_movement_check = self.get_items_on_replaced_belts(app);
     }
 
     /// Check that items haven't moved more than the maximum distance
@@ -66,6 +74,12 @@ impl TestState {
 
         let mut query = app.world_mut().query_filtered::<(Entity, &Transform), With<Item>>();
         for (entity, transform) in query.iter(app.world()) {
+            // Skip items that were on replaced belts (they teleport during replacement)
+            // This was captured in capture_item_positions() before app.update()
+            if self.skip_movement_check.contains(&entity) {
+                continue;
+            }
+
             if let Some(prev_pos) = self.previous_item_positions.get(&entity) {
                 let distance = prev_pos.distance(transform.translation);
                 if distance > MAX_MOVEMENT {
@@ -83,6 +97,37 @@ impl TestState {
     /// Increment frame counter
     pub fn next_frame(&mut self) {
         self.frame_count += 1;
+        // Clear skip set for next frame
+        self.skip_movement_check.clear();
+    }
+
+    /// Get items that were on replaced belts this frame (should skip movement bounds check)
+    ///
+    /// Works by:
+    /// 1. Reading BeltChanges resource to find all Replaced events
+    /// 2. For each replacement, querying the OLD entity's inventory (before transfer happens)
+    /// 3. Collecting all item entities that will be transferred
+    fn get_items_on_replaced_belts(&self, app: &mut App) -> HashSet<Entity> {
+        // Clone the BeltChanges vector to avoid holding a reference
+        let changes = app.world().resource::<BeltChanges>().0.clone();
+        let mut skip_items = HashSet::new();
+
+        // Find all belt replacements in this frame
+        for change in &changes {
+            if let BeltChange::Replaced(replaced) = change {
+                if let Some(old_entity) = replaced.old_entity {
+                    // Items are still on the OLD entity at this point (before app.update())
+                    // Query the old entity's inventory to find which items will be affected
+                    let mut query = app.world_mut().query::<&BeltInventory>();
+                    if let Ok(inv) = query.get(app.world(), old_entity) {
+                        for (_, item_entity) in &inv.item {
+                            skip_items.insert(*item_entity);
+                        }
+                    }
+                }
+            }
+        }
+        skip_items
     }
 }
 
