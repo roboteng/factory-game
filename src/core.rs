@@ -4,8 +4,14 @@ use bevy::prelude::*;
 
 pub const TILE_SIZE: f32 = 32.0;
 pub const POSITIONS_PER_TILE: u16 = 256;
-pub const POSITIONS_PER_CURVED_TILE: u16 = 201; // POSITIONS_PER_TILE * Pi / 4
 pub const ITEM_SPACING: u16 = 64;
+pub const BASE_BELT_SPEED: u16 = 8;
+
+pub const POSITIONS_PER_FRAGMENT: u16 = POSITIONS_PER_TILE / 2;
+pub const POSITIONS_PER_CURVED_TILE: u16 = (POSITIONS_PER_TILE as f32 * PI / 4.0).round() as u16;
+pub const ITEMS_PER_TILE: u16 = POSITIONS_PER_TILE / ITEM_SPACING;
+pub const BASE_ITEM_MOVEMENT: f32 = TILE_SIZE * BASE_BELT_SPEED as f32 / POSITIONS_PER_TILE as f32;
+pub const ITEM_SIZE: f32 = TILE_SIZE / ITEMS_PER_TILE as f32;
 
 pub struct CorePlugin;
 impl Plugin for CorePlugin {
@@ -355,7 +361,7 @@ impl BeltChanges {
                 (BeltChange::Replaced(old), BeltChange::Replaced(new)) => {
                     self.0[existing_idx] = ReplacedBelt {
                         entity,
-                        old_entity: old.old_entity,  // Keep original old_entity
+                        old_entity: old.old_entity, // Keep original old_entity
                         old_belt: old.old_belt,
                         new_belt: new.new_belt,
                         coords: new.coords,
@@ -450,7 +456,7 @@ fn on_place_belt(
             belt_coords.insert(place.coords, place.entity, new_belt);
             changes.push(ReplacedBelt {
                 entity: place.entity,
-                old_entity: None,  // Same entity, just changed belt type
+                old_entity: None, // Same entity, just changed belt type
                 new_belt,
                 old_belt: belt,
                 coords: place.coords,
@@ -831,7 +837,7 @@ mod tests {
             2.0,
         );
         let dist = actual.translation.distance(expected.translation);
-        let margin = 0.1;
+        let margin = TILE_SIZE * 0.1 / 32.0; // Scale tolerance with tile size
         assert!(
             dist < margin,
             "Distance between\n\t{:?}\nand\n\t{:?}\nwas not within margin",
@@ -852,7 +858,7 @@ mod tests {
         let actual = app.find_item(item).unwrap().1;
         let expected = Transform::from_xyz(-TILE_SIZE / 2.0, 0.0, 2.0);
         let dist = actual.translation.distance(expected.translation);
-        let margin = 0.1;
+        let margin = TILE_SIZE * 0.1 / 32.0; // Scale tolerance with tile size
         assert!(
             dist < margin,
             "Distance between\n\t{:?}\nand\n\t{:?}\nwas not within margin",
@@ -877,7 +883,7 @@ mod tests {
             2.0,
         );
         let dist = actual.translation.distance(expected.translation);
-        let margin = 0.1;
+        let margin = TILE_SIZE * 0.1 / 32.0; // Scale tolerance with tile size
         assert!(
             dist < margin,
             "Distance between\n\t{:?}\nand\n\t{:?}\nwas not within margin",
@@ -902,7 +908,7 @@ mod tests {
             2.0,
         );
         let dist = actual.translation.distance(expected.translation);
-        let margin = 0.1;
+        let margin = TILE_SIZE * 0.1 / 32.0; // Scale tolerance with tile size
         assert!(
             dist < margin,
             "Distance between\n\t{:?}\nand\n\t{:?}\nwas not within margin",

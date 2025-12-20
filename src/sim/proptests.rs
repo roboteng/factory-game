@@ -114,7 +114,7 @@ fn single_belt_with_item() {
         },
         Action::PlaceItem {
             belt_coords: WorldCoords::new(0, 0),
-            pos: 128,
+            pos: POSITIONS_PER_TILE / 2,
         },
         Action::Update,
         Action::Update,
@@ -183,7 +183,7 @@ fn replace_belt_with_item() {
         },
         Action::PlaceItem {
             belt_coords: WorldCoords::new(0, 0),
-            pos: 64,
+            pos: ITEM_SPACING,
         },
         // Replace the belt
         Action::PlaceBelt {

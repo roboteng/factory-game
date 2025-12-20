@@ -70,7 +70,7 @@ impl TestState {
     /// Check that items haven't moved more than the maximum distance
     /// Returns an error message if the movement bound is violated
     pub fn check_movement_bounds(&self, app: &mut App) -> Result<(), String> {
-        const MAX_MOVEMENT: f32 = 1.5; // pixels per frame
+        const MAX_MOVEMENT: f32 = BASE_ITEM_MOVEMENT * 1.5; // pixels per frame (with safety margin)
 
         let mut query = app.world_mut().query_filtered::<(Entity, &Transform), With<Item>>();
         for (entity, transform) in query.iter(app.world()) {
