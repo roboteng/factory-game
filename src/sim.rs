@@ -1,3 +1,5 @@
+use std::ops::Range;
+
 use crate::core::*;
 use bevy::prelude::*;
 
@@ -14,17 +16,14 @@ impl Plugin for SimPlugin {
     fn build(&self, app: &mut App) {
         #[cfg(feature = "invariant-ckeck")]
         app.add_plugins(invariants::InvariantsPlugin);
-        app.init_resource::<PlannedMoves>();
         app.add_observer(on_place_item);
-        app.add_observer(on_place_belt);
         app.add_systems(
             Update,
             (
                 calculate_belt_connections,
                 ApplyDeferred,
                 plan_moves,
-                execute_moves,
-                move_items,
+                do_moves,
             )
                 .chain(),
         );
@@ -60,267 +59,131 @@ impl BeltInventory {
     }
 }
 
+#[derive(Component, Debug, Clone, PartialEq, Eq)]
+struct BeltLane {
+    belts: Belts,
+    items: Items,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Belts {
+    belts: Vec<(Range<u16>, Entity)>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Items {
+    items: Vec<(u16, Entity)>,
+}
+
+impl BeltLane {
+    fn from_belt(entity: Entity, belt: Belt) -> Self {
+        let len = belt.num_positions();
+        let belts = Belts {
+            belts: vec![(0..len, entity)],
+        };
+        let items = Items { items: vec![] };
+        Self { belts, items }
+    }
+
+    fn range_for(&self, belt: Entity) -> Option<Range<u16>> {
+        self.belts
+            .belts
+            .iter()
+            .find(|(_, id)| *id == belt)
+            .map(|(range, _)| range.clone())
+    }
+
+    fn insert_item_at(&mut self, pos: u16, item: Entity) {
+        self.items.items.push((pos, item));
+        self.items.items.sort();
+    }
+
+    fn belt_for(&self, pos: u16) -> Option<Entity> {
+        self.belts
+            .belts
+            .iter()
+            .find(|(range, _)| range.contains(&pos))
+            .map(|(_, id)| *id)
+    }
+}
+
+#[derive(Component, Debug, Clone, PartialEq, Eq)]
+struct InLane {
+    lane: Entity,
+}
+
+impl InLane {
+    fn new(lane: Entity) -> Self {
+        Self { lane }
+    }
+}
+
 fn on_place_item(
     trigger: On<PlaceItem>,
-    mut query: Query<(&mut BeltInventory, Option<&Belt>, Option<&BeltFragment>)>,
+    belts: Query<(Entity, &Belt, &InLane)>,
+    mut lanes: Query<&mut BeltLane>,
 ) {
-    let (mut inv, belt, fragment) = query.get_mut(trigger.belt).unwrap();
-
-    // Determine max position for this belt/fragment
-    let max_pos = if let Some(b) = belt {
-        b.num_positions()
-    } else if fragment.is_some() {
-        POSITIONS_PER_FRAGMENT
-    } else {
-        // Shouldn't happen, but default to full tile
-        POSITIONS_PER_TILE
-    };
-
-    // Clamp position to valid range [0, max_pos)
-    let clamped_pos = trigger.pos.min(max_pos - 1);
-
-    inv.add(clamped_pos, trigger.entity);
-    inv.sort();
+    let belt = belts.get(trigger.belt).unwrap();
+    let mut lane = lanes.get_mut(belt.2.lane).unwrap();
+    let start = lane.range_for(belt.0).unwrap().start;
+    lane.insert_item_at(start + trigger.pos, trigger.entity);
 }
 
-fn on_place_belt(trigger: On<PlaceBelt>, mut cmd: Commands) {
-    cmd.entity(trigger.entity).insert(BeltInventory::default());
-}
-
-#[derive(Resource, Default, Clone)]
-struct PlannedMoves(Vec<PlannedMove>);
-
-impl PlannedMoves {
-    fn push(&mut self, planned_move: PlannedMove) {
-        self.0.push(planned_move);
-    }
-    fn clear(&mut self) {
-        self.0.clear();
-    }
-}
-#[derive(Clone)]
-struct PlannedMove {
-    from: Entity,
-    to: Entity,
-    new_pos: u16,
-    item: Entity,
-}
-
-#[derive(Component, Clone)]
-struct BeltConnection {
-    next_belt: Entity,
-    num_positions: u16,
+enum ConnectionType {
+    Direct,
+    SideLoad,
 }
 
 fn calculate_belt_connections(
     mut cmd: Commands,
     belt_coords: Res<BeltCoords>,
     changed_belts: Res<BeltChanges>,
-    query: Query<(Entity, Option<&BeltConnection>, &BeltInventory)>,
+    query: Query<&InLane>,
+    mut lanes: Query<&mut BeltLane>,
 ) {
-    // TODO: Double connection gets made when two belts are placed next to each other in the same frame
     debug!("Updating belts: {:?}", changed_belts.0);
     for change in &changed_belts.0 {
         match change {
             BeltChange::New(new) => {
-                place_belt(cmd.reborrow(), &belt_coords, *new);
+                let ahead_belt =
+                    belt_coords
+                        .get(new.coords.step(new.belt.output()))
+                        .map(|(entity, ahead)| {
+                            if ahead.input() == new.belt.output() {
+                                (entity, ahead, Some(ConnectionType::Direct))
+                            } else {
+                                if ahead.input().opposite() == new.belt.output() {
+                                    (entity, ahead, None)
+                                } else {
+                                    (entity, ahead, Some(ConnectionType::SideLoad))
+                                }
+                            }
+                        });
+                let behind_belt = belt_coords
+                    .get(new.coords.step(new.belt.input().opposite()))
+                    .filter(|behind| behind.1.output() == new.belt.input());
+
+                match (ahead_belt, behind_belt) {
+                    (None, None) => {
+                        let lane = BeltLane::from_belt(new.entity, new.belt);
+                        let lane_ent = cmd.spawn(lane).id();
+                        cmd.entity(new.entity).insert(InLane::new(lane_ent));
+                    }
+                    (None, Some(behind)) => todo!(),
+                    (Some(_), None) => todo!(),
+                    (Some(_), Some(_)) => todo!(),
+                }
             }
             BeltChange::Removed(removed) => {
-                remove_belt(cmd.reborrow(), *removed, &belt_coords, &query);
-                despawn_items(cmd.reborrow(), removed.entity, &query);
+                todo!();
             }
             BeltChange::Replaced(replaced) => {
                 if let Some(old_entity) = replaced.old_entity {
-                    // Transfer items from old entity to new entity
-                    // Items will teleport to their position on the new belt geometry
-                    transfer_inventory(&mut cmd, &query, old_entity, replaced.entity);
-
-                    // Remove connections/fragments from old entity (don't despawn items)
-                    remove_belt(
-                        cmd.reborrow(),
-                        RemovedBelt {
-                            entity: old_entity,
-                            old_belt: replaced.old_belt,
-                            coords: replaced.coords,
-                        },
-                        &belt_coords,
-                        &query,
-                    );
+                    todo!();
                 }
-                // Set up new belt connections
-                place_belt(cmd.reborrow(), &belt_coords, NewBelt::from(*replaced));
+                todo!();
             }
         }
-    }
-}
-
-fn transfer_inventory(
-    cmd: &mut Commands,
-    query: &Query<(Entity, Option<&BeltConnection>, &BeltInventory)>,
-    from_entity: Entity,
-    to_entity: Entity,
-) {
-    // Get items from old entity's inventory
-    let items = query
-        .get(from_entity)
-        .map(|(_, _, inv)| inv.item.clone())
-        .unwrap_or_default();
-
-    if items.is_empty() {
-        return;
-    }
-
-    // Get current inventory from new entity and merge
-    let mut new_inventory = query
-        .get(to_entity)
-        .map(|(_, _, inv)| inv.clone())
-        .unwrap_or_else(|_| BeltInventory::default());
-
-    // Add transferred items
-    for (pos, item_entity) in items {
-        new_inventory.add(pos, item_entity);
-    }
-    new_inventory.sort();
-
-    // Insert updated inventory using Commands
-    cmd.entity(to_entity).insert(new_inventory);
-
-    // Clear old entity's inventory to avoid duplicate items
-    cmd.entity(from_entity).insert(BeltInventory::default());
-}
-
-fn place_belt(
-    mut cmd: Commands,
-    belt_coords: &BeltCoords,
-    NewBelt {
-        entity,
-        belt,
-        coords,
-    }: NewBelt,
-) -> Option<()> {
-    let ahead_coords = coords.step(belt.output());
-    if let Some(tile) = belt_coords.get(ahead_coords) {
-        if tile.1.input() == belt.output() {
-            cmd.entity(entity).insert(BeltConnection {
-                next_belt: tile.0,
-                num_positions: tile.1.num_positions(),
-            });
-            debug!(
-                "Making new connection ahead from {:?} into {:?}",
-                entity, tile.0
-            );
-        } else if tile.1.input().left() == belt.output() || tile.1.input().right() == belt.output()
-        {
-            sideload_into(cmd.reborrow(), tile.0, ahead_coords, tile.1, entity, belt);
-        }
-    }
-    let input = belt.input();
-    for dir in [input.opposite(), input.left(), input.right()] {
-        let stepped_coords = coords.step(dir);
-        let Some((other_entity, other_belt)) = belt_coords.get(stepped_coords) else {
-            continue;
-        };
-        if stepped_coords.step(other_belt.output()) == coords {
-            if other_belt.output() == input {
-                cmd.entity(other_entity).insert(BeltConnection {
-                    next_belt: entity,
-                    num_positions: belt.num_positions(),
-                });
-                debug!(
-                    "Making new connection from {:?} into {:?}",
-                    other_entity, entity
-                );
-            } else {
-                sideload_into(
-                    cmd.reborrow(),
-                    entity,
-                    coords,
-                    belt,
-                    other_entity,
-                    other_belt,
-                );
-            }
-        }
-    }
-    Some(())
-}
-
-fn sideload_into(
-    mut cmd: Commands,
-    main_entity: Entity,
-    main_coords: WorldCoords,
-    _main_belt: Belt,
-    side_entity: Entity,
-    side_belt: Belt,
-) {
-    let frag = BeltFragment {
-        dir: side_belt.output(),
-    };
-    let frag_entity = cmd
-        .spawn((
-            frag,
-            BeltInventory::default(),
-            main_coords,
-            BeltConnection {
-                next_belt: main_entity,
-                num_positions: POSITIONS_PER_FRAGMENT,
-            },
-        ))
-        .id();
-    cmd.entity(side_entity).insert(BeltConnection {
-        next_belt: frag_entity,
-        num_positions: frag.num_positions(),
-    });
-    debug!(
-        "Making new fragment {:?} connecting {:?} into {:?}",
-        frag_entity, side_entity, main_entity
-    );
-}
-
-fn remove_belt(
-    mut cmd: Commands,
-    RemovedBelt {
-        entity,
-        old_belt,
-        coords,
-    }: RemovedBelt,
-    belt_coords: &BeltCoords,
-    query: &Query<(Entity, Option<&BeltConnection>, &BeltInventory)>,
-) -> Option<BeltInventory> {
-    let input = old_belt.input();
-    for dir in [input.opposite(), input.left(), input.right()] {
-        let stepped_coords = coords.step(dir);
-        let Some((c_entity, _)) = belt_coords.get(stepped_coords) else {
-            continue;
-        };
-        let Ok((_, Some(connection), _)) = query.get(c_entity) else {
-            continue;
-        };
-        // TODO: check where its a belt or blet fragment
-        if connection.next_belt == entity {
-            cmd.entity(c_entity).remove::<BeltConnection>();
-        }
-    }
-
-    // Remove all belt-related components to prevent invariant violations
-    // (The entity itself will be despawned in PostUpdate if this is a replacement)
-    cmd.entity(entity)
-        .remove::<(Belt, WorldCoords, BeltInventory)>();
-
-    let (_, _, inventory) = query.get(entity).ok()?;
-    Some(inventory.clone())
-}
-
-fn despawn_items(
-    mut cmd: Commands,
-    entity: Entity,
-    query: &Query<(Entity, Option<&BeltConnection>, &BeltInventory)>,
-) {
-    let Ok((_, _, inventory)) = query.get(entity) else {
-        return;
-    };
-    for (_, item_entity) in &inventory.item {
-        cmd.entity(*item_entity).despawn();
     }
 }
 
@@ -372,87 +235,28 @@ impl From<(Option<&'_ Belt>, Option<&'_ BeltFragment>)> for BeltLike {
     }
 }
 
-fn plan_moves(
-    invs: Query<(Entity, &BeltInventory, Option<&BeltConnection>)>,
-
-    mut planned_moves: ResMut<PlannedMoves>,
-) {
-    planned_moves.clear();
-    for (ent, inv, conn) in invs.iter() {
-        let Some(item) = inv.item_at_head() else {
-            continue;
-        };
-        debug!("Checking belt {:?} with item at position {}", ent, item.0);
-        if item.0 >= BASE_BELT_SPEED {
-            debug!("  Item too far back (pos >= {})", BASE_BELT_SPEED);
-            continue;
+fn plan_moves(mut lanes: Query<&mut BeltLane>) {
+    for mut lane in lanes.iter_mut() {
+        for (pos, _) in lane.items.items.iter_mut() {
+            *pos -= BASE_BELT_SPEED;
         }
-        let Some(connection) = conn else {
-            debug!("  No connection found");
-            continue;
-        };
-        debug!("  Found connection to {:?}", connection.next_belt);
-        let next_belt = invs.get(connection.next_belt).unwrap();
-
-        if !next_belt.1.has_space_at_tail(connection.num_positions) {
-            debug!("  Next belt has no space");
-            continue;
-        }
-        debug!(
-            "  Planning move from {:?} to {:?}, new_pos: {}",
-            ent,
-            connection.next_belt,
-            connection.num_positions + item.0
-        );
-        planned_moves.push(PlannedMove {
-            from: ent,
-            to: connection.next_belt,
-            new_pos: connection.num_positions + item.0,
-            item: item.1,
-        });
     }
 }
 
-fn execute_moves(world: &mut World) {
-    let moves = world.resource::<PlannedMoves>().clone();
-    for m in moves.0.iter() {
-        let mut query = world.query::<&mut BeltInventory>();
-        let mut inv = query.get_mut(world, m.from).unwrap();
-        inv.remove_first();
-        let mut inv = query.get_mut(world, m.to).unwrap();
-        inv.add(m.new_pos, m.item);
-    }
-}
-
-fn move_items(
+fn do_moves(
     mut items: Query<&mut Transform, With<Item>>,
-    mut belts: Query<(
-        &mut BeltInventory,
-        AnyOf<(&Belt, &BeltFragment)>,
-        &WorldCoords,
-    )>,
+    belts: Query<(&Belt, &WorldCoords)>,
+    lanes: Query<&BeltLane>,
 ) {
-    for (mut inv, belt, coords) in belts.iter_mut() {
-        let belt = BeltLike::from(belt);
-        for (i, (pos, entity)) in &mut inv.item.iter_mut().enumerate() {
-            debug!("Moving items on belt, items at {:?}", coords);
-            let i = i as u16;
-            if *pos < i * ITEM_SPACING {
-                warn!("Items are overcompressed");
-                continue;
+    for lane in lanes {
+        for (pos, item_ent) in lane.items.items.iter() {
+            let belt = lane.belt_for(*pos);
+            if let Some(belt) = belt {
+                let (belt, coords) = belts.get(belt).unwrap();
+                let transform = belt.item_transform(*pos, *coords);
+                let mut t = items.get_mut(*item_ent).unwrap();
+                *t = transform;
             }
-            let next_pos =
-                (*pos - i * ITEM_SPACING).saturating_sub(BASE_BELT_SPEED) + i * ITEM_SPACING;
-            if next_pos < *pos {
-                *pos = next_pos;
-            }
-            let mut transform = items.get_mut(*entity).unwrap();
-            let new_transform = belt.item_transform(*pos, *coords);
-            debug!(
-                "  Item {:?} at pos {} -> {:?}",
-                entity, pos, new_transform.translation
-            );
-            *transform = new_transform;
         }
     }
 }

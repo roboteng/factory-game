@@ -1,5 +1,5 @@
 use crate::core::*;
-use crate::sim::{BeltConnection, BeltFragment, BeltInventory};
+use crate::sim::{BeltFragment, BeltInventory};
 use bevy::prelude::*;
 
 pub struct InvariantsPlugin;
@@ -10,8 +10,6 @@ impl Plugin for InvariantsPlugin {
             PostUpdate,
             (
                 check_no_belt_and_fragment,
-                check_belt_connections_valid,
-                check_items_in_inventories,
                 check_belt_inventory_has_belt_or_fragment,
                 check_belts_have_coords,
                 check_belt_coords_sync,
@@ -21,7 +19,6 @@ impl Plugin for InvariantsPlugin {
                 check_item_positions_in_bounds,
                 check_item_spacing,
                 check_inventory_items_have_components,
-                check_fragment_coordinates,
             )
                 .chain(),
         );
@@ -35,49 +32,6 @@ fn check_no_belt_and_fragment(query: Query<Entity, (With<Belt>, With<BeltFragmen
             "INVARIANT VIOLATION: Entity {:?} has both Belt and BeltFragment components",
             entity
         );
-    }
-}
-
-/// Invariant 2: All BeltConnection references must point to valid entities with Belt or BeltFragment
-fn check_belt_connections_valid(
-    connections: Query<(Entity, &BeltConnection)>,
-    belts: Query<(), Or<(With<Belt>, With<BeltFragment>)>>,
-) {
-    for (entity, connection) in connections.iter() {
-        if belts.get(connection.next_belt).is_err() {
-            panic!(
-                "INVARIANT VIOLATION: Entity {:?} has BeltConnection pointing to invalid entity {:?}",
-                entity, connection.next_belt
-            );
-        }
-    }
-}
-
-/// Invariant 3: Every Item must be referenced in exactly one BeltInventory
-fn check_items_in_inventories(
-    items: Query<Entity, With<Item>>,
-    inventories: Query<&BeltInventory>,
-) {
-    for item_entity in items.iter() {
-        let mut found_count = 0;
-        for inventory in inventories.iter() {
-            if inventory.item.iter().any(|(_, e)| *e == item_entity) {
-                found_count += 1;
-            }
-        }
-
-        if found_count == 0 {
-            panic!(
-                "INVARIANT VIOLATION: Item {:?} is not in any BeltInventory",
-                item_entity
-            );
-        }
-        if found_count > 1 {
-            panic!(
-                "INVARIANT VIOLATION: Item {:?} is in {} BeltInventories (expected exactly 1)",
-                item_entity, found_count
-            );
-        }
     }
 }
 
@@ -257,23 +211,5 @@ fn check_inventory_items_have_components(
                 );
             }
         }
-    }
-}
-
-/// Invariant 13: Fragment coordinates must match their target belt coordinates
-fn check_fragment_coordinates(
-    fragments: Query<(Entity, &WorldCoords, &BeltConnection), With<BeltFragment>>,
-    belts: Query<&WorldCoords, With<Belt>>,
-) {
-    for (fragment_entity, fragment_coords, connection) in fragments.iter() {
-        if let Ok(belt_coords) = belts.get(connection.next_belt) {
-            if fragment_coords != belt_coords {
-                panic!(
-                    "INVARIANT VIOLATION: Fragment {:?} at {:?} connects to belt {:?} at {:?} (coordinates should match)",
-                    fragment_entity, fragment_coords, connection.next_belt, belt_coords
-                );
-            }
-        }
-        // Note: If belt doesn't exist, check_belt_connections_valid will catch it
     }
 }
