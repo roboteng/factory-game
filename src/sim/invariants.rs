@@ -1,6 +1,7 @@
 use crate::core::*;
-use crate::sim::{BeltFragment, BeltInventory};
+use crate::sim::{BeltFragment, BeltLane, InLane};
 use bevy::prelude::*;
+use std::collections::HashSet;
 
 pub struct InvariantsPlugin;
 
@@ -10,15 +11,13 @@ impl Plugin for InvariantsPlugin {
             PostUpdate,
             (
                 check_no_belt_and_fragment,
-                check_belt_inventory_has_belt_or_fragment,
                 check_belts_have_coords,
                 check_belt_coords_sync,
                 check_no_duplicate_coords,
-                check_inventory_items_exist,
-                check_inventory_sorted,
-                check_item_positions_in_bounds,
-                check_item_spacing,
-                check_inventory_items_have_components,
+                check_no_duplicate_belts_in_lane,
+                check_lane_ranges_contiguous,
+                check_inlane_bidirectional,
+                check_adjacent_belts_in_lane_are_connected,
             )
                 .chain(),
         );
@@ -32,31 +31,6 @@ fn check_no_belt_and_fragment(query: Query<Entity, (With<Belt>, With<BeltFragmen
             "INVARIANT VIOLATION: Entity {:?} has both Belt and BeltFragment components",
             entity
         );
-    }
-}
-
-/// Invariant 4: Entities with BeltInventory must have exactly one of Belt or BeltFragment
-fn check_belt_inventory_has_belt_or_fragment(
-    inventories: Query<Entity, With<BeltInventory>>,
-    belts: Query<(), With<Belt>>,
-    fragments: Query<(), With<BeltFragment>>,
-) {
-    for entity in inventories.iter() {
-        let has_belt = belts.get(entity).is_ok();
-        let has_fragment = fragments.get(entity).is_ok();
-
-        if !has_belt && !has_fragment {
-            panic!(
-                "INVARIANT VIOLATION: Entity {:?} has BeltInventory but neither Belt nor BeltFragment",
-                entity
-            );
-        }
-        if has_belt && has_fragment {
-            panic!(
-                "INVARIANT VIOLATION: Entity {:?} has BeltInventory with both Belt and BeltFragment",
-                entity
-            );
-        }
     }
 }
 
@@ -115,99 +89,152 @@ fn check_no_duplicate_coords(belts: Query<(Entity, &WorldCoords), With<Belt>>) {
     }
 }
 
-/// Invariant 8: All items in BeltInventory must reference valid entities
-fn check_inventory_items_exist(
-    inventories: Query<(Entity, &BeltInventory)>,
-    items: Query<(), With<Item>>,
-) {
-    for (belt_entity, inventory) in inventories.iter() {
-        for (pos, item_entity) in &inventory.item {
-            if items.get(*item_entity).is_err() {
+/// Invariant 8: No belt entity should appear multiple times in a single lane
+fn check_no_duplicate_belts_in_lane(lanes: Query<(Entity, &BeltLane)>) {
+    for (lane_entity, lane) in lanes.iter() {
+        let mut seen_belts = HashSet::new();
+        for (_, belt_entity) in &lane.belts.belts {
+            if !seen_belts.insert(belt_entity) {
                 panic!(
-                    "INVARIANT VIOLATION: BeltInventory on {:?} references non-existent item {:?} at position {}",
-                    belt_entity, item_entity, pos
+                    "INVARIANT VIOLATION: Lane {:?} contains belt {:?} multiple times. Full lane: {:?}",
+                    lane_entity, belt_entity, lane.belts.belts
                 );
             }
         }
     }
 }
 
-/// Invariant 9: BeltInventory items must be sorted by position (ascending)
-fn check_inventory_sorted(inventories: Query<(Entity, &BeltInventory)>) {
-    for (entity, inventory) in inventories.iter() {
-        let positions: Vec<u16> = inventory.item.iter().map(|(pos, _)| *pos).collect();
+/// Invariant 9: Belt ranges in a lane must be contiguous and non-overlapping
+fn check_lane_ranges_contiguous(lanes: Query<(Entity, &BeltLane)>) {
+    for (lane_entity, lane) in lanes.iter() {
+        if lane.belts.belts.is_empty() {
+            panic!("INVARIANT VIOLATION: Lane {:?} has no belts", lane_entity);
+        }
 
-        for i in 1..positions.len() {
-            if positions[i] < positions[i - 1] {
+        // First belt must start at 0
+        let first = &lane.belts.belts[0];
+        if first.0.start != 0 {
+            panic!(
+                "INVARIANT VIOLATION: Lane {:?} first belt range doesn't start at 0. Range: {:?}",
+                lane_entity, first.0
+            );
+        }
+
+        // Check each consecutive pair
+        for i in 0..lane.belts.belts.len() - 1 {
+            let current = &lane.belts.belts[i];
+            let next = &lane.belts.belts[i + 1];
+
+            if current.0.end != next.0.start {
                 panic!(
-                    "INVARIANT VIOLATION: BeltInventory on {:?} is not sorted: position {} ({}) comes before position {} ({})",
-                    entity,
-                    i - 1,
-                    positions[i - 1],
-                    i,
-                    positions[i]
+                    "INVARIANT VIOLATION: Lane {:?} has non-contiguous ranges: belt {:?} range {:?} followed by belt {:?} range {:?}",
+                    lane_entity, current.1, current.0, next.1, next.0
                 );
             }
         }
     }
 }
 
-/// Invariant 10: Item positions must be within valid range for their belt
-fn check_item_positions_in_bounds(
-    inventories: Query<(Entity, &BeltInventory, Option<&Belt>, Option<&BeltFragment>)>,
+/// Invariant 10: Bidirectional relationship between belts and lanes
+/// - If a belt has InLane component, it must exist in that lane
+/// - If a belt is in a lane's belt list, it must have InLane pointing to that lane
+fn check_inlane_bidirectional(
+    lanes: Query<(Entity, &BeltLane)>,
+    belts_with_inlane: Query<(Entity, &InLane)>,
 ) {
-    for (entity, inventory, belt, fragment) in inventories.iter() {
-        let max_pos = if let Some(b) = belt {
-            b.num_positions()
-        } else if fragment.is_some() {
-            POSITIONS_PER_TILE / 2
+    // Build a map of belt -> lane from the InLane components
+    let mut inlane_map = std::collections::HashMap::new();
+    for (belt_entity, inlane) in belts_with_inlane.iter() {
+        inlane_map.insert(belt_entity, inlane.lane);
+    }
+
+    // Check each lane
+    for (lane_entity, lane) in lanes.iter() {
+        for (_, belt_entity) in &lane.belts.belts {
+            // Belt in lane should have InLane component pointing to this lane
+            match inlane_map.get(belt_entity) {
+                Some(&inlane_lane) => {
+                    if inlane_lane != lane_entity {
+                        panic!(
+                            "INVARIANT VIOLATION: Belt {:?} is in lane {:?} but has InLane pointing to lane {:?}",
+                            belt_entity, lane_entity, inlane_lane
+                        );
+                    }
+                }
+                None => {
+                    panic!(
+                        "INVARIANT VIOLATION: Belt {:?} is in lane {:?} but does not have InLane component",
+                        belt_entity, lane_entity
+                    );
+                }
+            }
+        }
+    }
+
+    // Check reverse: all belts with InLane should exist in their referenced lane
+    for (belt_entity, inlane) in belts_with_inlane.iter() {
+        let lane_entity = inlane.lane;
+        if let Ok((_, lane)) = lanes.get(lane_entity) {
+            let found = lane.belts.belts.iter().any(|(_, ent)| ent == &belt_entity);
+            if !found {
+                panic!(
+                    "INVARIANT VIOLATION: Belt {:?} has InLane pointing to lane {:?}, but is not in that lane's belt list. Lane contains: {:?}",
+                    belt_entity, lane_entity, lane.belts.belts
+                );
+            }
         } else {
-            // This should be caught by check_belt_inventory_has_belt_or_fragment
-            continue;
-        };
-
-        for (pos, item_entity) in &inventory.item {
-            if *pos >= max_pos {
-                panic!(
-                    "INVARIANT VIOLATION: Item {:?} on belt/fragment {:?} has position {} >= max {}",
-                    item_entity, entity, pos, max_pos
-                );
-            }
+            panic!(
+                "INVARIANT VIOLATION: Belt {:?} has InLane pointing to non-existent lane {:?}",
+                belt_entity, lane_entity
+            );
         }
     }
 }
 
-/// Invariant 11: Items should maintain minimum spacing (ITEM_SPACING)
-/// Note: This is a soft invariant - the system is designed to recover from overcompression
-fn check_item_spacing(inventories: Query<(Entity, &BeltInventory)>) {
-    for (entity, inventory) in inventories.iter() {
-        let items: Vec<(u16, Entity)> = inventory.item.iter().copied().collect();
-
-        for i in 0..items.len() {
-            let expected_min_pos = i as u16 * ITEM_SPACING;
-            let (actual_pos, item_entity) = items[i];
-
-            if actual_pos < expected_min_pos {
-                warn!(
-                    "INVARIANT WARNING: Item {:?} on belt {:?} at index {} has position {} < expected minimum {} (overcompressed, will self-correct)",
-                    item_entity, entity, i, actual_pos, expected_min_pos
-                );
-            }
-        }
-    }
-}
-
-/// Invariant 12: Items referenced in inventories must have Item and Transform components
-fn check_inventory_items_have_components(
-    inventories: Query<(Entity, &BeltInventory)>,
-    items_with_transform: Query<(), (With<Item>, With<Transform>)>,
+/// Invariant 11: Adjacent belts in a lane must be physically connected in the world
+/// - Each belt in the lane (except the last) must output to the next belt's input
+/// - The world coordinates must be adjacent
+fn check_adjacent_belts_in_lane_are_connected(
+    lanes: Query<(Entity, &BeltLane)>,
+    belts: Query<(&Belt, &WorldCoords)>,
 ) {
-    for (belt_entity, inventory) in inventories.iter() {
-        for (pos, item_entity) in &inventory.item {
-            if items_with_transform.get(*item_entity).is_err() {
+    for (lane_entity, lane) in lanes.iter() {
+        if lane.belts.belts.len() <= 1 {
+            continue; // Single belt lane is always valid
+        }
+
+        for i in 0..lane.belts.belts.len() - 1 {
+            let current_entity = lane.belts.belts[i].1;
+            let next_entity = lane.belts.belts[i + 1].1;
+
+            let Ok((current_belt, current_coords)) = belts.get(current_entity) else {
                 panic!(
-                    "INVARIANT VIOLATION: Item {:?} in inventory of {:?} at position {} does not have Item+Transform components",
-                    item_entity, belt_entity, pos
+                    "INVARIANT VIOLATION: Lane {:?} contains belt {:?} which doesn't have Belt+WorldCoords components",
+                    lane_entity, current_entity
+                );
+            };
+
+            let Ok((next_belt, next_coords)) = belts.get(next_entity) else {
+                panic!(
+                    "INVARIANT VIOLATION: Lane {:?} contains belt {:?} which doesn't have Belt+WorldCoords components",
+                    lane_entity, next_entity
+                );
+            };
+
+            // Check that next belt (later in vec, upstream) outputs to current belt (earlier in vec, downstream)
+            let expected_next_pos = next_coords.step(next_belt.output());
+            if expected_next_pos != *current_coords {
+                panic!(
+                    "INVARIANT VIOLATION: Lane {lane_entity:?} has non-adjacent belts: belt {next_entity:?} at {next_coords:?} facing {next_belt:?} should output to belt {current_entity:?} at {current_coords:?}, but outputs to {expected_next_pos:?} instead",
+                );
+            }
+
+            // Check that next belt's output connects to current belt's input
+            if current_belt.input() != next_belt.output() {
+                panic!(
+                    "INVARIANT VIOLATION: Lane {lane_entity:?} has misconnected belts: belt {next_entity:?}  outputs {:?} but belt {current_entity:?} (earlier in vec) inputs {:?}",
+                    next_belt.output(),
+                    current_belt.input()
                 );
             }
         }

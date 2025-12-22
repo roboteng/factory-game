@@ -1,7 +1,7 @@
 use std::ops::Range;
 
 use crate::core::*;
-use bevy::prelude::*;
+use bevy::{platform::collections::HashMap, prelude::*};
 
 #[cfg(feature = "invariant-ckeck")]
 mod invariants;
@@ -30,44 +30,15 @@ impl Plugin for SimPlugin {
     }
 }
 
-#[derive(Component, Default, Clone)]
-pub struct BeltInventory {
-    item: Vec<(u16, Entity)>,
-}
-
-impl BeltInventory {
-    pub fn add(&mut self, pos: u16, entity: Entity) {
-        self.item.push((pos, entity));
-    }
-
-    pub fn item_at_head(&self) -> Option<(u16, Entity)> {
-        self.item.first().copied()
-    }
-
-    pub fn has_space_at_tail(&self, n_pos: u16) -> bool {
-        self.item
-            .last()
-            .is_none_or(|&(pos, _)| pos < n_pos - ITEM_SPACING)
-    }
-
-    pub fn remove_first(&mut self) {
-        self.item.remove(0);
-    }
-
-    pub fn sort(&mut self) {
-        self.item.sort();
-    }
-}
-
 #[derive(Component, Debug, Clone, PartialEq, Eq)]
-struct BeltLane {
-    belts: Belts,
-    items: Items,
+pub(crate) struct BeltLane {
+    pub(crate) belts: Belts,
+    pub(crate) items: Items,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct Belts {
-    belts: Vec<(Range<u16>, Entity)>,
+pub(crate) struct Belts {
+    pub(crate) belts: Vec<(Range<u16>, Entity)>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -105,11 +76,57 @@ impl BeltLane {
             .find(|(range, _)| range.contains(&pos))
             .map(|(_, id)| *id)
     }
+
+    fn add_to_head(&mut self, belt: Belt, entity: Entity) {
+        let len = belt.num_positions();
+        self.offset_by(len);
+        self.belts.belts.insert(0, (0..len, entity));
+    }
+
+    fn offset_by(&mut self, len: u16) {
+        self.belts.belts.iter_mut().for_each(|(range, _)| {
+            range.start += len;
+            range.end += len;
+        });
+        self.items.items.iter_mut().for_each(|(pos, _)| {
+            *pos += len;
+        });
+    }
+    fn add_to_tail(&mut self, belt: Belt, entity: Entity) {
+        let len = belt.num_positions();
+        let curr_len = self.num_positions();
+        self.belts.belts.push((curr_len..curr_len + len, entity));
+    }
+
+    fn num_positions(&self) -> u16 {
+        self.belts
+            .belts
+            .last()
+            .map(|(r, _)| r.end)
+            .unwrap_or_default()
+    }
+    fn merge(&mut self, mut tail: BeltLane) {
+        let len = self.num_positions();
+        tail.offset_by(len);
+        self.belts.belts.extend_from_slice(&tail.belts.belts);
+        self.items.items.extend_from_slice(&tail.items.items);
+    }
+
+    fn relative_pos(&self, pos: u16) -> u16 {
+        pos - self
+            .belts
+            .belts
+            .iter()
+            .find(|(range, _)| range.contains(&pos))
+            .unwrap()
+            .0
+            .start
+    }
 }
 
 #[derive(Component, Debug, Clone, PartialEq, Eq)]
-struct InLane {
-    lane: Entity,
+pub(crate) struct InLane {
+    pub(crate) lane: Entity,
 }
 
 impl InLane {
@@ -129,49 +146,131 @@ fn on_place_item(
     lane.insert_item_at(start + trigger.pos, trigger.entity);
 }
 
+#[derive(Debug)]
 enum ConnectionType {
     Direct,
     SideLoad,
 }
 
-fn calculate_belt_connections(
-    mut cmd: Commands,
-    belt_coords: Res<BeltCoords>,
-    changed_belts: Res<BeltChanges>,
-    query: Query<&InLane>,
-    mut lanes: Query<&mut BeltLane>,
-) {
+fn calculate_belt_connections(world: &mut World) {
+    let changed_belts = world.resource::<BeltChanges>().clone();
+    if changed_belts.0.is_empty() {
+        return;
+    }
     debug!("Updating belts: {:?}", changed_belts.0);
-    for change in &changed_belts.0 {
+
+    let num_changes = changed_belts.0.len();
+    for i in 0..num_changes {
+        let change = &changed_belts.0[i];
+        let remaining_entities = changed_belts.0[(i + 1)..]
+            .iter()
+            .map(|change| change.entity())
+            .collect::<Vec<_>>();
+        debug!("Remaining entities: {:?}", remaining_entities);
         match change {
             BeltChange::New(new) => {
-                let ahead_belt =
-                    belt_coords
-                        .get(new.coords.step(new.belt.output()))
-                        .map(|(entity, ahead)| {
-                            if ahead.input() == new.belt.output() {
-                                (entity, ahead, Some(ConnectionType::Direct))
+                let belt_coords = world.resource::<BeltCoords>();
+                let ahead_belt = belt_coords
+                    .get(new.coords.step(new.belt.output()))
+                    .filter(|(ent, _)| !remaining_entities.contains(ent))
+                    .and_then(|(entity, ahead)| {
+                        if ahead.input() == new.belt.output() {
+                            Some((entity, ahead, ConnectionType::Direct))
+                        } else {
+                            if ahead.input().opposite() == new.belt.output() {
+                                None
                             } else {
-                                if ahead.input().opposite() == new.belt.output() {
-                                    (entity, ahead, None)
-                                } else {
-                                    (entity, ahead, Some(ConnectionType::SideLoad))
-                                }
+                                Some((entity, ahead, ConnectionType::SideLoad))
                             }
-                        });
+                        }
+                    });
                 let behind_belt = belt_coords
                     .get(new.coords.step(new.belt.input().opposite()))
+                    .filter(|(ent, _)| !remaining_entities.contains(ent))
                     .filter(|behind| behind.1.output() == new.belt.input());
+                debug!("Behind belt: {:?}", behind_belt);
+                debug!("ahead belt: {:?}", ahead_belt);
 
                 match (ahead_belt, behind_belt) {
                     (None, None) => {
+                        debug!("Creating new lane");
                         let lane = BeltLane::from_belt(new.entity, new.belt);
-                        let lane_ent = cmd.spawn(lane).id();
-                        cmd.entity(new.entity).insert(InLane::new(lane_ent));
+                        let lane_ent = world.spawn(lane).id();
+                        world.entity_mut(new.entity).insert(InLane::new(lane_ent));
                     }
-                    (None, Some(behind)) => todo!(),
-                    (Some(_), None) => todo!(),
-                    (Some(_), Some(_)) => todo!(),
+                    (None, Some((behind_ent, _))) => {
+                        debug!("Adding to head of existing lane");
+                        let lane_ent = world
+                            .query::<&InLane>()
+                            .get(world, behind_ent)
+                            .map(|l| l.lane)
+                            .unwrap();
+                        let mut lane = world
+                            .query::<&mut BeltLane>()
+                            .get_mut(world, lane_ent)
+                            .unwrap();
+                        lane.add_to_head(new.belt, new.entity);
+                        debug!("Lane is {:?}", lane);
+                        world.entity_mut(new.entity).insert(InLane::new(lane_ent));
+                    }
+                    (Some((ahead_ent, _, ConnectionType::Direct)), None) => {
+                        debug!("Adding to tail of existing lane");
+                        let lane_ent = world
+                            .query::<&InLane>()
+                            .get(world, ahead_ent)
+                            .map(|l| l.lane)
+                            .unwrap();
+                        let mut lane = world
+                            .query::<&mut BeltLane>()
+                            .get_mut(world, lane_ent)
+                            .unwrap();
+                        lane.add_to_tail(new.belt, new.entity);
+                        debug!("Lane is {:?}", lane);
+                        world.entity_mut(new.entity).insert(InLane::new(lane_ent));
+                    }
+                    (
+                        Some((ahead_ent, ahead_belt, ConnectionType::Direct)),
+                        Some((behind_ent, behind_belt)),
+                    ) => {
+                        debug!("Merging lanes");
+                        let behind_lane_ent = world
+                            .query::<&InLane>()
+                            .get(world, behind_ent)
+                            .map(|l| l.lane)
+                            .unwrap();
+                        let mut behind_lane = world
+                            .query::<&BeltLane>()
+                            .get(world, behind_lane_ent)
+                            .unwrap()
+                            .clone();
+                        behind_lane.add_to_head(new.belt, new.entity);
+                        let ahead_lane_ent = world
+                            .query::<&InLane>()
+                            .get(world, ahead_ent)
+                            .map(|l| l.lane)
+                            .unwrap();
+                        for (_, belt_ent) in &behind_lane.belts.belts {
+                            world
+                                .entity_mut(*belt_ent)
+                                .insert(InLane::new(ahead_lane_ent));
+                        }
+                        let mut lane = world
+                            .query::<&mut BeltLane>()
+                            .get_mut(world, ahead_lane_ent)
+                            .unwrap();
+                        lane.merge(behind_lane);
+                        debug!("Lane is {:?}", lane);
+                        world.entity_mut(behind_lane_ent).despawn();
+                        world
+                            .entity_mut(new.entity)
+                            .insert(InLane::new(ahead_lane_ent));
+                    }
+                    (Some((ahead_ent, ahead_belt, ConnectionType::SideLoad)), Some(_)) => {
+                        todo!("Side loading")
+                    }
+                    (Some((ahead_ent, ahead_belt, ConnectionType::SideLoad)), None) => {
+                        todo!("Side loading")
+                    }
                 }
             }
             BeltChange::Removed(removed) => {
@@ -237,8 +336,11 @@ impl From<(Option<&'_ Belt>, Option<&'_ BeltFragment>)> for BeltLike {
 
 fn plan_moves(mut lanes: Query<&mut BeltLane>) {
     for mut lane in lanes.iter_mut() {
-        for (pos, _) in lane.items.items.iter_mut() {
-            *pos -= BASE_BELT_SPEED;
+        for (i, (pos, _)) in lane.items.items.iter_mut().enumerate() {
+            let furthest = i as u16 * ITEM_SPACING;
+            let k = pos.saturating_sub(furthest);
+            *pos = k.saturating_sub(BASE_BELT_SPEED) + furthest;
+            debug!("Setting item at {}", pos);
         }
     }
 }
@@ -253,7 +355,7 @@ fn do_moves(
             let belt = lane.belt_for(*pos);
             if let Some(belt) = belt {
                 let (belt, coords) = belts.get(belt).unwrap();
-                let transform = belt.item_transform(*pos, *coords);
+                let transform = belt.item_transform(lane.relative_pos(*pos), *coords);
                 let mut t = items.get_mut(*item_ent).unwrap();
                 *t = transform;
             }
@@ -368,6 +470,21 @@ mod tests {
     }
 
     #[test]
+    fn item_moves_on_merged_lanes() {
+        let mut app = test_app();
+        let belt1 = app.add_belt((0, 0), Dir::East);
+        let belt2 = app.add_belt((2, 0), Dir::East);
+        app.update();
+        let belt3 = app.add_belt((1, 0), Dir::East);
+        // app.add_item(belt1, 0);
+        // let item = app.add_item(belt1, 0);
+        app.update();
+        // let (_, actual) = app.find_item(item).unwrap();
+        // let expected = Transform::from_xyz(TILE_SIZE / 2.0 + BASE_ITEM_MOVEMENT, 0.0, 2.0);
+        // assert_eq!(actual, expected);
+    }
+
+    #[test]
     fn handles_items_too_close_together() {
         let mut app = test_app();
         let belt1 = app.add_belt((0, 0), Dir::East);
@@ -377,7 +494,7 @@ mod tests {
         app.update();
         let (_, actual) = app.find_item(item).unwrap();
         let expected = Transform::from_xyz(
-            TILE_SIZE / 2.0 - TILE_SIZE / POSITIONS_PER_TILE as f32,
+            TILE_SIZE / 2.0 - TILE_SIZE * ITEM_SPACING as f32 / POSITIONS_PER_TILE as f32,
             0.0,
             2.0,
         );

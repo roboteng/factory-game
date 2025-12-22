@@ -265,7 +265,7 @@ impl BeltCoords {
     }
 }
 
-#[derive(Resource, Default, Debug, PartialEq, Eq)]
+#[derive(Resource, Default, Debug, PartialEq, Eq, Clone)]
 pub struct BeltChanges(pub Vec<BeltChange>);
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BeltChange {
