@@ -1,7 +1,7 @@
 use std::ops::Range;
 
 use crate::core::*;
-use bevy::prelude::*;
+use bevy::{asset::ron::de, prelude::*};
 
 #[cfg(feature = "invariant-ckeck")]
 mod invariants;
@@ -121,6 +121,11 @@ impl BeltLane {
             .unwrap()
             .0
             .start
+    }
+    fn prepend_fragment(&mut self, fragment: BeltFragment, entity: Entity) {
+        let len = fragment.num_positions();
+        self.offset_by(len);
+        self.belts.belts.insert(0, (0..len, entity));
     }
 }
 
@@ -265,10 +270,24 @@ fn calculate_belt_connections(world: &mut World) {
                             .entity_mut(new.entity)
                             .insert(InLane::new(ahead_lane_ent));
                     }
-                    (Some((ahead_ent, ahead_belt, ConnectionType::SideLoad)), Some(_)) => {
-                        todo!("Side loading")
-                    }
                     (Some((ahead_ent, ahead_belt, ConnectionType::SideLoad)), None) => {
+                        debug!("sidelaoding new lane");
+                        let mut lane = BeltLane::from_belt(new.entity, new.belt);
+                        let fragment = BeltFragment::new(new.belt.output());
+                        let frag_ent = world
+                            .spawn((
+                                fragment,
+                                new.coords.step(new.belt.output()),
+                                InLane::new(Entity::PLACEHOLDER),
+                            ))
+                            .id();
+                        lane.prepend_fragment(fragment, frag_ent);
+                        debug!("sideloading Lane is {lane:?}");
+                        let lane_ent = world.spawn(lane).id();
+                        world.entity_mut(frag_ent).insert(InLane::new(lane_ent));
+                        world.entity_mut(new.entity).insert(InLane::new(lane_ent));
+                    }
+                    (Some((ahead_ent, ahead_belt, ConnectionType::SideLoad)), Some(_)) => {
                         todo!("Side loading")
                     }
                 }
@@ -286,13 +305,19 @@ fn calculate_belt_connections(world: &mut World) {
     }
 }
 
-#[derive(Component, Clone, Copy)]
+#[derive(Component, Clone, Copy, Debug)]
 struct BeltFragment {
     dir: Dir,
 }
 
 impl BeltFragment {
+    fn new(dir: Dir) -> Self {
+        Self { dir }
+    }
     fn input(&self) -> Dir {
+        self.dir
+    }
+    fn output(&self) -> Dir {
         self.dir
     }
     fn num_positions(&self) -> u16 {
@@ -309,6 +334,40 @@ impl BeltFragment {
     }
 }
 
+#[derive(Debug)]
+enum BeltLike {
+    Belt(Belt),
+    Fragment(BeltFragment),
+}
+
+impl BeltLike {
+    fn new(value: (Option<&Belt>, Option<&BeltFragment>)) -> Self {
+        match value {
+            (Some(belt), None) => Self::Belt(belt.clone()),
+            (None, Some(fragment)) => Self::Fragment(fragment.clone()),
+            _ => panic!("Invalid BeltLike value"),
+        }
+    }
+    fn item_transform(&self, pos: u16, coords: WorldCoords) -> Transform {
+        match self {
+            Self::Belt(belt) => belt.item_transform(pos, coords),
+            Self::Fragment(fragment) => fragment.item_transform(pos, coords),
+        }
+    }
+    fn input(&self) -> Dir {
+        match self {
+            Self::Belt(belt) => belt.input(),
+            Self::Fragment(fragment) => fragment.input(),
+        }
+    }
+    fn output(&self) -> Dir {
+        match self {
+            Self::Belt(belt) => belt.output(),
+            Self::Fragment(fragment) => fragment.output(),
+        }
+    }
+}
+
 fn plan_moves(mut lanes: Query<&mut BeltLane>) {
     for mut lane in lanes.iter_mut() {
         for (i, (pos, _)) in lane.items.items.iter_mut().enumerate() {
@@ -322,7 +381,7 @@ fn plan_moves(mut lanes: Query<&mut BeltLane>) {
 
 fn do_moves(
     mut items: Query<&mut Transform, With<Item>>,
-    belts: Query<(&Belt, &WorldCoords)>,
+    belts: Query<(AnyOf<(&Belt, &BeltFragment)>, &WorldCoords)>,
     lanes: Query<&BeltLane>,
 ) {
     for lane in lanes {
@@ -330,6 +389,7 @@ fn do_moves(
             let belt = lane.belt_for(*pos);
             if let Some(belt) = belt {
                 let (belt, coords) = belts.get(belt).unwrap();
+                let belt = BeltLike::new(belt);
                 let transform =
                     belt.item_transform(lane.relative_pos(*pos) + ITEM_SPACING / 2, *coords);
                 let mut t = items.get_mut(*item_ent).unwrap();

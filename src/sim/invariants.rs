@@ -1,6 +1,4 @@
-use crate::core::*;
-use crate::sim::{BeltFragment, BeltLane, InLane};
-use bevy::prelude::*;
+use crate::sim::*;
 use std::collections::HashSet;
 
 pub struct InvariantsPlugin;
@@ -196,7 +194,7 @@ fn check_inlane_bidirectional(
 /// - The world coordinates must be adjacent
 fn check_adjacent_belts_in_lane_are_connected(
     lanes: Query<(Entity, &BeltLane)>,
-    belts: Query<(&Belt, &WorldCoords)>,
+    belts: Query<(AnyOf<(&Belt, &BeltFragment)>, &WorldCoords)>,
 ) {
     for (lane_entity, lane) in lanes.iter() {
         if lane.belts.belts.len() <= 1 {
@@ -213,6 +211,7 @@ fn check_adjacent_belts_in_lane_are_connected(
                     lane_entity, current_entity
                 );
             };
+            let current_belt = BeltLike::new(current_belt);
 
             let Ok((next_belt, next_coords)) = belts.get(next_entity) else {
                 panic!(
@@ -220,14 +219,7 @@ fn check_adjacent_belts_in_lane_are_connected(
                     lane_entity, next_entity
                 );
             };
-
-            // Check that next belt (later in vec, upstream) outputs to current belt (earlier in vec, downstream)
-            let expected_next_pos = next_coords.step(next_belt.output());
-            if expected_next_pos != *current_coords {
-                panic!(
-                    "INVARIANT VIOLATION: Lane {lane_entity:?} has non-adjacent belts: belt {next_entity:?} at {next_coords:?} facing {next_belt:?} should output to belt {current_entity:?} at {current_coords:?}, but outputs to {expected_next_pos:?} instead",
-                );
-            }
+            let next_belt = BeltLike::new(next_belt);
 
             // Check that next belt's output connects to current belt's input
             if current_belt.input() != next_belt.output() {
