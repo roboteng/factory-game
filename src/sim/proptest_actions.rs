@@ -1,5 +1,5 @@
 use crate::core::*;
-use crate::sim::BeltInventory;
+use crate::sim::{BeltLane, InLane};
 use bevy::prelude::*;
 use proptest::prelude::*;
 use std::collections::{HashMap, HashSet};
@@ -105,7 +105,7 @@ impl TestState {
     ///
     /// Works by:
     /// 1. Reading BeltChanges resource to find all Replaced events
-    /// 2. For each replacement, querying the OLD entity's inventory (before transfer happens)
+    /// 2. For each replacement, querying the OLD entity's lane to find items
     /// 3. Collecting all item entities that will be transferred
     fn get_items_on_replaced_belts(&self, app: &mut App) -> HashSet<Entity> {
         // Clone the BeltChanges vector to avoid holding a reference
@@ -116,12 +116,18 @@ impl TestState {
         for change in &changes {
             if let BeltChange::Replaced(replaced) = change {
                 if let Some(old_entity) = replaced.old_entity {
-                    // Items are still on the OLD entity at this point (before app.update())
-                    // Query the old entity's inventory to find which items will be affected
-                    let mut query = app.world_mut().query::<&BeltInventory>();
-                    if let Ok(inv) = query.get(app.world(), old_entity) {
-                        for (_, item_entity) in &inv.item {
-                            skip_items.insert(*item_entity);
+                    // Items are stored in the lane, not the belt entity
+                    // Query the old belt's InLane component to find its lane
+                    let mut in_lane_query = app.world_mut().query::<&InLane>();
+                    if let Ok(in_lane) = in_lane_query.get(app.world(), old_entity) {
+                        let lane_entity = in_lane.lane;
+
+                        // Query the lane to get all items
+                        let mut lane_query = app.world_mut().query::<&BeltLane>();
+                        if let Ok(lane) = lane_query.get(app.world(), lane_entity) {
+                            for (_, item_entity) in &lane.items.items {
+                                skip_items.insert(*item_entity);
+                            }
                         }
                     }
                 }

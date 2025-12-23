@@ -205,7 +205,7 @@ fn check_adjacent_belts_in_lane_are_connected(
             let current_entity = lane.belts.belts[i].1;
             let next_entity = lane.belts.belts[i + 1].1;
 
-            let Ok((current_belt, current_coords)) = belts.get(current_entity) else {
+            let Ok((current_belt, _)) = belts.get(current_entity) else {
                 panic!(
                     "INVARIANT VIOLATION: Lane {:?} contains belt {:?} which doesn't have Belt+WorldCoords components",
                     lane_entity, current_entity
@@ -213,7 +213,7 @@ fn check_adjacent_belts_in_lane_are_connected(
             };
             let current_belt = BeltLike::new(current_belt);
 
-            let Ok((next_belt, next_coords)) = belts.get(next_entity) else {
+            let Ok((next_belt, _)) = belts.get(next_entity) else {
                 panic!(
                     "INVARIANT VIOLATION: Lane {:?} contains belt {:?} which doesn't have Belt+WorldCoords components",
                     lane_entity, next_entity

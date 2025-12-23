@@ -1,7 +1,7 @@
 use std::ops::Range;
 
 use crate::core::*;
-use bevy::{log::tracing::instrument, prelude::*};
+use bevy::prelude::*;
 
 #[cfg(feature = "invariant-ckeck")]
 mod invariants;
@@ -25,19 +25,19 @@ impl Plugin for SimPlugin {
 }
 
 #[derive(Component, Debug, Clone, PartialEq, Eq)]
-struct BeltLane {
-    belts: Belts,
-    items: Items,
+pub(crate) struct BeltLane {
+    pub(crate) belts: Belts,
+    pub(crate) items: Items,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct Belts {
-    belts: Vec<(Range<u16>, Entity)>,
+pub(crate) struct Belts {
+    pub(crate) belts: Vec<(Range<u16>, Entity)>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct Items {
-    items: Vec<(u16, Entity)>,
+pub(crate) struct Items {
+    pub(crate) items: Vec<(u16, Entity)>,
 }
 
 impl BeltLane {
@@ -124,8 +124,8 @@ impl BeltLane {
 }
 
 #[derive(Component, Debug, Clone, PartialEq, Eq)]
-struct InLane {
-    lane: Entity,
+pub(crate) struct InLane {
+    pub(crate) lane: Entity,
 }
 
 impl InLane {
@@ -234,10 +234,7 @@ fn new_belt(world: &mut World, remaining_entities: &[Entity], new: &NewBelt) {
             debug!("Lane is {:?}", lane);
             world.entity_mut(new.entity).insert(InLane::new(lane_ent));
         }
-        (
-            Some((ahead_ent, ahead_belt, ConnectionType::Direct)),
-            Some((behind_ent, behind_belt)),
-        ) => {
+        (Some((ahead_ent, _, ConnectionType::Direct)), Some((behind_ent, _))) => {
             debug!("Merging lanes");
             let behind_lane_ent = world
                 .query::<&InLane>()
@@ -271,7 +268,7 @@ fn new_belt(world: &mut World, remaining_entities: &[Entity], new: &NewBelt) {
                 .entity_mut(new.entity)
                 .insert(InLane::new(ahead_lane_ent));
         }
-        (Some((ahead_ent, ahead_belt, ConnectionType::SideLoad)), None) => {
+        (Some((_, _, ConnectionType::SideLoad)), None) => {
             debug!("sidelaoding new lane");
             let mut lane = BeltLane::from_belt(new.entity, new.belt);
             let fragment = BeltFragment::new(new.belt.output());
@@ -288,10 +285,7 @@ fn new_belt(world: &mut World, remaining_entities: &[Entity], new: &NewBelt) {
             world.entity_mut(frag_ent).insert(InLane::new(lane_ent));
             world.entity_mut(new.entity).insert(InLane::new(lane_ent));
         }
-        (
-            Some((ahead_ent, ahead_belt, ConnectionType::SideLoad)),
-            Some((behind_ent, behind_belt)),
-        ) => {
+        (Some((_, _, ConnectionType::SideLoad)), Some((behind_ent, _))) => {
             let lane_ent = world
                 .query::<&InLane>()
                 .get(world, behind_ent)
@@ -369,7 +363,9 @@ fn new_belt(world: &mut World, remaining_entities: &[Entity], new: &NewBelt) {
     }
 }
 
+#[expect(unused)]
 fn remove_belt(world: &mut World, remaining_entities: &[Entity], removed: &RemovedBelt) {}
+#[expect(unused)]
 fn replace_belt(world: &mut World, remaining_entities: &[Entity], replaced: &ReplacedBelt) {}
 
 #[derive(Component, Clone, Copy, Debug)]
@@ -590,15 +586,18 @@ mod tests {
     fn item_moves_on_merged_lanes() {
         let mut app = test_app();
         let belt1 = app.add_belt((0, 0), Dir::East);
-        let belt2 = app.add_belt((2, 0), Dir::East);
+        let _belt2 = app.add_belt((2, 0), Dir::East);
         app.update();
-        let belt3 = app.add_belt((1, 0), Dir::East);
-        // app.add_item(belt1, 0);
-        // let item = app.add_item(belt1, 0);
+        let _belt3 = app.add_belt((1, 0), Dir::East);
+        let item = app.add_item(belt1, 0);
         app.update();
-        // let (_, actual) = app.find_item(item).unwrap();
-        // let expected = Transform::from_xyz(TILE_SIZE / 2.0 + BASE_ITEM_MOVEMENT - ITEM_SIZE / 2.0, 0.0, 2.0);
-        // assert_eq!(actual, expected);
+        let (_, actual) = app.find_item(item).unwrap();
+        let expected = Transform::from_xyz(
+            TILE_SIZE / 2.0 + BASE_ITEM_MOVEMENT - ITEM_SIZE / 2.0,
+            0.0,
+            2.0,
+        );
+        assert_eq!(actual, expected);
     }
 
     #[test]
