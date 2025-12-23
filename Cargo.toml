@@ -2,14 +2,16 @@
 name = "factory-game"
 version = "0.1.0"
 edition = "2024"
+resolver = "2"
 
 [features]
-default = ["invariant-ckeck"]
+default = ["invariant-ckeck", "ui"]
 invariant-ckeck = []
 proptests = []
+ui = ["bevy/2d"]
 
 [dependencies]
-bevy = "0.17.3"
+bevy = { version = "0.18.0-rc.1", default-features = false}
 
 [dev-dependencies]
 pretty_assertions = "1.4.1"
