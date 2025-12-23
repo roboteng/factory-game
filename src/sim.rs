@@ -1,7 +1,7 @@
 use std::ops::Range;
 
 use crate::core::*;
-use bevy::{platform::collections::HashMap, prelude::*};
+use bevy::prelude::*;
 
 #[cfg(feature = "invariant-ckeck")]
 mod invariants;
@@ -31,14 +31,14 @@ impl Plugin for SimPlugin {
 }
 
 #[derive(Component, Debug, Clone, PartialEq, Eq)]
-pub(crate) struct BeltLane {
-    pub(crate) belts: Belts,
-    pub(crate) items: Items,
+struct BeltLane {
+    belts: Belts,
+    items: Items,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Belts {
-    pub(crate) belts: Vec<(Range<u16>, Entity)>,
+struct Belts {
+    belts: Vec<(Range<u16>, Entity)>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -125,8 +125,8 @@ impl BeltLane {
 }
 
 #[derive(Component, Debug, Clone, PartialEq, Eq)]
-pub(crate) struct InLane {
-    pub(crate) lane: Entity,
+struct InLane {
+    lane: Entity,
 }
 
 impl InLane {
@@ -309,31 +309,6 @@ impl BeltFragment {
     }
 }
 
-enum BeltLike {
-    Belt(Belt),
-    Fragment(BeltFragment),
-}
-
-impl BeltLike {
-    fn item_transform(&self, pos: u16, coords: WorldCoords) -> Transform {
-        match self {
-            BeltLike::Belt(belt) => belt.item_transform(pos, coords),
-            BeltLike::Fragment(fragment) => fragment.item_transform(pos, coords),
-        }
-    }
-}
-
-impl From<(Option<&'_ Belt>, Option<&'_ BeltFragment>)> for BeltLike {
-    fn from((belt, fragment): (Option<&'_ Belt>, Option<&'_ BeltFragment>)) -> Self {
-        match (belt, fragment) {
-            (None, None) => panic!("Both belt and fragment are None"),
-            (Some(_), Some(_)) => panic!("Both belt and fragment are Some(...)"),
-            (Some(belt), _) => BeltLike::Belt(belt.clone()),
-            (_, Some(fragment)) => BeltLike::Fragment(fragment.clone()),
-        }
-    }
-}
-
 fn plan_moves(mut lanes: Query<&mut BeltLane>) {
     for mut lane in lanes.iter_mut() {
         for (i, (pos, _)) in lane.items.items.iter_mut().enumerate() {
@@ -355,7 +330,8 @@ fn do_moves(
             let belt = lane.belt_for(*pos);
             if let Some(belt) = belt {
                 let (belt, coords) = belts.get(belt).unwrap();
-                let transform = belt.item_transform(lane.relative_pos(*pos), *coords);
+                let transform =
+                    belt.item_transform(lane.relative_pos(*pos) + ITEM_SPACING / 2, *coords);
                 let mut t = items.get_mut(*item_ent).unwrap();
                 *t = transform;
             }
@@ -383,7 +359,7 @@ mod tests {
         let item = app.add_item(belt, POSITIONS_PER_TILE / 2);
         app.update();
         let (_, actual) = app.find_item(item).unwrap();
-        let expected = Transform::from_xyz(BASE_ITEM_MOVEMENT, 0.0, 2.0);
+        let expected = Transform::from_xyz(BASE_ITEM_MOVEMENT - ITEM_SIZE / 2.0, 0.0, 2.0);
         assert_eq!(actual, expected);
     }
 
@@ -395,7 +371,7 @@ mod tests {
         let item = app.add_item(belt, POSITIONS_PER_TILE / 2);
         app.update();
         let (_, actual) = app.find_item(item).unwrap();
-        let expected = Transform::from_xyz(0.0, BASE_ITEM_MOVEMENT, 2.0);
+        let expected = Transform::from_xyz(0.0, BASE_ITEM_MOVEMENT - ITEM_SIZE / 2.0, 2.0);
         assert_eq!(actual, expected);
     }
 
@@ -407,7 +383,7 @@ mod tests {
         let item = app.add_item(belt, 0);
         app.update();
         let (_, actual) = app.find_item(item).unwrap();
-        let expected = Transform::from_xyz(TILE_SIZE / 2.0, 0.0, 2.0);
+        let expected = Transform::from_xyz(TILE_SIZE / 2.0 - ITEM_SIZE / 2.0, 0.0, 2.0);
         assert_eq!(actual, expected);
     }
 
@@ -420,7 +396,11 @@ mod tests {
         let item = app.add_item(belt1, 0);
         app.update();
         let (_, actual) = app.find_item(item).unwrap();
-        let expected = Transform::from_xyz(TILE_SIZE / 2.0 + BASE_ITEM_MOVEMENT, 0.0, 2.0);
+        let expected = Transform::from_xyz(
+            TILE_SIZE / 2.0 + BASE_ITEM_MOVEMENT - ITEM_SIZE / 2.0,
+            0.0,
+            2.0,
+        );
         assert_eq!(actual, expected);
     }
 
@@ -434,7 +414,11 @@ mod tests {
         let item = app.add_item(belt1, 0);
         app.update();
         let (_, actual) = app.find_item(item).unwrap();
-        let expected = Transform::from_xyz(TILE_SIZE / 2.0 + BASE_ITEM_MOVEMENT, 0.0, 2.0);
+        let expected = Transform::from_xyz(
+            TILE_SIZE / 2.0 + BASE_ITEM_MOVEMENT - ITEM_SIZE / 2.0,
+            0.0,
+            2.0,
+        );
         assert_eq!(actual, expected);
     }
 
@@ -448,7 +432,9 @@ mod tests {
         app.update();
         let (_, actual) = app.find_item(item).unwrap();
         let expected = Transform::from_xyz(
-            TILE_SIZE / 2.0 - ITEM_SPACING as f32 / POSITIONS_PER_TILE as f32 * TILE_SIZE,
+            TILE_SIZE / 2.0
+                - ITEM_SPACING as f32 / POSITIONS_PER_TILE as f32 * TILE_SIZE
+                - ITEM_SIZE / 2.0,
             0.0,
             2.0,
         );
@@ -465,7 +451,11 @@ mod tests {
         let item = app.add_item(belt1, 0);
         app.update();
         let (_, actual) = app.find_item(item).unwrap();
-        let expected = Transform::from_xyz(TILE_SIZE / 2.0 + BASE_ITEM_MOVEMENT, 0.0, 2.0);
+        let expected = Transform::from_xyz(
+            TILE_SIZE / 2.0 + BASE_ITEM_MOVEMENT - ITEM_SIZE / 2.0,
+            0.0,
+            2.0,
+        );
         assert_eq!(actual, expected);
     }
 
@@ -480,7 +470,7 @@ mod tests {
         // let item = app.add_item(belt1, 0);
         app.update();
         // let (_, actual) = app.find_item(item).unwrap();
-        // let expected = Transform::from_xyz(TILE_SIZE / 2.0 + BASE_ITEM_MOVEMENT, 0.0, 2.0);
+        // let expected = Transform::from_xyz(TILE_SIZE / 2.0 + BASE_ITEM_MOVEMENT - ITEM_SIZE / 2.0, 0.0, 2.0);
         // assert_eq!(actual, expected);
     }
 
@@ -494,7 +484,9 @@ mod tests {
         app.update();
         let (_, actual) = app.find_item(item).unwrap();
         let expected = Transform::from_xyz(
-            TILE_SIZE / 2.0 - TILE_SIZE * ITEM_SPACING as f32 / POSITIONS_PER_TILE as f32,
+            TILE_SIZE / 2.0
+                - TILE_SIZE * ITEM_SPACING as f32 / POSITIONS_PER_TILE as f32
+                - ITEM_SIZE / 2.0,
             0.0,
             2.0,
         );
@@ -512,7 +504,11 @@ mod tests {
         let item = app.add_item(belt1, 0);
         app.update();
         let (_, actual) = app.find_item(item).unwrap();
-        let expected = Transform::from_xyz(TILE_SIZE / 2.0 + BASE_ITEM_MOVEMENT, 0.0, 2.0);
+        let expected = Transform::from_xyz(
+            TILE_SIZE / 2.0 + BASE_ITEM_MOVEMENT - ITEM_SIZE / 2.0,
+            0.0,
+            2.0,
+        );
         assert_eq!(actual, expected);
     }
 
@@ -528,7 +524,11 @@ mod tests {
         let item = app.add_item(belt1, 0);
         app.update();
         let (_, actual) = app.find_item(item).unwrap();
-        let expected = Transform::from_xyz(TILE_SIZE / 2.0 + BASE_ITEM_MOVEMENT, 0.0, 2.0);
+        let expected = Transform::from_xyz(
+            TILE_SIZE / 2.0 + BASE_ITEM_MOVEMENT - ITEM_SIZE / 2.0,
+            0.0,
+            2.0,
+        );
         assert_eq!(actual, expected);
     }
 
@@ -545,7 +545,7 @@ mod tests {
             app.update();
         }
         let (_, actual) = app.find_item(item).unwrap();
-        let expected = Transform::from_xyz(TILE_SIZE, BASE_ITEM_MOVEMENT, 2.0);
+        let expected = Transform::from_xyz(TILE_SIZE - ITEM_SIZE / 2.0, BASE_ITEM_MOVEMENT, 2.0);
         assert_eq!(actual, expected);
     }
 
@@ -565,7 +565,7 @@ mod tests {
             app.update();
         }
         let (_, actual) = app.find_item(item).unwrap();
-        let expected = Transform::from_xyz(TILE_SIZE / 2.0 - ITEM_SIZE, 0.0, 2.0);
+        let expected = Transform::from_xyz(TILE_SIZE / 2.0 - ITEM_SIZE - ITEM_SIZE / 2.0, 0.0, 2.0);
         assert_eq!(actual, expected);
     }
 
@@ -573,6 +573,7 @@ mod tests {
     fn replace_belt_under_item() {
         let mut app = test_app();
         let belt1 = app.add_belt((0, 0), Dir::East);
+        app.update();
         let item = app.add_item(belt1, POSITIONS_PER_FRAGMENT);
         let init_pos = app.find_item(item);
         app.add_belt((0, 0), Dir::East);
