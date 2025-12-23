@@ -1,0 +1,2 @@
+[alias]
+ts = "test --no-default-features --features=invariant-ckeck"
