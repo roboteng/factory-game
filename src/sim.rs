@@ -19,7 +19,7 @@ impl Plugin for SimPlugin {
         app.add_observer(on_place_item);
         app.add_systems(
             Update,
-            (link_belts, ApplyDeferred, plan_moves, do_moves).chain(),
+            (link_belts, transfers, plan_moves, do_moves).chain(),
         );
     }
 }
@@ -145,6 +145,13 @@ fn on_place_item(
     lane.insert_item_at(start + trigger.pos, trigger.entity);
 }
 
+#[derive(Component, Debug, Clone, PartialEq, Eq)]
+pub(crate) struct BeltConnection {
+    pub(crate) source: Entity,
+    pub(crate) target: Entity,
+    pub(crate) offset: u16,
+}
+
 #[derive(Debug)]
 enum ConnectionType {
     Direct,
@@ -241,32 +248,48 @@ fn new_belt(world: &mut World, remaining_entities: &[Entity], new: &NewBelt) {
                 .get(world, behind_ent)
                 .map(|l| l.lane)
                 .unwrap();
-            let mut behind_lane = world
-                .query::<&BeltLane>()
-                .get(world, behind_lane_ent)
-                .unwrap()
-                .clone();
-            behind_lane.add_to_head(new.belt, new.entity);
             let ahead_lane_ent = world
                 .query::<&InLane>()
                 .get(world, ahead_ent)
                 .map(|l| l.lane)
                 .unwrap();
-            for (_, belt_ent) in &behind_lane.belts.belts {
+            let mut behind_lane = world
+                .query::<&mut BeltLane>()
+                .get_mut(world, behind_lane_ent)
+                .unwrap();
+            behind_lane.add_to_head(new.belt, new.entity);
+
+            if behind_lane_ent == ahead_lane_ent {
+                debug!("Belt loop");
+                let offset = behind_lane.num_positions();
                 world
-                    .entity_mut(*belt_ent)
+                    .entity_mut(new.entity)
+                    .insert(InLane::new(behind_lane_ent));
+                world.spawn(BeltConnection {
+                    source: behind_lane_ent,
+                    target: behind_lane_ent,
+                    offset,
+                });
+                debug!("spawned loop connection");
+            } else {
+                let behind_lane = behind_lane.clone();
+                for (_, belt_ent) in &behind_lane.belts.belts {
+                    world
+                        .entity_mut(*belt_ent)
+                        .insert(InLane::new(ahead_lane_ent));
+                    debug!("loop lane is {:?}", behind_lane);
+                }
+                let mut lane = world
+                    .query::<&mut BeltLane>()
+                    .get_mut(world, ahead_lane_ent)
+                    .unwrap();
+                lane.merge(behind_lane);
+                debug!("Lane is {:?}", lane);
+                world.entity_mut(behind_lane_ent).despawn();
+                world
+                    .entity_mut(new.entity)
                     .insert(InLane::new(ahead_lane_ent));
             }
-            let mut lane = world
-                .query::<&mut BeltLane>()
-                .get_mut(world, ahead_lane_ent)
-                .unwrap();
-            lane.merge(behind_lane);
-            debug!("Lane is {:?}", lane);
-            world.entity_mut(behind_lane_ent).despawn();
-            world
-                .entity_mut(new.entity)
-                .insert(InLane::new(ahead_lane_ent));
         }
         (Some((_, _, ConnectionType::SideLoad)), None) => {
             debug!("sidelaoding new lane");
@@ -389,9 +412,11 @@ impl BeltFragment {
     fn item_transform(&self, pos: u16, coords: WorldCoords) -> Transform {
         debug!("Transforming fragment at {:?} with pos {}", coords, pos);
         let world_offset = Vec2::from(coords);
-        let start = Vec2::default();
-        let end = Vec2::from(self.input().opposite()) * TILE_SIZE / 2.0;
-        let t = pos as f32 / POSITIONS_PER_FRAGMENT as f32;
+
+        let start = Vec2::from(self.input().opposite()) * TILE_SIZE / 2.0;
+        const D: f32 = TILE_SIZE * POSITIONS_PER_FRAGMENT as f32 / POSITIONS_PER_TILE as f32;
+        let end = start.move_towards(Vec2::default(), D);
+        let t = 1.0 - pos as f32 / POSITIONS_PER_FRAGMENT as f32;
         let mid = start.lerp(end, t);
         Item::transform(world_offset + mid)
     }
@@ -427,6 +452,26 @@ impl BeltLike {
         match self {
             Self::Belt(belt) => belt.output(),
             Self::Fragment(fragment) => fragment.output(),
+        }
+    }
+}
+
+fn transfers(conns: Query<&BeltConnection>, mut lanes: Query<&mut BeltLane>) {
+    for conn in conns {
+        debug!("processing connection");
+        if conn.source == conn.target {
+            debug!("loop connection");
+            let mut lane = lanes.get_mut(conn.source).unwrap();
+            debug!("init  items: {:?}", lane.items.items);
+            let Some((pos, _)) = lane.items.items.first_mut() else {
+                debug!("skipping transfer");
+                continue;
+            };
+            if *pos < BASE_BELT_SPEED {
+                *pos += conn.offset;
+                lane.items.items.sort();
+            }
+            debug!("final items: {:?}", lane.items.items);
         }
     }
 }
@@ -711,7 +756,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "todo, probably needs belt groups"]
     fn items_move_together() {
         let mut app = test_app();
         let belt1 = app.add_belt((0, 0), Dir::East);
@@ -735,5 +779,42 @@ mod tests {
         app.update();
         let actual = dist(&mut app, first_item, last_item);
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn belt_loop() {
+        let _example = "
+            v<
+            v^ v
+             ^ v
+            v^ v
+            >^
+        ";
+        let mut app = test_app();
+        let _ = app.add_belt((0, 1), Dir::South);
+        let _ = app.add_belt((0, 0), Dir::East);
+        let _ = app.add_belt((1, 0), Dir::North);
+        let _ = app.add_belt((1, 1), Dir::North);
+        let _ = app.add_belt((1, 2), Dir::North);
+        let _ = app.add_belt((1, 3), Dir::North);
+        let _ = app.add_belt((1, 4), Dir::West);
+        let _ = app.add_belt((0, 4), Dir::South);
+        let a = app.add_belt((0, 3), Dir::South);
+
+        let b = app.add_belt((3, 3), Dir::South);
+        let _ = app.add_belt((3, 2), Dir::South);
+        let _ = app.add_belt((3, 1), Dir::South);
+        app.update();
+        let _ = app.add_belt((0, 2), Dir::South);
+        app.update();
+        let test_item = app.add_item(a, 0);
+        let ref_item = app.add_item(b, 0);
+        app.update();
+        for _ in 0..((TILE_SIZE / BASE_ITEM_MOVEMENT) as usize + 2) {
+            let ref_pos = app.find_item(ref_item).unwrap().1.translation;
+            let actual_pos = app.find_item(test_item).unwrap().1.translation;
+            assert_eq!(actual_pos, ref_pos - Vec3::X * TILE_SIZE * 3.0);
+            app.update();
+        }
     }
 }
