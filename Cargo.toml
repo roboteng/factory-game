@@ -5,13 +5,14 @@ edition = "2024"
 resolver = "2"
 
 [features]
-default = ["invariant-ckeck", "ui"]
+default = ["invariant-ckeck", "ui", "dev"]
 invariant-ckeck = []
 proptests = []
 ui = ["bevy/2d"]
+dev = ["bevy/dev"]
 
 [dependencies]
-bevy = { version = "0.18.0-rc.1", default-features = false, features = ["bevy_sprite", "bevy_color", "bevy_log"]}
+bevy = { version = "0.18.0-rc.1", default-features = false, features = ["bevy_sprite", "bevy_color", "bevy_log", "dev"]}
 
 [dev-dependencies]
 pretty_assertions = "1.4.1"

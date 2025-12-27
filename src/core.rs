@@ -511,7 +511,6 @@ fn on_place_item(trigger: On<PlaceItem>, mut cmd: Commands, belts: Query<(&Belt,
 
 fn on_remove_belt(
     trigger: On<RemoveBelt>,
-    mut cmd: Commands,
     mut belt_coords: ResMut<BeltCoords>,
     belts: Query<(&WorldCoords, &Belt)>,
     mut changes: ResMut<BeltChanges>,
@@ -529,7 +528,6 @@ fn on_remove_belt(
 
     // Remove from resource and despawn belt entity
     belt_coords.remove(*coords);
-    cmd.entity(trigger.entity).despawn();
 
     changes.push(RemovedBelt {
         entity: trigger.entity,
@@ -538,14 +536,21 @@ fn on_remove_belt(
     });
 }
 
-fn despawn_old_belt_entities(mut cmd: Commands, changes: Res<BeltChanges>) {
+fn despawn_old_belt_entities(
+    mut cmd: Commands,
+    changes: Res<BeltChanges>,
+    mut belt_coords: ResMut<BeltCoords>,
+    coords: Query<&WorldCoords>,
+) {
     for change in &changes.0 {
         if let BeltChange::Replaced(ReplacedBelt {
             old_entity: Some(entity),
             ..
-        }) = change
+        })
+        | BeltChange::Removed(RemovedBelt { entity, .. }) = change
         {
             cmd.entity(*entity).despawn();
+            belt_coords.remove(*coords.get(*entity).unwrap());
         }
     }
 }
@@ -584,7 +589,7 @@ pub trait AppExtension {
     fn find_belt_at(&mut self, coords: impl Into<WorldCoords>) -> Option<Belt>;
     fn add_item(&mut self, belt: Entity, index: u16) -> Entity;
     fn find_item(&mut self, item: Entity) -> Option<(Item, Transform)>;
-    fn remove_belt(&mut self, coords: impl Into<WorldCoords>) -> bool;
+    fn remove_belt_at(&mut self, coords: impl Into<WorldCoords>) -> bool;
 }
 
 #[cfg(test)]
@@ -634,7 +639,7 @@ impl AppExtension for App {
             .map(|(item, transform)| (*item, *transform))
     }
 
-    fn remove_belt(&mut self, coords: impl Into<WorldCoords>) -> bool {
+    fn remove_belt_at(&mut self, coords: impl Into<WorldCoords>) -> bool {
         let coords = coords.into();
         let Some((entity, _)) = self.world_mut().resource::<BeltCoords>().get(coords) else {
             return false;
@@ -928,7 +933,7 @@ mod tests {
         assert!(app.find_belt_at((0, 0)).is_some());
 
         // Remove belt
-        assert!(app.remove_belt((0, 0)));
+        assert!(app.remove_belt_at((0, 0)));
         app.update();
 
         // Verify belt is gone
@@ -951,7 +956,7 @@ mod tests {
         assert!(app.find_item(item2).is_some());
 
         // Remove belt
-        assert!(app.remove_belt((1, 1)));
+        assert!(app.remove_belt_at((1, 1)));
         app.update();
 
         // Verify belt is gone (items don't need to be checked per requirements)
@@ -964,7 +969,7 @@ mod tests {
         let mut app = test_app();
 
         // Try to remove belt that doesn't exist
-        assert!(!app.remove_belt((5, 5)));
+        assert!(!app.remove_belt_at((5, 5)));
         app.update();
 
         // Should not crash or cause issues
@@ -980,7 +985,7 @@ mod tests {
         assert!(app.find_belt_at((2, 3)).is_some());
 
         // Remove belt
-        app.remove_belt((2, 3));
+        app.remove_belt_at((2, 3));
         app.update();
 
         // Verify removed from BeltCoords
@@ -1004,7 +1009,7 @@ mod tests {
         app.update();
 
         // Remove middle belt
-        app.remove_belt((1, 0));
+        app.remove_belt_at((1, 0));
         app.update();
 
         // Belt2 should be gone

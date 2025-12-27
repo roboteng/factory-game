@@ -1,7 +1,7 @@
 use std::ops::Range;
 
 use crate::core::*;
-use bevy::prelude::*;
+use bevy::{ecs::world, prelude::*};
 
 #[cfg(feature = "invariant-ckeck")]
 mod invariants;
@@ -121,6 +121,29 @@ impl BeltLane {
         self.offset_by(len);
         self.belts.belts.insert(0, (0..len, entity));
     }
+
+    fn shorten_by(&mut self, len: u16) {
+        self.items.items.iter_mut().for_each(|(pos, _)| *pos -= len);
+        self.belts.belts.iter_mut().for_each(|(range, _)| {
+            range.start -= len;
+            range.end -= len;
+        });
+    }
+
+    /// Returns the items that were on the head of the belt
+    fn remove_head(&mut self) -> Vec<Entity> {
+        let head = self.belts.belts.first().unwrap();
+        let part = self
+            .items
+            .items
+            .partition_point(|(p, _)| head.0.contains(p));
+        let (head_items, keep_items) = self.items.items.split_at_mut(part);
+        let keep = Vec::from(keep_items);
+        let ret = Vec::from_iter(head_items.iter().map(|(_, e)| *e));
+        self.items.items = keep;
+        self.shorten_by(head.0.end);
+        ret
+    }
 }
 
 #[derive(Component, Debug, Clone, PartialEq, Eq)]
@@ -183,24 +206,18 @@ fn link_belts(world: &mut World) {
 
 fn new_belt(world: &mut World, remaining_entities: &[Entity], new: &NewBelt) {
     let belt_coords = world.resource::<BeltCoords>();
-    let ahead_belt = belt_coords
-        .get(new.coords.step(new.belt.output()))
-        .filter(|(ent, _)| !remaining_entities.contains(ent))
-        .and_then(|(entity, ahead)| {
-            if ahead.input() == new.belt.output() {
-                Some((entity, ahead, ConnectionType::Direct))
-            } else {
-                if ahead.input().opposite() == new.belt.output() {
-                    None
-                } else {
-                    Some((entity, ahead, ConnectionType::SideLoad))
-                }
-            }
-        });
-    let behind_belt = belt_coords
-        .get(new.coords.step(new.belt.input().opposite()))
-        .filter(|(ent, _)| !remaining_entities.contains(ent))
-        .filter(|behind| behind.1.output() == new.belt.input());
+    let ahead_belt = ahead_connected_belt(
+        &belt_coords,
+        remaining_entities,
+        new.coords,
+        new.belt.output(),
+    );
+    let behind_belt = behind_connected_belt(
+        &belt_coords,
+        remaining_entities,
+        new.coords,
+        new.belt.input(),
+    );
     debug!("Behind belt: {:?}", behind_belt);
     debug!("ahead belt: {:?}", ahead_belt);
 
@@ -386,10 +403,114 @@ fn new_belt(world: &mut World, remaining_entities: &[Entity], new: &NewBelt) {
     }
 }
 
-#[expect(unused)]
-fn remove_belt(world: &mut World, remaining_entities: &[Entity], removed: &RemovedBelt) {}
-#[expect(unused)]
-fn replace_belt(world: &mut World, remaining_entities: &[Entity], replaced: &ReplacedBelt) {}
+/// This decouples the belt from the world, but doesn't actualy remove it
+fn remove_belt(world: &mut World, remaining_entities: &[Entity], removed: &RemovedBelt) {
+    let belt_coords = world.resource::<BeltCoords>();
+    let ahead_belt = ahead_connected_belt(
+        &belt_coords,
+        remaining_entities,
+        removed.coords,
+        removed.old_belt.output(),
+    );
+    let behind_belt = behind_connected_belt(
+        &belt_coords,
+        remaining_entities,
+        removed.coords,
+        removed.old_belt.input(),
+    );
+    debug!("Behind belt: {:?}", behind_belt);
+    debug!("ahead belt: {:?}", ahead_belt);
+    let lane_ent = world
+        .query::<&InLane>()
+        .get(world, removed.entity)
+        .unwrap()
+        .lane;
+    match (ahead_belt, behind_belt) {
+        (None, None) => {
+            let items = world
+                .query::<&BeltLane>()
+                .get_mut(world, lane_ent)
+                .unwrap()
+                .items
+                .items
+                .iter()
+                .map(|(_, e)| *e)
+                .collect::<Vec<_>>();
+            for item in items {
+                world.despawn(item);
+            }
+            world.despawn(lane_ent);
+        }
+        (None, Some(_)) => {
+            let mut lane = world
+                .query::<&mut BeltLane>()
+                .get_mut(world, lane_ent)
+                .unwrap();
+            let items = lane.remove_head();
+            for item in items {
+                world.despawn(item);
+            }
+        }
+        (Some((_, _, ConnectionType::Direct)), None) => todo!(),
+        (Some((_, _, ConnectionType::SideLoad)), None) => todo!(),
+        (Some((_, _, ConnectionType::Direct)), Some(_)) => todo!(),
+        (Some((_, _, ConnectionType::SideLoad)), Some(_)) => todo!(),
+    }
+}
+fn replace_belt(world: &mut World, remaining_entities: &[Entity], replaced: &ReplacedBelt) {
+    match replaced.old_entity {
+        Some(old) => {
+            let removed = RemovedBelt {
+                entity: old,
+                old_belt: replaced.old_belt,
+                coords: replaced.coords,
+            };
+            remove_belt(world, remaining_entities, &removed);
+            let new = NewBelt::from(*replaced);
+            new_belt(world, remaining_entities, &new);
+        }
+        None => {
+            let removed = RemovedBelt::from(*replaced);
+            remove_belt(world, remaining_entities, &removed);
+            let new = NewBelt::from(*replaced);
+            new_belt(world, remaining_entities, &new);
+        }
+    }
+}
+
+fn ahead_connected_belt(
+    belt_coords: &BeltCoords,
+    remaining_entities: &[Entity],
+    coords: WorldCoords,
+    dir: Dir,
+) -> Option<(Entity, Belt, ConnectionType)> {
+    belt_coords
+        .get(coords.step(dir))
+        .filter(|(ent, _)| !remaining_entities.contains(ent))
+        .and_then(|(entity, ahead)| {
+            if ahead.input() == dir {
+                Some((entity, ahead, ConnectionType::Direct))
+            } else {
+                if ahead.input().opposite() == dir {
+                    None
+                } else {
+                    Some((entity, ahead, ConnectionType::SideLoad))
+                }
+            }
+        })
+}
+
+fn behind_connected_belt(
+    belt_coords: &BeltCoords,
+    remaining_entities: &[Entity],
+    coords: WorldCoords,
+    dir: Dir,
+) -> Option<(Entity, Belt)> {
+    belt_coords
+        .get(coords.step(dir.opposite()))
+        .filter(|(ent, _)| !remaining_entities.contains(ent))
+        .filter(|behind| behind.1.output() == dir)
+}
 
 #[derive(Component, Clone, Copy, Debug)]
 struct BeltFragment {
@@ -742,7 +863,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "todo"]
     fn replace_belt_under_item() {
         let mut app = test_app();
         let belt1 = app.add_belt((0, 0), Dir::East);
@@ -816,5 +936,34 @@ mod tests {
             assert_eq!(actual_pos, ref_pos - Vec3::X * TILE_SIZE * 3.0);
             app.update();
         }
+    }
+
+    #[test]
+    fn small_belt_loop() {
+        let mut app = test_app();
+        app.add_belt((0, 0), Dir::East);
+        app.add_belt((1, 0), Dir::North);
+        app.add_belt((1, 1), Dir::West);
+        let belt = app.add_belt((0, 1), Dir::South);
+        app.update();
+        let item = app.add_item(belt, 0);
+        app.update();
+        let mut prev_pos = app.find_item(item).unwrap().1.translation;
+        app.update();
+        for _ in 0..(POSITIONS_PER_CURVED_TILE * 4 / BASE_BELT_SPEED + BASE_BELT_SPEED) {
+            let pos = app.find_item(item).unwrap().1.translation;
+            assert_ne!(pos, prev_pos);
+            prev_pos = pos;
+            app.update();
+        }
+    }
+
+    #[test]
+    fn remove_single_belt() {
+        let mut app = test_app();
+        app.add_belt((0, 0), Dir::East);
+        app.update();
+        app.remove_belt_at((0, 0));
+        app.update();
     }
 }

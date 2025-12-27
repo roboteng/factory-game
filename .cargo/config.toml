@@ -1,3 +1,4 @@
 [alias]
-ts = "test --no-default-features --features=invariant-ckeck"
-tsp = "test --no-default-features --features=invariant-ckeck --features=proptests"
+ts = "test --no-default-features --features=invariant-ckeck,dev"
+tsp = "test --no-default-features --features=invariant-ckeck,proptests,dev"
+release = "build --release --no-default-features --features=ui"

@@ -1,12 +1,28 @@
+use bevy::app::MainScheduleOrder;
+use bevy::ecs::schedule::{ExecutorKind, Schedule, ScheduleLabel};
+
 use crate::sim::*;
 use std::collections::HashSet;
+
+#[derive(ScheduleLabel, Debug, Hash, PartialEq, Eq, Clone)]
+struct InvariantChecks;
 
 pub struct InvariantsPlugin;
 
 impl Plugin for InvariantsPlugin {
     fn build(&self, app: &mut App) {
+        // Create custom schedule
+        let mut invariant_schedule = Schedule::new(InvariantChecks);
+        invariant_schedule.set_executor_kind(ExecutorKind::SingleThreaded);
+        app.add_schedule(invariant_schedule);
+
+        // Order it to run after PostUpdate
+        let mut main_schedule_order = app.world_mut().resource_mut::<MainScheduleOrder>();
+        main_schedule_order.insert_after(PostUpdate, InvariantChecks);
+
+        // Add systems to the custom schedule
         app.add_systems(
-            PostUpdate,
+            InvariantChecks,
             (
                 check_no_belt_and_fragment,
                 check_belts_have_coords,
@@ -16,8 +32,7 @@ impl Plugin for InvariantsPlugin {
                 check_lane_ranges_contiguous,
                 check_inlane_bidirectional,
                 check_adjacent_belts_in_lane_are_connected,
-            )
-                .chain(),
+            ),
         );
     }
 }
