@@ -1,7 +1,7 @@
 use std::ops::Range;
 
 use crate::core::*;
-use bevy::{ecs::world, prelude::*};
+use bevy::prelude::*;
 
 #[cfg(feature = "invariant-ckeck")]
 mod invariants;
@@ -868,6 +868,7 @@ mod tests {
         let belt1 = app.add_belt((0, 0), Dir::East);
         app.update();
         let item = app.add_item(belt1, POSITIONS_PER_FRAGMENT);
+        app.update();
         let init_pos = app.find_item(item);
         app.add_belt((0, 0), Dir::East);
         app.update();

@@ -543,14 +543,22 @@ fn despawn_old_belt_entities(
     coords: Query<&WorldCoords>,
 ) {
     for change in &changes.0 {
-        if let BeltChange::Replaced(ReplacedBelt {
-            old_entity: Some(entity),
-            ..
-        })
-        | BeltChange::Removed(RemovedBelt { entity, .. }) = change
-        {
-            cmd.entity(*entity).despawn();
-            belt_coords.remove(*coords.get(*entity).unwrap());
+        match change {
+            BeltChange::Replaced(ReplacedBelt {
+                old_entity: Some(entity),
+                ..
+            }) => {
+                cmd.entity(*entity).despawn();
+            }
+            BeltChange::Removed(RemovedBelt {
+                entity,
+                coords: removed_coords,
+                ..
+            }) => {
+                cmd.entity(*entity).despawn();
+                belt_coords.remove(*removed_coords);
+            }
+            _ => {}
         }
     }
 }
