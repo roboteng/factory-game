@@ -104,35 +104,62 @@ impl TestState {
     /// Get items that were on replaced belts this frame (should skip movement bounds check)
     ///
     /// Works by:
-    /// 1. Reading BeltChanges resource to find all Replaced events
-    /// 2. For each replacement, querying the OLD entity's lane to find items
-    /// 3. Collecting all item entities that will be transferred
+    /// 1. Reading BeltChanges resource to find all Replaced/Removed events
+    /// 2. For each changed belt, finding its position range in its lane
+    /// 3. Collecting only items within that specific belt's position range
     fn get_items_on_replaced_belts(&self, app: &mut App) -> HashSet<Entity> {
         // Clone the BeltChanges vector to avoid holding a reference
         let changes = app.world().resource::<BeltChanges>().0.clone();
+        let mut affected_belt_entities = HashSet::new();
+
+        // Find all belt entities that are being replaced or removed
+        for change in &changes {
+            match change {
+                BeltChange::Replaced(replaced) => {
+                    // If old_entity exists, it's being replaced by a new entity
+                    // If old_entity is None, the entity is being updated in-place (type change)
+                    if let Some(old_entity) = replaced.old_entity {
+                        affected_belt_entities.insert(old_entity);
+                    } else {
+                        // In-place replacement (e.g., Straight → Curved auto-curving)
+                        // The entity itself is the affected belt
+                        affected_belt_entities.insert(replaced.entity);
+                    }
+                }
+                BeltChange::Removed(removed) => {
+                    affected_belt_entities.insert(removed.entity);
+                }
+                _ => {}
+            }
+        }
+
+        if affected_belt_entities.is_empty() {
+            return HashSet::new();
+        }
+
         let mut skip_items = HashSet::new();
 
-        // Find all belt replacements in this frame
-        for change in &changes {
-            if let BeltChange::Replaced(replaced) = change {
-                if let Some(old_entity) = replaced.old_entity {
-                    // Items are stored in the lane, not the belt entity
-                    // Query the old belt's InLane component to find its lane
-                    let mut in_lane_query = app.world_mut().query::<&InLane>();
-                    if let Ok(in_lane) = in_lane_query.get(app.world(), old_entity) {
-                        let lane_entity = in_lane.lane;
+        // Find items on the specific affected belts
+        let mut lane_query = app.world_mut().query::<&BeltLane>();
+        for lane in lane_query.iter(app.world()) {
+            // Find position ranges for affected belts in this lane
+            let affected_ranges: Vec<_> = lane.belts.belts.iter()
+                .filter(|(_, belt_entity)| affected_belt_entities.contains(belt_entity))
+                .map(|(range, _)| range.clone())
+                .collect();
 
-                        // Query the lane to get all items
-                        let mut lane_query = app.world_mut().query::<&BeltLane>();
-                        if let Ok(lane) = lane_query.get(app.world(), lane_entity) {
-                            for (_, item_entity) in &lane.items.items {
-                                skip_items.insert(*item_entity);
-                            }
-                        }
-                    }
+            if affected_ranges.is_empty() {
+                continue;
+            }
+
+            // Skip items that are within any of the affected belt position ranges
+            for (item_pos, item_entity) in &lane.items.items {
+                if affected_ranges.iter().any(|range| range.contains(item_pos)) {
+                    skip_items.insert(*item_entity);
                 }
             }
         }
+
         skip_items
     }
 }
@@ -171,7 +198,37 @@ pub fn arb_action() -> impl Strategy<Value = Action> {
     ]
 }
 
+/// Check if an action sequence is valid
+/// Invalid sequences include:
+/// - PlaceItem on a belt that was placed in the same frame (no Update between PlaceBelt and PlaceItem)
+fn is_valid_action_sequence(actions: &[Action]) -> bool {
+    let mut newly_placed_belts = HashSet::new();
+
+    for action in actions {
+        match action {
+            Action::PlaceBelt { coords, .. } => {
+                newly_placed_belts.insert(*coords);
+            }
+            Action::PlaceItem { belt_coords, .. } => {
+                // Invalid if trying to place item on a belt that was just placed
+                if newly_placed_belts.contains(belt_coords) {
+                    return false;
+                }
+            }
+            Action::Update => {
+                // Clear newly placed belts after an update
+                newly_placed_belts.clear();
+            }
+        }
+    }
+
+    true
+}
+
 /// Generate a variable-length sequence of actions (0 to 100 actions)
 pub fn arb_action_sequence() -> impl Strategy<Value = Vec<Action>> {
     proptest::collection::vec(arb_action(), 0..100)
+        .prop_filter("Cannot place item on belt without Update between PlaceBelt and PlaceItem", |actions| {
+            is_valid_action_sequence(actions)
+        })
 }

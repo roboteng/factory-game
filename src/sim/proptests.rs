@@ -1,6 +1,6 @@
 use crate::core::*;
-use crate::sim::proptest_actions::*;
 use crate::sim::SimPlugin;
+use crate::sim::proptest_actions::*;
 use bevy::prelude::*;
 use proptest::prelude::*;
 
@@ -112,6 +112,7 @@ fn single_belt_with_item() {
             coords: WorldCoords::new(0, 0),
             dir: Dir::East,
         },
+        Action::Update,
         Action::PlaceItem {
             belt_coords: WorldCoords::new(0, 0),
             pos: POSITIONS_PER_TILE / 2,
@@ -142,6 +143,7 @@ fn circular_loop() {
             coords: WorldCoords::new(0, 1),
             dir: Dir::South,
         },
+        Action::Update,
         // Add an item
         Action::PlaceItem {
             belt_coords: WorldCoords::new(0, 0),
@@ -181,6 +183,7 @@ fn replace_belt_with_item() {
             coords: WorldCoords::new(0, 0),
             dir: Dir::East,
         },
+        Action::Update,
         Action::PlaceItem {
             belt_coords: WorldCoords::new(0, 0),
             pos: ITEM_SPACING,
@@ -211,6 +214,7 @@ fn multiple_belts_multiple_items() {
             coords: WorldCoords::new(2, 0),
             dir: Dir::East,
         },
+        Action::Update,
         // Add items to different belts
         Action::PlaceItem {
             belt_coords: WorldCoords::new(0, 0),
