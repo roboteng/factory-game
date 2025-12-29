@@ -540,7 +540,6 @@ fn despawn_old_belt_entities(
     mut cmd: Commands,
     changes: Res<BeltChanges>,
     mut belt_coords: ResMut<BeltCoords>,
-    coords: Query<&WorldCoords>,
 ) {
     for change in &changes.0 {
         match change {

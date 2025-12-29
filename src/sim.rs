@@ -497,8 +497,11 @@ fn remove_belt(
                 .unwrap();
             lane.remove_tail()
         }
+        (Some((_, _, ConnectionType::Direct)), Some(_)) => {
+            // Removing from middle of lane - would need to split lane
+            todo!("remove belt from middle of lane")
+        }
         (Some((_, _, ConnectionType::SideLoad)), None) => todo!(),
-        (Some((_, _, ConnectionType::Direct)), Some(_)) => todo!(),
         (Some((_, _, ConnectionType::SideLoad)), Some(_)) => todo!(),
     }
 }

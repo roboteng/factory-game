@@ -1,5 +1,5 @@
 use crate::core::*;
-use crate::sim::{BeltLane, InLane};
+use crate::sim::BeltLane;
 use bevy::prelude::*;
 use proptest::prelude::*;
 use std::collections::{HashMap, HashSet};
@@ -230,5 +230,45 @@ pub fn arb_action_sequence() -> impl Strategy<Value = Vec<Action>> {
     proptest::collection::vec(arb_action(), 0..100)
         .prop_filter("Cannot place item on belt without Update between PlaceBelt and PlaceItem", |actions| {
             is_valid_action_sequence(actions)
+        })
+}
+
+/// Check if action sequence has duplicate belt coordinates (replacements)
+fn has_duplicate_coords(actions: &[Option<Action>]) -> bool {
+    let mut coords_seen = HashSet::new();
+    for action in actions {
+        if let Some(Action::PlaceBelt { coords, .. }) = action {
+            if !coords_seen.insert(coords) {
+                return true; // Duplicate found
+            }
+        }
+    }
+    false
+}
+
+/// Generate (vec_size, Vec<Option<Action>>, seed) for shuffle testing
+/// Actions can only be PlaceBelt or Update (no PlaceItem)
+/// During shrinking: size stays same, items become None, seed unchanged
+/// Filters out sequences with duplicate coordinates (belt replacements)
+pub fn arb_action_vec_for_shuffle() -> impl Strategy<Value = (usize, Vec<Option<Action>>, u64)> {
+    use proptest::option;
+
+    (0usize..=50)
+        .prop_flat_map(|size| {
+            let action_strategy = prop_oneof![
+                5 => (arb_coords(), arb_dir()).prop_map(|(coords, dir)|
+                    Action::PlaceBelt { coords, dir }
+                ),
+                2 => Just(Action::Update),
+            ];
+            let actions = proptest::collection::vec(
+                option::of(action_strategy),
+                size..=size
+            );
+            let seed = any::<u64>();
+            (Just(size), actions, seed)
+        })
+        .prop_filter("No duplicate coordinates (belt replacements)", |(_, actions, _)| {
+            !has_duplicate_coords(actions)
         })
 }
