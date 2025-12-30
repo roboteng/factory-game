@@ -3,13 +3,13 @@ use std::{collections::HashMap, f32::consts::PI};
 use bevy::prelude::*;
 
 pub const TILE_SIZE: f32 = 32.0;
-pub const POSITIONS_PER_TILE: u16 = 256;
-pub const ITEM_SPACING: u16 = 64;
-pub const BASE_BELT_SPEED: u16 = 8;
+pub const POSITIONS_PER_TILE: i32 = 256;
+pub const ITEM_SPACING: i32 = 64;
+pub const BASE_BELT_SPEED: i32 = 8;
 
-pub const POSITIONS_PER_FRAGMENT: u16 = POSITIONS_PER_TILE / 2 - ITEM_SPACING / 2;
-pub const POSITIONS_PER_CURVED_TILE: u16 = (POSITIONS_PER_TILE as f32 * PI / 4.0).round() as u16;
-pub const ITEMS_PER_TILE: u16 = POSITIONS_PER_TILE / ITEM_SPACING;
+pub const POSITIONS_PER_FRAGMENT: i32 = POSITIONS_PER_TILE / 2 - ITEM_SPACING / 2;
+pub const POSITIONS_PER_CURVED_TILE: i32 = (POSITIONS_PER_TILE as f32 * PI / 4.0).round() as i32;
+pub const ITEMS_PER_TILE: i32 = POSITIONS_PER_TILE / ITEM_SPACING;
 pub const BASE_ITEM_MOVEMENT: f32 = TILE_SIZE * BASE_BELT_SPEED as f32 / POSITIONS_PER_TILE as f32;
 pub const ITEM_SIZE: f32 = TILE_SIZE / ITEMS_PER_TILE as f32;
 
@@ -39,7 +39,7 @@ pub struct PlaceBelt {
 pub struct PlaceItem {
     pub entity: Entity,
     pub belt: Entity,
-    pub pos: u16,
+    pub pos: i32,
     pub item: Item,
 }
 
@@ -183,7 +183,7 @@ impl Belt {
         }
     }
 
-    pub fn item_transform(&self, pos: u16, coords: WorldCoords) -> Transform {
+    pub fn item_transform(&self, pos: i32, coords: WorldCoords) -> Transform {
         let world_offset = Vec2::from(coords);
         match self {
             Self::Straight(_) => {
@@ -228,7 +228,7 @@ impl Belt {
         }
     }
 
-    pub fn num_positions(&self) -> u16 {
+    pub fn num_positions(&self) -> i32 {
         match self {
             Self::Straight(_) => POSITIONS_PER_TILE,
             _ => POSITIONS_PER_CURVED_TILE,
@@ -595,7 +595,7 @@ pub trait AppExtension {
     fn add_belt(&mut self, coords: impl Into<WorldCoords>, dir: Dir) -> Entity;
     fn find_belt(&mut self, entity: Entity) -> Option<(Belt, WorldCoords)>;
     fn find_belt_at(&mut self, coords: impl Into<WorldCoords>) -> Option<Belt>;
-    fn add_item(&mut self, belt: Entity, index: u16) -> Entity;
+    fn add_item(&mut self, belt: Entity, index: i32) -> Entity;
     fn find_item(&mut self, item: Entity) -> Option<(Item, Transform)>;
     fn remove_belt_at(&mut self, coords: impl Into<WorldCoords>) -> bool;
 }
@@ -627,7 +627,7 @@ impl AppExtension for App {
             .find(|(_, coords2)| &&coords == coords2)
             .map(|(belt, _)| belt.clone())
     }
-    fn add_item(&mut self, belt: Entity, index: u16) -> Entity {
+    fn add_item(&mut self, belt: Entity, index: i32) -> Entity {
         let entity = self.world_mut().spawn_empty().id();
         self.world_mut().trigger(PlaceItem {
             entity,

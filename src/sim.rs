@@ -32,12 +32,12 @@ pub(crate) struct BeltLane {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Belts {
-    pub(crate) belts: Vec<(Range<u16>, Entity)>,
+    pub(crate) belts: Vec<(Range<i32>, Entity)>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Items {
-    pub(crate) items: Vec<(u16, Entity)>,
+    pub(crate) items: Vec<(i32, Entity)>,
 }
 
 impl BeltLane {
@@ -50,7 +50,7 @@ impl BeltLane {
         Self { belts, items }
     }
 
-    fn range_for(&self, belt: Entity) -> Option<Range<u16>> {
+    fn range_for(&self, belt: Entity) -> Option<Range<i32>> {
         self.belts
             .belts
             .iter()
@@ -58,19 +58,19 @@ impl BeltLane {
             .map(|(range, _)| range.clone())
     }
 
-    fn insert_item_at(&mut self, pos: u16, item: Entity) {
+    fn insert_item_at(&mut self, pos: i32, item: Entity) {
         self.items.items.push((pos, item));
         self.items.items.sort();
     }
 
-    fn insert_items_at(&mut self, items: &[(u16, Entity)]) {
+    fn insert_items_at(&mut self, items: &[(i32, Entity)]) {
         for k in items {
             self.items.items.push(*k);
         }
         self.items.items.sort();
     }
 
-    fn belt_for(&self, pos: u16) -> Option<Entity> {
+    fn belt_for(&self, pos: i32) -> Option<Entity> {
         self.belts
             .belts
             .iter()
@@ -84,7 +84,7 @@ impl BeltLane {
         self.belts.belts.insert(0, (0..len, entity));
     }
 
-    fn offset_by(&mut self, len: u16) {
+    fn offset_by(&mut self, len: i32) {
         self.belts.belts.iter_mut().for_each(|(range, _)| {
             range.start += len;
             range.end += len;
@@ -99,7 +99,7 @@ impl BeltLane {
         self.belts.belts.push((curr_len..curr_len + len, entity));
     }
 
-    fn num_positions(&self) -> u16 {
+    fn num_positions(&self) -> i32 {
         self.belts
             .belts
             .last()
@@ -113,7 +113,7 @@ impl BeltLane {
         self.items.items.extend_from_slice(&tail.items.items);
     }
 
-    fn relative_pos(&self, pos: u16) -> u16 {
+    fn relative_pos(&self, pos: i32) -> i32 {
         pos - self
             .belts
             .belts
@@ -129,7 +129,7 @@ impl BeltLane {
         self.belts.belts.insert(0, (0..len, entity));
     }
 
-    fn shorten_by(&mut self, len: u16) {
+    fn shorten_by(&mut self, len: i32) {
         self.items.items.iter_mut().for_each(|(pos, _)| *pos -= len);
         self.belts.belts.iter_mut().for_each(|(range, _)| {
             range.start -= len;
@@ -138,7 +138,7 @@ impl BeltLane {
     }
 
     /// Returns the items that were on the head of the belt
-    fn remove_head(&mut self) -> Vec<(u16, Entity)> {
+    fn remove_head(&mut self) -> Vec<(i32, Entity)> {
         let head = self.belts.belts.remove(0);
         let part = self
             .items
@@ -152,7 +152,7 @@ impl BeltLane {
         ret
     }
 
-    fn remove_tail(&mut self) -> Vec<(u16, Entity)> {
+    fn remove_tail(&mut self) -> Vec<(i32, Entity)> {
         let last = self.belts.belts.len();
         let tail = self.belts.belts.remove(last - 1);
         let part = self
@@ -193,7 +193,7 @@ fn on_place_item(
 pub(crate) struct BeltConnection {
     pub(crate) source: Entity,
     pub(crate) target: Entity,
-    pub(crate) offset: u16,
+    pub(crate) offset: i32,
 }
 
 #[derive(Debug)]
@@ -234,7 +234,7 @@ fn new_belt(
     world: &mut World,
     remaining_entities: &[Entity],
     new: &NewBelt,
-    existing_items: Vec<(u16, Entity)>,
+    existing_items: Vec<(i32, Entity)>,
 ) {
     let belt_coords = world.resource::<BeltCoords>();
     let ahead_belt = ahead_connected_belt(
@@ -450,7 +450,7 @@ fn remove_belt(
     world: &mut World,
     remaining_entities: &[Entity],
     removed: &RemovedBelt,
-) -> Vec<(u16, Entity)> {
+) -> Vec<(i32, Entity)> {
     let belt_coords = world.resource::<BeltCoords>();
     let ahead_belt = ahead_connected_belt(
         &belt_coords,
@@ -575,10 +575,10 @@ impl BeltFragment {
     fn output(&self) -> Dir {
         self.dir
     }
-    fn num_positions(&self) -> u16 {
+    fn num_positions(&self) -> i32 {
         POSITIONS_PER_FRAGMENT
     }
-    fn item_transform(&self, pos: u16, coords: WorldCoords) -> Transform {
+    fn item_transform(&self, pos: i32, coords: WorldCoords) -> Transform {
         debug!("Transforming fragment at {:?} with pos {}", coords, pos);
         let world_offset = Vec2::from(coords);
 
@@ -605,7 +605,7 @@ impl BeltLike {
             _ => panic!("Invalid BeltLike value"),
         }
     }
-    fn item_transform(&self, pos: u16, coords: WorldCoords) -> Transform {
+    fn item_transform(&self, pos: i32, coords: WorldCoords) -> Transform {
         match self {
             Self::Belt(belt) => belt.item_transform(pos, coords),
             Self::Fragment(fragment) => fragment.item_transform(pos, coords),
@@ -648,9 +648,9 @@ fn transfers(conns: Query<&BeltConnection>, mut lanes: Query<&mut BeltLane>) {
 fn plan_moves(mut lanes: Query<&mut BeltLane>) {
     for mut lane in lanes.iter_mut() {
         for (i, (pos, _)) in lane.items.items.iter_mut().enumerate() {
-            let furthest = i as u16 * ITEM_SPACING;
-            let k = pos.saturating_sub(furthest);
-            *pos = k.saturating_sub(BASE_BELT_SPEED) + furthest;
+            let furthest = i as i32 * ITEM_SPACING;
+            let k = (*pos - furthest).max(0);
+            *pos = (k - BASE_BELT_SPEED).max(0) + furthest;
             debug!("Setting item at {}", pos);
         }
     }

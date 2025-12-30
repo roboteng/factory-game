@@ -8,7 +8,7 @@ use std::collections::{HashMap, HashSet};
 #[derive(Debug, Clone)]
 pub enum Action {
     PlaceBelt { coords: WorldCoords, dir: Dir },
-    PlaceItem { belt_coords: WorldCoords, pos: u16 },
+    PlaceItem { belt_coords: WorldCoords, pos: i32 },
     Update,
 }
 
@@ -190,8 +190,8 @@ pub fn arb_dir() -> impl Strategy<Value = Dir> {
 }
 
 /// Generate random belt position (0..256)
-pub fn arb_belt_position() -> impl Strategy<Value = u16> {
-    0u16..POSITIONS_PER_TILE
+pub fn arb_belt_position() -> impl Strategy<Value = i32> {
+    0i32..POSITIONS_PER_TILE
 }
 
 /// Generate a random Action with weighted distribution:
