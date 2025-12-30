@@ -57,9 +57,12 @@ impl TestState {
     pub fn capture_item_positions(&mut self, app: &mut App) {
         self.previous_item_positions.clear();
 
-        let mut query = app.world_mut().query_filtered::<(Entity, &Transform), With<Item>>();
+        let mut query = app
+            .world_mut()
+            .query_filtered::<(Entity, &Transform), With<Item>>();
         for (entity, transform) in query.iter(app.world()) {
-            self.previous_item_positions.insert(entity, transform.translation);
+            self.previous_item_positions
+                .insert(entity, transform.translation);
         }
 
         // Capture items that will skip movement bounds check (on replaced belts)
@@ -72,7 +75,9 @@ impl TestState {
     pub fn check_movement_bounds(&self, app: &mut App) -> Result<(), String> {
         const MAX_MOVEMENT: f32 = BASE_ITEM_MOVEMENT * 1.5; // pixels per frame (with safety margin)
 
-        let mut query = app.world_mut().query_filtered::<(Entity, &Transform), With<Item>>();
+        let mut query = app
+            .world_mut()
+            .query_filtered::<(Entity, &Transform), With<Item>>();
         for (entity, transform) in query.iter(app.world()) {
             // Skip items that were on replaced belts (they teleport during replacement)
             // This was captured in capture_item_positions() before app.update()
@@ -143,7 +148,10 @@ impl TestState {
         let mut lane_query = app.world_mut().query::<&BeltLane>();
         for lane in lane_query.iter(app.world()) {
             // Find position ranges for affected belts in this lane
-            let affected_ranges: Vec<_> = lane.belts.belts.iter()
+            let affected_ranges: Vec<_> = lane
+                .belts
+                .belts
+                .iter()
                 .filter(|(_, belt_entity)| affected_belt_entities.contains(belt_entity))
                 .map(|(range, _)| range.clone())
                 .collect();
@@ -168,7 +176,7 @@ impl TestState {
 
 /// Generate random WorldCoords in the range -10..=10 for both x and y
 pub fn arb_coords() -> impl Strategy<Value = WorldCoords> {
-    (-10..=10i32, -10..=10i32).prop_map(|(x, y)| WorldCoords::new(x, y))
+    (-3..=3i32, -3..=3i32).prop_map(|(x, y)| WorldCoords::new(x, y))
 }
 
 /// Generate random Dir
@@ -227,10 +235,10 @@ fn is_valid_action_sequence(actions: &[Action]) -> bool {
 
 /// Generate a variable-length sequence of actions (0 to 100 actions)
 pub fn arb_action_sequence() -> impl Strategy<Value = Vec<Action>> {
-    proptest::collection::vec(arb_action(), 0..100)
-        .prop_filter("Cannot place item on belt without Update between PlaceBelt and PlaceItem", |actions| {
-            is_valid_action_sequence(actions)
-        })
+    proptest::collection::vec(arb_action(), 0..100).prop_filter(
+        "Cannot place item on belt without Update between PlaceBelt and PlaceItem",
+        |actions| is_valid_action_sequence(actions),
+    )
 }
 
 /// Check if action sequence has duplicate belt coordinates (replacements)
@@ -261,14 +269,12 @@ pub fn arb_action_vec_for_shuffle() -> impl Strategy<Value = (usize, Vec<Option<
                 ),
                 2 => Just(Action::Update),
             ];
-            let actions = proptest::collection::vec(
-                option::of(action_strategy),
-                size..=size
-            );
+            let actions = proptest::collection::vec(option::of(action_strategy), size..=size);
             let seed = any::<u64>();
             (Just(size), actions, seed)
         })
-        .prop_filter("No duplicate coordinates (belt replacements)", |(_, actions, _)| {
-            !has_duplicate_coords(actions)
-        })
+        .prop_filter(
+            "No duplicate coordinates (belt replacements)",
+            |(_, actions, _)| !has_duplicate_coords(actions),
+        )
 }

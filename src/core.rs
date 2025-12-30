@@ -119,6 +119,7 @@ impl WorldCoords {
             },
         }
     }
+    #[cfg(feature = "ui")]
     pub fn from_cursor(window: &Window) -> Option<Self> {
         let pos = window.cursor_position()?;
         Some(Self {
