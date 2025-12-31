@@ -351,72 +351,43 @@ fn new_belt(
             }
         }
         (Some((side_ent, _, ConnectionType::SideLoad)), None) => {
-            debug!("sidelaoding new lane");
-            let side_loaded_lane_ent = world.query::<&InLane>().get(world, side_ent).unwrap().lane;
-            let side_loaded_lane = world
-                .query::<&BeltLane>()
-                .get(world, side_loaded_lane_ent)
-                .unwrap();
-            let range = side_loaded_lane.range_for(side_ent).unwrap();
+            debug!("sideloading new lane");
             let mut lane = BeltLane::from_belt(new.entity, new.belt);
             lane.insert_items_at(&existing_items);
-            let fragment = BeltFragment::new(new.belt.output());
-            let frag_ent = world
-                .spawn((
-                    fragment,
-                    new.coords.step(new.belt.output()),
-                    InLane::new(Entity::PLACEHOLDER),
-                ))
-                .id();
-            lane.prepend_fragment(fragment, frag_ent);
-            debug!("sideloading Lane is {lane:?}");
             let lane_ent = world.spawn(lane).id();
 
-            world.spawn(BeltConnection {
-                source: lane_ent,
-                target: side_loaded_lane_ent,
-                offset: (range.start + range.end) / 2,
-            });
-            world.entity_mut(frag_ent).insert(InLane::new(lane_ent));
+            create_sideload_connection(
+                world,
+                lane_ent,
+                side_ent,
+                new.belt.output(),
+                new.coords.step(new.belt.output()),
+            );
+
             world.entity_mut(new.entity).insert(InLane::new(lane_ent));
         }
         (Some((side_ent, _, ConnectionType::SideLoad)), Some((behind_ent, _))) => {
-            let side_loaded_lane_ent = world.query::<&InLane>().get(world, side_ent).unwrap().lane;
-            let side_loaded_lane = world
-                .query::<&BeltLane>()
-                .get(world, side_loaded_lane_ent)
-                .unwrap();
-            let range = side_loaded_lane.range_for(side_ent).unwrap();
             let lane_ent = world
                 .query::<&InLane>()
                 .get(world, behind_ent)
                 .map(|l| l.lane)
                 .unwrap();
 
-            world.spawn(BeltConnection {
-                source: lane_ent,
-                target: side_loaded_lane_ent,
-                offset: (range.start + range.end) / 2,
-            });
-            let _ = world.entity_mut(new.entity).insert(InLane::new(lane_ent));
+            create_sideload_connection(
+                world,
+                lane_ent,
+                side_ent,
+                new.belt.output(),
+                new.coords.step(new.belt.output()),
+            );
 
-            let fragment = BeltFragment::new(new.belt.output());
-            let frag_ent = world
-                .spawn((
-                    fragment,
-                    new.coords.step(new.belt.output()),
-                    InLane::new(Entity::PLACEHOLDER),
-                ))
-                .id();
             let mut lane = world
                 .query::<&mut BeltLane>()
                 .get_mut(world, lane_ent)
                 .unwrap();
             lane.add_to_head(new.belt, new.entity);
             lane.insert_items_at(&existing_items);
-            lane.prepend_fragment(fragment, frag_ent);
-            debug!("sideloading Lane is {lane:?}");
-            world.entity_mut(frag_ent).insert(InLane::new(lane_ent));
+
             world.entity_mut(new.entity).insert(InLane::new(lane_ent));
         }
     }
@@ -428,37 +399,19 @@ fn new_belt(
         if let Some(left_belt) = belt_coords.get(left).filter(|(ent, belt)| {
             !remaining_entities.contains(ent) && belt.output() == new.belt.output().right()
         }) {
-            let side_loaded_lane_ent = world
-                .query::<&InLane>()
-                .get(world, new.entity)
-                .unwrap()
-                .lane;
-            let side_loaded_lane = world
-                .query::<&BeltLane>()
-                .get(world, side_loaded_lane_ent)
-                .unwrap();
-            let range = side_loaded_lane.range_for(new.entity).unwrap();
             let left_lane_ent = world
                 .query::<&InLane>()
                 .get(world, left_belt.0)
                 .unwrap()
                 .lane;
 
-            let fragment = BeltFragment::new(new.belt.output().right());
-            world.spawn(BeltConnection {
-                source: left_lane_ent,
-                target: side_loaded_lane_ent,
-                offset: (range.start + range.end) / 2,
-            });
-            let frag_ent = world
-                .spawn((fragment, new.coords, InLane::new(left_lane_ent)))
-                .id();
-            let mut left_lane = world
-                .query::<&mut BeltLane>()
-                .get_mut(world, left_lane_ent)
-                .unwrap();
-            left_lane.prepend_fragment(fragment, frag_ent);
-            debug!("sideloading Lane is {left_lane:?}");
+            create_sideload_connection(
+                world,
+                left_lane_ent,
+                new.entity,
+                new.belt.output().right(),
+                new.coords,
+            );
         }
 
         let belt_coords = world.resource::<BeltCoords>();
@@ -466,37 +419,19 @@ fn new_belt(
         if let Some(right_belt) = belt_coords.get(right).filter(|(ent, belt)| {
             !remaining_entities.contains(ent) && belt.output() == new.belt.output().left()
         }) {
-            let side_loaded_lane_ent = world
-                .query::<&InLane>()
-                .get(world, new.entity)
-                .unwrap()
-                .lane;
-            let side_loaded_lane = world
-                .query::<&BeltLane>()
-                .get(world, side_loaded_lane_ent)
-                .unwrap();
-            let range = side_loaded_lane.range_for(new.entity).unwrap();
             let right_lane_ent = world
                 .query::<&InLane>()
                 .get(world, right_belt.0)
                 .unwrap()
                 .lane;
 
-            let fragment = BeltFragment::new(new.belt.output().left());
-            world.spawn(BeltConnection {
-                source: right_lane_ent,
-                target: side_loaded_lane_ent,
-                offset: (range.start + range.end) / 2,
-            });
-            let frag_ent = world
-                .spawn((fragment, new.coords, InLane::new(right_lane_ent)))
-                .id();
-            let mut right_lane = world
-                .query::<&mut BeltLane>()
-                .get_mut(world, right_lane_ent)
-                .unwrap();
-            right_lane.prepend_fragment(fragment, frag_ent);
-            debug!("sideloading Lane is {right_lane:?}");
+            create_sideload_connection(
+                world,
+                right_lane_ent,
+                new.entity,
+                new.belt.output().left(),
+                new.coords,
+            );
         }
     }
 }
@@ -602,6 +537,42 @@ fn ahead_connected_belt(
                 }
             }
         })
+}
+
+fn create_sideload_connection(
+    world: &mut World,
+    source_lane_ent: Entity,
+    target_belt_ent: Entity,
+    source_dir: Dir,
+    intersection_coords: WorldCoords,
+) {
+    let target_lane_ent = world
+        .query::<&InLane>()
+        .get(world, target_belt_ent)
+        .unwrap()
+        .lane;
+    let target_lane = world
+        .query::<&BeltLane>()
+        .get(world, target_lane_ent)
+        .unwrap();
+    let range = target_lane.range_for(target_belt_ent).unwrap();
+
+    world.spawn(BeltConnection {
+        source: source_lane_ent,
+        target: target_lane_ent,
+        offset: (range.start + range.end) / 2,
+    });
+
+    let fragment = BeltFragment::new(source_dir);
+    let frag_ent = world
+        .spawn((fragment, intersection_coords, InLane::new(source_lane_ent)))
+        .id();
+
+    let mut source_lane = world
+        .query::<&mut BeltLane>()
+        .get_mut(world, source_lane_ent)
+        .unwrap();
+    source_lane.prepend_fragment(fragment, frag_ent);
 }
 
 fn behind_connected_belt(
