@@ -204,6 +204,28 @@ enum ConnectionType {
     SideLoad,
 }
 
+/// Helper to get the lane entity that a belt belongs to
+fn get_lane_entity(world: &mut World, belt_ent: Entity) -> Entity {
+    world
+        .query::<&InLane>()
+        .get(world, belt_ent)
+        .map(|l| l.lane)
+        .unwrap()
+}
+
+/// Helper to get immutable access to a BeltLane
+fn get_lane(world: &mut World, lane_ent: Entity) -> &BeltLane {
+    world.query::<&BeltLane>().get(world, lane_ent).unwrap()
+}
+
+/// Helper to get mutable access to a BeltLane
+fn get_lane_mut(world: &mut World, lane_ent: Entity) -> bevy::ecs::world::Mut<'_, BeltLane> {
+    world
+        .query::<&mut BeltLane>()
+        .get_mut(world, lane_ent)
+        .unwrap()
+}
+
 fn link_belts(world: &mut World) {
     let changed_belts = world.resource::<BeltChanges>().clone();
     if changed_belts.0.is_empty() {
@@ -264,15 +286,8 @@ fn new_belt(
         }
         (None, Some((behind_ent, _))) => {
             debug!("Adding to head of existing lane");
-            let lane_ent = world
-                .query::<&InLane>()
-                .get(world, behind_ent)
-                .map(|l| l.lane)
-                .unwrap();
-            let mut lane = world
-                .query::<&mut BeltLane>()
-                .get_mut(world, lane_ent)
-                .unwrap();
+            let lane_ent = get_lane_entity(world, behind_ent);
+            let mut lane = get_lane_mut(world, lane_ent);
             lane.add_to_head(new.belt, new.entity);
             lane.insert_items_at(&existing_items);
             debug!("Lane is {:?}", lane);
@@ -280,15 +295,8 @@ fn new_belt(
         }
         (Some((ahead_ent, _, ConnectionType::Direct)), None) => {
             debug!("Adding to tail of existing lane");
-            let lane_ent = world
-                .query::<&InLane>()
-                .get(world, ahead_ent)
-                .map(|l| l.lane)
-                .unwrap();
-            let mut lane = world
-                .query::<&mut BeltLane>()
-                .get_mut(world, lane_ent)
-                .unwrap();
+            let lane_ent = get_lane_entity(world, ahead_ent);
+            let mut lane = get_lane_mut(world, lane_ent);
             let offset = lane.num_positions();
             let items = existing_items
                 .iter()
@@ -301,20 +309,9 @@ fn new_belt(
         }
         (Some((ahead_ent, _, ConnectionType::Direct)), Some((behind_ent, _))) => {
             debug!("Merging lanes");
-            let behind_lane_ent = world
-                .query::<&InLane>()
-                .get(world, behind_ent)
-                .map(|l| l.lane)
-                .unwrap();
-            let ahead_lane_ent = world
-                .query::<&InLane>()
-                .get(world, ahead_ent)
-                .map(|l| l.lane)
-                .unwrap();
-            let mut behind_lane = world
-                .query::<&mut BeltLane>()
-                .get_mut(world, behind_lane_ent)
-                .unwrap();
+            let behind_lane_ent = get_lane_entity(world, behind_ent);
+            let ahead_lane_ent = get_lane_entity(world, ahead_ent);
+            let mut behind_lane = get_lane_mut(world, behind_lane_ent);
             behind_lane.add_to_head(new.belt, new.entity);
             behind_lane.insert_items_at(&existing_items);
 
@@ -338,10 +335,7 @@ fn new_belt(
                         .insert(InLane::new(ahead_lane_ent));
                     debug!("loop lane is {:?}", behind_lane);
                 }
-                let mut lane = world
-                    .query::<&mut BeltLane>()
-                    .get_mut(world, ahead_lane_ent)
-                    .unwrap();
+                let mut lane = get_lane_mut(world, ahead_lane_ent);
                 lane.merge(behind_lane);
                 debug!("Lane is {:?}", lane);
                 world.entity_mut(behind_lane_ent).despawn();
@@ -367,11 +361,7 @@ fn new_belt(
             world.entity_mut(new.entity).insert(InLane::new(lane_ent));
         }
         (Some((side_ent, _, ConnectionType::SideLoad)), Some((behind_ent, _))) => {
-            let lane_ent = world
-                .query::<&InLane>()
-                .get(world, behind_ent)
-                .map(|l| l.lane)
-                .unwrap();
+            let lane_ent = get_lane_entity(world, behind_ent);
 
             create_sideload_connection(
                 world,
@@ -381,10 +371,7 @@ fn new_belt(
                 new.coords.step(new.belt.output()),
             );
 
-            let mut lane = world
-                .query::<&mut BeltLane>()
-                .get_mut(world, lane_ent)
-                .unwrap();
+            let mut lane = get_lane_mut(world, lane_ent);
             lane.add_to_head(new.belt, new.entity);
             lane.insert_items_at(&existing_items);
 
@@ -399,11 +386,7 @@ fn new_belt(
         if let Some(left_belt) = belt_coords.get(left).filter(|(ent, belt)| {
             !remaining_entities.contains(ent) && belt.output() == new.belt.output().right()
         }) {
-            let left_lane_ent = world
-                .query::<&InLane>()
-                .get(world, left_belt.0)
-                .unwrap()
-                .lane;
+            let left_lane_ent = get_lane_entity(world, left_belt.0);
 
             create_sideload_connection(
                 world,
@@ -419,11 +402,7 @@ fn new_belt(
         if let Some(right_belt) = belt_coords.get(right).filter(|(ent, belt)| {
             !remaining_entities.contains(ent) && belt.output() == new.belt.output().left()
         }) {
-            let right_lane_ent = world
-                .query::<&InLane>()
-                .get(world, right_belt.0)
-                .unwrap()
-                .lane;
+            let right_lane_ent = get_lane_entity(world, right_belt.0);
 
             create_sideload_connection(
                 world,
@@ -457,35 +436,19 @@ fn remove_belt(
     );
     debug!("Behind belt: {:?}", behind_belt);
     debug!("ahead belt: {:?}", ahead_belt);
-    let lane_ent = world
-        .query::<&InLane>()
-        .get(world, removed.entity)
-        .unwrap()
-        .lane;
+    let lane_ent = get_lane_entity(world, removed.entity);
     match (ahead_belt, behind_belt) {
         (None, None) => {
-            let items = world
-                .query::<&BeltLane>()
-                .get_mut(world, lane_ent)
-                .unwrap()
-                .items
-                .items
-                .clone();
+            let items = get_lane(world, lane_ent).items.items.clone();
             world.despawn(lane_ent);
             items
         }
         (None, Some(_)) => {
-            let mut lane = world
-                .query::<&mut BeltLane>()
-                .get_mut(world, lane_ent)
-                .unwrap();
+            let mut lane = get_lane_mut(world, lane_ent);
             lane.remove_head()
         }
         (Some((_, _, ConnectionType::Direct)), None) => {
-            let mut lane = world
-                .query::<&mut BeltLane>()
-                .get_mut(world, lane_ent)
-                .unwrap();
+            let mut lane = get_lane_mut(world, lane_ent);
             lane.remove_tail()
         }
         (Some((_, _, ConnectionType::Direct)), Some(_)) => {
@@ -546,15 +509,8 @@ fn create_sideload_connection(
     source_dir: Dir,
     intersection_coords: WorldCoords,
 ) {
-    let target_lane_ent = world
-        .query::<&InLane>()
-        .get(world, target_belt_ent)
-        .unwrap()
-        .lane;
-    let target_lane = world
-        .query::<&BeltLane>()
-        .get(world, target_lane_ent)
-        .unwrap();
+    let target_lane_ent = get_lane_entity(world, target_belt_ent);
+    let target_lane = get_lane(world, target_lane_ent);
     let range = target_lane.range_for(target_belt_ent).unwrap();
 
     world.spawn(BeltConnection {
@@ -568,10 +524,7 @@ fn create_sideload_connection(
         .spawn((fragment, intersection_coords, InLane::new(source_lane_ent)))
         .id();
 
-    let mut source_lane = world
-        .query::<&mut BeltLane>()
-        .get_mut(world, source_lane_ent)
-        .unwrap();
+    let mut source_lane = get_lane_mut(world, source_lane_ent);
     source_lane.prepend_fragment(fragment, frag_ent);
 }
 
