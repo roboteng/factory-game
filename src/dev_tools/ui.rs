@@ -35,6 +35,10 @@ const ASSUMED_TIMESTEP: f32 = 1.0 / 60.0;  // Assume 60 FPS for smooth graphs
 struct ItemGraphData {
     // Per-item position history (circular buffer)
     positions: HashMap<Entity, Vec<Vec2>>,
+    // Per-item cumulative distance history (circular buffer)
+    distances: HashMap<Entity, Vec<f32>>,
+    // Per-item cumulative distance tracker
+    cumulative_distance: HashMap<Entity, f32>,
     // Per-item speed history (circular buffer)
     speeds: HashMap<Entity, Vec<f32>>,
     // Last frame positions for speed calculation
@@ -49,6 +53,8 @@ impl Default for ItemGraphData {
     fn default() -> Self {
         Self {
             positions: HashMap::new(),
+            distances: HashMap::new(),
+            cumulative_distance: HashMap::new(),
             speeds: HashMap::new(),
             previous_positions: HashMap::new(),
             current_index: 0,
@@ -66,6 +72,7 @@ fn collect_item_data(
     // If no items, don't advance the graph and clear previous positions
     if item_count == 0 {
         graph_data.previous_positions.clear();
+        graph_data.cumulative_distance.clear();
         return;
     }
 
@@ -82,16 +89,27 @@ fn collect_item_data(
     for (entity, transform) in items.iter() {
         let pos = transform.translation.xy();
 
-        // Calculate speed from position delta using fixed timestep for smoothness
-        let speed = if let Some(prev_pos) = graph_data.previous_positions.get(&entity) {
-            (pos - *prev_pos).length() / ASSUMED_TIMESTEP
+        // Calculate distance delta and speed from position delta
+        let (distance_delta, speed) = if let Some(prev_pos) = graph_data.previous_positions.get(&entity) {
+            let delta = (pos - *prev_pos).length();
+            (delta, delta / ASSUMED_TIMESTEP)
         } else {
-            0.0
+            (0.0, 0.0)
+        };
+
+        // Update cumulative distance
+        let cumulative_dist = {
+            let cumulative = graph_data.cumulative_distance.entry(entity).or_insert(0.0);
+            *cumulative += distance_delta;
+            *cumulative
         };
 
         // Ensure buffers exist for this entity
         if !graph_data.positions.contains_key(&entity) {
             graph_data.positions.insert(entity, vec![Vec2::ZERO; max_samples]);
+        }
+        if !graph_data.distances.contains_key(&entity) {
+            graph_data.distances.insert(entity, vec![0.0; max_samples]);
         }
         if !graph_data.speeds.contains_key(&entity) {
             graph_data.speeds.insert(entity, vec![0.0; max_samples]);
@@ -100,6 +118,9 @@ fn collect_item_data(
         // Store current data in circular buffer
         if let Some(positions) = graph_data.positions.get_mut(&entity) {
             positions[current_index] = pos;
+        }
+        if let Some(distances) = graph_data.distances.get_mut(&entity) {
+            distances[current_index] = cumulative_dist;
         }
         if let Some(speeds) = graph_data.speeds.get_mut(&entity) {
             speeds[current_index] = speed;
@@ -111,6 +132,8 @@ fn collect_item_data(
 
     // Remove data for despawned items
     graph_data.positions.retain(|entity, _| items.get(*entity).is_ok());
+    graph_data.distances.retain(|entity, _| items.get(*entity).is_ok());
+    graph_data.cumulative_distance.retain(|entity, _| items.get(*entity).is_ok());
     graph_data.speeds.retain(|entity, _| items.get(*entity).is_ok());
     graph_data.previous_positions.retain(|entity, _| items.get(*entity).is_ok());
 
@@ -219,33 +242,33 @@ fn draw_position_graph(
     bottom: f32,
     top: f32,
 ) {
-    if data.positions.is_empty() {
+    if data.distances.is_empty() {
         return;
     }
 
-    // Find min/max X position for scaling
-    let (mut min_x, mut max_x) = (f32::INFINITY, f32::NEG_INFINITY);
+    // Find min/max distance for scaling
+    let (mut min_dist, mut max_dist) = (f32::INFINITY, f32::NEG_INFINITY);
 
-    for positions in data.positions.values() {
-        for pos in positions {
-            if *pos == Vec2::ZERO {
+    for distances in data.distances.values() {
+        for &dist in distances {
+            if dist == 0.0 {
                 continue;  // Skip uninitialized data
             }
-            min_x = min_x.min(pos.x);
-            max_x = max_x.max(pos.x);
+            min_dist = min_dist.min(dist);
+            max_dist = max_dist.max(dist);
         }
     }
 
     // Add padding
     let padding = 10.0;
-    min_x -= padding;
-    max_x += padding;
+    min_dist -= padding;
+    max_dist += padding;
 
-    let position_range = (max_x - min_x).max(1.0);
+    let distance_range = (max_dist - min_dist).max(1.0);
     let width = right - left;
     let height = top - bottom;
 
-    // Draw each item's X position over time
+    // Draw each item's cumulative distance over time
     let colors = [
         Color::srgb(0.4, 0.8, 0.4),
         Color::srgb(0.8, 0.4, 0.4),
@@ -255,26 +278,26 @@ fn draw_position_graph(
         Color::srgb(0.4, 0.8, 0.8),
     ];
 
-    for (idx, positions) in data.positions.values().enumerate() {
+    for (idx, distances) in data.distances.values().enumerate() {
         let color = colors[idx % colors.len()];
 
         // Draw at fixed buffer positions so graph stays stationary
         for buffer_idx in 1..data.max_samples {
             let prev_buffer_idx = buffer_idx - 1;
 
-            let pos = positions[buffer_idx];
-            let prev_pos = positions[prev_buffer_idx];
+            let dist = distances[buffer_idx];
+            let prev_dist = distances[prev_buffer_idx];
 
-            // Skip if positions are zero (not yet initialized)
-            if pos == Vec2::ZERO || prev_pos == Vec2::ZERO {
+            // Skip if distances are zero (not yet initialized)
+            if dist == 0.0 || prev_dist == 0.0 {
                 continue;
             }
 
-            // Map to screen coordinates (buffer index = x, position.x = y)
+            // Map to screen coordinates (buffer index = x, distance = y)
             let x = left + (buffer_idx as f32 / data.max_samples as f32) * width;
-            let y = bottom + ((pos.x - min_x) / position_range) * height;
+            let y = bottom + ((dist - min_dist) / distance_range) * height;
             let prev_x = left + (prev_buffer_idx as f32 / data.max_samples as f32) * width;
-            let prev_y = bottom + ((prev_pos.x - min_x) / position_range) * height;
+            let prev_y = bottom + ((prev_dist - min_dist) / distance_range) * height;
 
             gizmos.line_2d(Vec2::new(prev_x, prev_y), Vec2::new(x, y), color);
         }
@@ -367,7 +390,7 @@ fn setup_graph_labels(mut commands: Commands) {
 
     // Position graph title
     commands.spawn((
-        Text2d::new("Item X Position Over Time"),
+        Text2d::new("Total Distance Travelled"),
         TextFont {
             font_size: 16.0,
             ..default()
@@ -482,20 +505,20 @@ fn update_graph_labels(
     if let Ok((mut text, mut transform)) = position_scale.single_mut() {
         transform.translation = Vec3::new(graph_left + 5.0, position_graph_bottom + 5.0, 100.0);
 
-        if !graph_data.positions.is_empty() {
-            let (mut min_x, mut max_x) = (f32::INFINITY, f32::NEG_INFINITY);
+        if !graph_data.distances.is_empty() {
+            let (mut min_dist, mut max_dist) = (f32::INFINITY, f32::NEG_INFINITY);
 
-            for positions in graph_data.positions.values() {
-                for pos in positions {
-                    if *pos == Vec2::ZERO {
+            for distances in graph_data.distances.values() {
+                for &dist in distances {
+                    if dist == 0.0 {
                         continue;
                     }
-                    min_x = min_x.min(pos.x);
-                    max_x = max_x.max(pos.x);
+                    min_dist = min_dist.min(dist);
+                    max_dist = max_dist.max(dist);
                 }
             }
 
-            **text = format!("Range: [{:.0}, {:.0}]", min_x, max_x);
+            **text = format!("Range: [{:.1}, {:.1}] units", min_dist, max_dist);
         } else {
             **text = "No items".to_string();
         }

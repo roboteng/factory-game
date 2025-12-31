@@ -7,10 +7,13 @@ pub const POSITIONS_PER_TILE: i32 = 256;
 pub const ITEM_SPACING: i32 = 64;
 pub const BASE_BELT_SPEED: i32 = 8;
 
-pub const POSITIONS_PER_FRAGMENT: i32 = POSITIONS_PER_TILE / 2 - ITEM_SPACING / 2;
+pub const POSITIONS_PER_FRAGMENT: i32 = POSITIONS_PER_TILE / 2 + ITEM_SPACING / 2;
 pub const POSITIONS_PER_CURVED_TILE: i32 = (POSITIONS_PER_TILE as f32 * PI / 4.0).round() as i32;
+#[allow(dead_code)]
 pub const ITEMS_PER_TILE: i32 = POSITIONS_PER_TILE / ITEM_SPACING;
+#[allow(dead_code)]
 pub const BASE_ITEM_MOVEMENT: f32 = TILE_SIZE * BASE_BELT_SPEED as f32 / POSITIONS_PER_TILE as f32;
+#[allow(dead_code)]
 pub const ITEM_SIZE: f32 = TILE_SIZE / ITEMS_PER_TILE as f32;
 
 pub struct CorePlugin;

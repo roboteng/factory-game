@@ -191,7 +191,9 @@ fn on_place_item(
 
 #[derive(Component, Debug, Clone, PartialEq, Eq)]
 pub(crate) struct BeltConnection {
+    /// Lane Entity
     pub(crate) source: Entity,
+    /// Lane Entity
     pub(crate) target: Entity,
     pub(crate) offset: i32,
 }
@@ -348,8 +350,14 @@ fn new_belt(
                     .insert(InLane::new(ahead_lane_ent));
             }
         }
-        (Some((_, _, ConnectionType::SideLoad)), None) => {
+        (Some((side_ent, _, ConnectionType::SideLoad)), None) => {
             debug!("sidelaoding new lane");
+            let side_loaded_lane_ent = world.query::<&InLane>().get(world, side_ent).unwrap().lane;
+            let side_loaded_lane = world
+                .query::<&BeltLane>()
+                .get(world, side_loaded_lane_ent)
+                .unwrap();
+            let range = side_loaded_lane.range_for(side_ent).unwrap();
             let mut lane = BeltLane::from_belt(new.entity, new.belt);
             lane.insert_items_at(&existing_items);
             let fragment = BeltFragment::new(new.belt.output());
@@ -363,15 +371,33 @@ fn new_belt(
             lane.prepend_fragment(fragment, frag_ent);
             debug!("sideloading Lane is {lane:?}");
             let lane_ent = world.spawn(lane).id();
+
+            world.spawn(BeltConnection {
+                source: lane_ent,
+                target: side_loaded_lane_ent,
+                offset: (range.start + range.end) / 2,
+            });
             world.entity_mut(frag_ent).insert(InLane::new(lane_ent));
             world.entity_mut(new.entity).insert(InLane::new(lane_ent));
         }
-        (Some((_, _, ConnectionType::SideLoad)), Some((behind_ent, _))) => {
+        (Some((side_ent, _, ConnectionType::SideLoad)), Some((behind_ent, _))) => {
+            let side_loaded_lane_ent = world.query::<&InLane>().get(world, side_ent).unwrap().lane;
+            let side_loaded_lane = world
+                .query::<&BeltLane>()
+                .get(world, side_loaded_lane_ent)
+                .unwrap();
+            let range = side_loaded_lane.range_for(side_ent).unwrap();
             let lane_ent = world
                 .query::<&InLane>()
                 .get(world, behind_ent)
                 .map(|l| l.lane)
                 .unwrap();
+
+            world.spawn(BeltConnection {
+                source: lane_ent,
+                target: side_loaded_lane_ent,
+                offset: (range.start + range.end) / 2,
+            });
             let _ = world.entity_mut(new.entity).insert(InLane::new(lane_ent));
 
             let fragment = BeltFragment::new(new.belt.output());
@@ -402,6 +428,16 @@ fn new_belt(
         if let Some(left_belt) = belt_coords.get(left).filter(|(ent, belt)| {
             !remaining_entities.contains(ent) && belt.output() == new.belt.output().right()
         }) {
+            let side_loaded_lane_ent = world
+                .query::<&InLane>()
+                .get(world, new.entity)
+                .unwrap()
+                .lane;
+            let side_loaded_lane = world
+                .query::<&BeltLane>()
+                .get(world, side_loaded_lane_ent)
+                .unwrap();
+            let range = side_loaded_lane.range_for(new.entity).unwrap();
             let left_lane_ent = world
                 .query::<&InLane>()
                 .get(world, left_belt.0)
@@ -409,6 +445,11 @@ fn new_belt(
                 .lane;
 
             let fragment = BeltFragment::new(new.belt.output().right());
+            world.spawn(BeltConnection {
+                source: left_lane_ent,
+                target: side_loaded_lane_ent,
+                offset: (range.start + range.end) / 2,
+            });
             let frag_ent = world
                 .spawn((fragment, new.coords, InLane::new(left_lane_ent)))
                 .id();
@@ -425,6 +466,16 @@ fn new_belt(
         if let Some(right_belt) = belt_coords.get(right).filter(|(ent, belt)| {
             !remaining_entities.contains(ent) && belt.output() == new.belt.output().left()
         }) {
+            let side_loaded_lane_ent = world
+                .query::<&InLane>()
+                .get(world, new.entity)
+                .unwrap()
+                .lane;
+            let side_loaded_lane = world
+                .query::<&BeltLane>()
+                .get(world, side_loaded_lane_ent)
+                .unwrap();
+            let range = side_loaded_lane.range_for(new.entity).unwrap();
             let right_lane_ent = world
                 .query::<&InLane>()
                 .get(world, right_belt.0)
@@ -432,6 +483,11 @@ fn new_belt(
                 .lane;
 
             let fragment = BeltFragment::new(new.belt.output().left());
+            world.spawn(BeltConnection {
+                source: right_lane_ent,
+                target: side_loaded_lane_ent,
+                offset: (range.start + range.end) / 2,
+            });
             let frag_ent = world
                 .spawn((fragment, new.coords, InLane::new(right_lane_ent)))
                 .id();
@@ -642,6 +698,18 @@ fn transfers(conns: Query<&BeltConnection>, mut lanes: Query<&mut BeltLane>) {
                 lane.items.items.sort();
             }
             debug!("final items: {:?}", lane.items.items);
+        } else {
+            debug!("non-loop connection");
+            let mut source_lane = lanes.get_mut(conn.source).unwrap();
+            let Some((pos, item_ent)) = source_lane.items.items.first().copied() else {
+                continue;
+            };
+            debug!("pos: {pos:?}");
+            if pos < BASE_BELT_SPEED {
+                source_lane.items.items.remove(0);
+                let mut target_lane = lanes.get_mut(conn.target).unwrap();
+                target_lane.insert_item_at(conn.offset - ITEM_SPACING / 2, item_ent);
+            }
         }
     }
 }
@@ -873,7 +941,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "todo"]
     fn item_moves_onto_side_loaded_belt() {
         let mut app = test_app();
         let belt1 = app.add_belt((0, 0), Dir::East);
@@ -886,12 +953,11 @@ mod tests {
             app.update();
         }
         let (_, actual) = app.find_item(item).unwrap();
-        let expected = Transform::from_xyz(TILE_SIZE - ITEM_SIZE / 2.0, BASE_ITEM_MOVEMENT, 2.0);
+        let expected = Transform::from_xyz(TILE_SIZE, BASE_ITEM_MOVEMENT, 2.0);
         assert_eq!(actual, expected);
     }
 
     #[test]
-    #[ignore = "todo"]
     fn item_moves_onto_side_loaded_belt_unless_full() {
         let mut app = test_app();
         let belt1 = app.add_belt((0, 0), Dir::East);
@@ -906,7 +972,7 @@ mod tests {
             app.update();
         }
         let (_, actual) = app.find_item(item).unwrap();
-        let expected = Transform::from_xyz(TILE_SIZE / 2.0 - ITEM_SIZE - ITEM_SIZE / 2.0, 0.0, 2.0);
+        let expected = Transform::from_xyz(TILE_SIZE / 2.0 - ITEM_SIZE, 0.0, 2.0);
         assert_eq!(actual, expected);
     }
 
