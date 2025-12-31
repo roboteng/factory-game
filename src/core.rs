@@ -189,14 +189,16 @@ impl Belt {
             Self::Straight(_) => {
                 let start = Vec2::from(self.output());
                 let end = Vec2::from(self.input().opposite());
-                let mid = start.lerp(end, pos as f32 / POSITIONS_PER_TILE as f32);
+                let s = (pos + ITEM_SPACING / 2) as f32 / POSITIONS_PER_TILE as f32;
+                let mid = start.lerp(end, s);
                 Item::transform(world_offset + mid * TILE_SIZE / 2.0)
             }
             _ => {
                 let center_offset =
                     (Vec2::from(self.input().opposite()) + Vec2::from(self.output())) * TILE_SIZE
                         / 2.0;
-                let angle = pos as f32 / POSITIONS_PER_CURVED_TILE as f32 * PI / 2.0;
+                let angle =
+                    (pos + ITEM_SPACING / 2) as f32 / POSITIONS_PER_CURVED_TILE as f32 * PI / 2.0;
                 let angle_offset = Vec2::X.angle_to(Vec2::from(self.input()));
                 debug!(
                     "angle_offset: {}*PI, angle: {}*PI",
@@ -768,8 +770,26 @@ mod tests {
         app.update();
 
         assert_eq!(
-            app.find_item(item),
-            Some((Item, Transform::from_xyz(TILE_SIZE / 2.0, 0.0, 2.0)))
+            app.find_item(item).unwrap(),
+            (
+                Item,
+                Transform::from_xyz(TILE_SIZE / 2.0 - ITEM_SIZE / 2.0, 0.0, 2.0)
+            )
+        );
+    }
+
+    #[test]
+    fn items_placed_on_belt_east_neg_pos() {
+        let mut app = test_app();
+        let belt = app.add_belt((0, 0), Dir::East);
+        app.update();
+
+        let item = app.add_item(belt, -ITEM_SPACING / 2);
+        app.update();
+
+        assert_eq!(
+            app.find_item(item).unwrap(),
+            (Item, Transform::from_xyz(TILE_SIZE / 2.0, 0.0, 2.0))
         );
     }
 
@@ -783,8 +803,11 @@ mod tests {
         app.update();
 
         assert_eq!(
-            app.find_item(item),
-            Some((Item, Transform::from_xyz(0.0, TILE_SIZE / 2.0, 2.0)))
+            app.find_item(item).unwrap(),
+            (
+                Item,
+                Transform::from_xyz(0.0, TILE_SIZE / 2.0 - ITEM_SIZE / 2.0, 2.0)
+            )
         );
     }
 
@@ -798,8 +821,11 @@ mod tests {
         app.update();
 
         assert_eq!(
-            app.find_item(item),
-            Some((Item, Transform::from_xyz(TILE_SIZE, TILE_SIZE * 1.5, 2.0)))
+            app.find_item(item).unwrap(),
+            (
+                Item,
+                Transform::from_xyz(TILE_SIZE, TILE_SIZE * 1.5 + ITEM_SIZE / 2.0, 2.0)
+            )
         );
     }
 
@@ -813,8 +839,8 @@ mod tests {
         app.update();
 
         assert_eq!(
-            app.find_item(item),
-            Some((Item, Transform::from_xyz(0.0, 0.0, 2.0)))
+            app.find_item(item).unwrap(),
+            (Item, Transform::from_xyz(0.0, -ITEM_SIZE / 2.0, 2.0))
         );
     }
 
@@ -825,7 +851,7 @@ mod tests {
         let belt = app.add_belt((0, 0), Dir::North);
         app.update();
 
-        let item = app.add_item(belt, 0);
+        let item = app.add_item(belt, -ITEM_SPACING / 2);
         app.update();
 
         assert_eq!(
@@ -841,7 +867,7 @@ mod tests {
         let belt = app.add_belt((0, 0), Dir::North);
         app.update();
 
-        let item = app.add_item(belt, POSITIONS_PER_CURVED_TILE / 2);
+        let item = app.add_item(belt, POSITIONS_PER_CURVED_TILE / 2 - ITEM_SPACING / 2);
         app.update();
         let actual = app.find_item(item).unwrap().1;
         let expected = Transform::from_xyz(
@@ -866,18 +892,11 @@ mod tests {
         let belt = app.add_belt((0, 0), Dir::West);
         app.update();
 
-        let item = app.add_item(belt, 0);
+        let item = app.add_item(belt, -ITEM_SPACING / 2);
         app.update();
         let actual = app.find_item(item).unwrap().1;
         let expected = Transform::from_xyz(-TILE_SIZE / 2.0, 0.0, 2.0);
-        let dist = actual.translation.distance(expected.translation);
-        let margin = TILE_SIZE * 0.1 / 32.0; // Scale tolerance with tile size
-        assert!(
-            dist < margin,
-            "Distance between\n\t{:?}\nand\n\t{:?}\nwas not within margin",
-            actual.translation,
-            expected.translation
-        );
+        assert!(actual.translation.distance(expected.translation) < 0.001);
     }
 
     #[test]
@@ -887,7 +906,7 @@ mod tests {
         let belt = app.add_belt((0, 0), Dir::West);
         app.update();
 
-        let item = app.add_item(belt, POSITIONS_PER_CURVED_TILE / 2);
+        let item = app.add_item(belt, POSITIONS_PER_CURVED_TILE / 2 - ITEM_SPACING / 2);
         app.update();
         let actual = app.find_item(item).unwrap().1;
         let expected = Transform::from_xyz(
@@ -912,7 +931,7 @@ mod tests {
         let belt = app.add_belt((0, 0), Dir::East);
         app.update();
 
-        let item = app.add_item(belt, POSITIONS_PER_CURVED_TILE / 2);
+        let item = app.add_item(belt, POSITIONS_PER_CURVED_TILE / 2 - ITEM_SPACING / 2);
         app.update();
         let actual = app.find_item(item).unwrap().1;
         let expected = Transform::from_xyz(

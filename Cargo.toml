@@ -6,6 +6,7 @@ resolver = "2"
 
 [features]
 default = ["invariant-ckeck", "ui"]
+dev = []
 invariant-ckeck = []
 proptests = ["dep:proptest", "dep:rand"]
 ui = ["bevy/2d", "bevy/bevy_sprite", "bevy/bevy_color"]

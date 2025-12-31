@@ -1,6 +1,8 @@
 use bevy::prelude::*;
 
 use crate::core::*;
+#[cfg(feature = "dev")]
+use crate::dev_tools::DevToolsPlugin;
 #[cfg(feature = "ui")]
 use crate::player::PlayerPlugin;
 use crate::sim::SimPlugin;
@@ -8,6 +10,8 @@ use crate::sim::SimPlugin;
 use crate::ui::UiPlugin;
 
 mod core;
+#[cfg(feature = "dev")]
+mod dev_tools;
 #[cfg(feature = "ui")]
 mod player;
 mod sim;
@@ -23,6 +27,10 @@ fn main() {
     #[cfg(feature = "ui")]
     app.add_plugins(PlayerPlugin);
     app.add_plugins(SimPlugin);
+
+    #[cfg(feature = "dev")]
+    app.add_plugins(DevToolsPlugin);
+
     app.add_systems(Startup, startup);
     app.run();
 }

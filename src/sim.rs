@@ -582,10 +582,11 @@ impl BeltFragment {
         debug!("Transforming fragment at {:?} with pos {}", coords, pos);
         let world_offset = Vec2::from(coords);
 
-        let start = Vec2::from(self.input().opposite()) * TILE_SIZE / 2.0;
-        const D: f32 = TILE_SIZE * POSITIONS_PER_FRAGMENT as f32 / POSITIONS_PER_TILE as f32;
-        let end = start.move_towards(Vec2::default(), D);
-        let t = 1.0 - pos as f32 / POSITIONS_PER_FRAGMENT as f32;
+        let end = Vec2::from(self.input().opposite()) * TILE_SIZE / 2.0;
+        let delta = TILE_SIZE * POSITIONS_PER_FRAGMENT as f32 / POSITIONS_PER_TILE as f32
+            * Vec2::from(self.dir.opposite());
+        let start = end - delta;
+        let t = (pos + ITEM_SPACING / 2) as f32 / POSITIONS_PER_FRAGMENT as f32;
         let mid = start.lerp(end, t);
         Item::transform(world_offset + mid)
     }
@@ -667,8 +668,7 @@ fn do_moves(
             if let Some(belt) = belt {
                 let (belt, coords) = belts.get(belt).unwrap();
                 let belt = BeltLike::new(belt);
-                let transform =
-                    belt.item_transform(lane.relative_pos(*pos) + ITEM_SPACING / 2, *coords);
+                let transform = belt.item_transform(lane.relative_pos(*pos), *coords);
                 let mut t = items.get_mut(*item_ent).unwrap();
                 *t = transform;
             }
