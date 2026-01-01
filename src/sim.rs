@@ -19,7 +19,14 @@ impl Plugin for SimPlugin {
         app.add_observer(on_place_item);
         app.add_systems(
             Update,
-            (link_belts, transfers, plan_moves, do_moves).chain(),
+            (
+                link_belts,
+                transfers,
+                determine_sideload_blocks,
+                plan_moves,
+                do_moves,
+            )
+                .chain(),
         );
     }
 }
@@ -28,6 +35,7 @@ impl Plugin for SimPlugin {
 pub(crate) struct BeltLane {
     pub(crate) belts: Belts,
     pub(crate) items: Items,
+    pub(crate) blocked: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -47,7 +55,11 @@ impl BeltLane {
             belts: vec![(0..len, entity)],
         };
         let items = Items { items: vec![] };
-        Self { belts, items }
+        Self {
+            belts,
+            items,
+            blocked: false,
+        }
     }
 
     fn range_for(&self, belt: Entity) -> Option<Range<i32>> {
@@ -164,6 +176,14 @@ impl BeltLane {
         let ret = Vec::from_iter(tail_items.iter().map(|(pos, e)| (*pos, *e)));
         self.items.items = keep;
         ret
+    }
+
+    fn is_blocked_at(&self, offset: i32) -> bool {
+        debug!("Checking if {:?} blocked at {}", self, offset);
+        self.items
+            .items
+            .iter()
+            .any(|(pos, _)| *pos >= offset - ITEM_SPACING && *pos < offset)
     }
 }
 
@@ -516,7 +536,7 @@ fn create_sideload_connection(
     world.spawn(BeltConnection {
         source: source_lane_ent,
         target: target_lane_ent,
-        offset: (range.start + range.end) / 2,
+        offset: (range.start + range.end) / 2 - ITEM_SPACING / 2,
     });
 
     let fragment = BeltFragment::new(source_dir);
@@ -632,16 +652,31 @@ fn transfers(conns: Query<&BeltConnection>, mut lanes: Query<&mut BeltLane>) {
             if pos < BASE_BELT_SPEED {
                 source_lane.items.items.remove(0);
                 let mut target_lane = lanes.get_mut(conn.target).unwrap();
-                target_lane.insert_item_at(conn.offset - ITEM_SPACING / 2, item_ent);
+                target_lane.insert_item_at(conn.offset, item_ent);
             }
         }
     }
 }
 
+fn determine_sideload_blocks(conns: Query<&BeltConnection>, mut lanes: Query<&mut BeltLane>) {
+    for conn in conns.iter().filter(|c| c.source != c.target) {
+        let central_lane = lanes.get(conn.target).unwrap();
+        let is_blocked = central_lane.is_blocked_at(conn.offset);
+
+        if is_blocked {
+            let frag_ent = central_lane.belts.belts.first().unwrap().1;
+            debug!("fragment {} is blocked", frag_ent);
+        }
+        let mut other_lane = lanes.get_mut(conn.source).unwrap();
+        other_lane.blocked = is_blocked;
+    }
+}
+
 fn plan_moves(mut lanes: Query<&mut BeltLane>) {
     for mut lane in lanes.iter_mut() {
+        let base_offset = if lane.blocked { ITEM_SPACING } else { 0 };
         for (i, (pos, _)) in lane.items.items.iter_mut().enumerate() {
-            let furthest = i as i32 * ITEM_SPACING;
+            let furthest = base_offset + i as i32 * ITEM_SPACING;
             let k = (*pos - furthest).max(0);
             *pos = (k - BASE_BELT_SPEED).max(0) + furthest;
             debug!("Setting item at {}", pos);
@@ -892,11 +927,11 @@ mod tests {
         let item = app.add_item(belt1, POSITIONS_PER_TILE / 2);
         app.add_item(belt2, 0);
         app.add_item(belt2, ITEM_SPACING);
-        for _ in 0..(POSITIONS_PER_TILE / 2 / BASE_BELT_SPEED + 1) {
+        for _ in 0..((POSITIONS_PER_TILE / 2 + POSITIONS_PER_FRAGMENT) / BASE_BELT_SPEED + 1) {
             app.update();
         }
         let (_, actual) = app.find_item(item).unwrap();
-        let expected = Transform::from_xyz(TILE_SIZE / 2.0 - ITEM_SIZE, 0.0, 2.0);
+        let expected = Transform::from_xyz(TILE_SIZE - ITEM_SIZE, 0.0, 2.0);
         assert_eq!(actual, expected);
     }
 
