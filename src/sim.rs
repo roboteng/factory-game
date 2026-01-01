@@ -212,8 +212,6 @@ fn on_place_item(
 #[derive(Component, Debug, Clone, PartialEq, Eq)]
 pub(crate) struct BeltConnection {
     /// Lane Entity
-    pub(crate) source: Entity,
-    /// Lane Entity
     pub(crate) target: Entity,
     pub(crate) offset: i32,
 }
@@ -231,6 +229,30 @@ fn get_lane_entity(world: &mut World, belt_ent: Entity) -> Entity {
         .get(world, belt_ent)
         .map(|l| l.lane)
         .unwrap()
+}
+
+/// Update BeltConnection offsets when a lane has belts added to its head
+/// This updates both connections on the lane itself and connections pointing to it
+fn update_connection_offsets_for_lane(world: &mut World, lane_ent: Entity, offset: i32) {
+    // Update connection on this lane (if present)
+    if let Some(mut conn) = world.entity_mut(lane_ent).get_mut::<BeltConnection>() {
+        conn.offset += offset;
+    }
+
+    // Find and update all connections pointing to this lane
+    let mut conns_to_update: Vec<Entity> = Vec::new();
+    let mut query = world.query::<(Entity, &BeltConnection)>();
+    for (source_ent, conn) in query.iter(world) {
+        if conn.target == lane_ent {
+            conns_to_update.push(source_ent);
+        }
+    }
+
+    for source_ent in conns_to_update {
+        if let Some(mut conn) = world.entity_mut(source_ent).get_mut::<BeltConnection>() {
+            conn.offset += offset;
+        }
+    }
 }
 
 /// Helper to get immutable access to a BeltLane
@@ -311,6 +333,8 @@ fn new_belt(
             lane.add_to_head(new.belt, new.entity);
             lane.insert_items_at(&existing_items);
             debug!("Lane is {:?}", lane);
+            let len = new.belt.num_positions();
+            update_connection_offsets_for_lane(world, lane_ent, len);
             world.entity_mut(new.entity).insert(InLane::new(lane_ent));
         }
         (Some((ahead_ent, _, ConnectionType::Direct)), None) => {
@@ -334,21 +358,22 @@ fn new_belt(
             let mut behind_lane = get_lane_mut(world, behind_lane_ent);
             behind_lane.add_to_head(new.belt, new.entity);
             behind_lane.insert_items_at(&existing_items);
+            let len = new.belt.num_positions();
+            update_connection_offsets_for_lane(world, behind_lane_ent, len);
 
             if behind_lane_ent == ahead_lane_ent {
                 debug!("Belt loop");
-                let offset = behind_lane.num_positions();
+                let offset = get_lane(world, behind_lane_ent).num_positions();
                 world
                     .entity_mut(new.entity)
                     .insert(InLane::new(behind_lane_ent));
-                world.spawn(BeltConnection {
-                    source: behind_lane_ent,
+                world.entity_mut(behind_lane_ent).insert(BeltConnection {
                     target: behind_lane_ent,
                     offset,
                 });
                 debug!("spawned loop connection");
             } else {
-                let behind_lane = behind_lane.clone();
+                let behind_lane = get_lane(world, behind_lane_ent).clone();
                 for (_, belt_ent) in &behind_lane.belts.belts {
                     world
                         .entity_mut(*belt_ent)
@@ -394,6 +419,8 @@ fn new_belt(
             let mut lane = get_lane_mut(world, lane_ent);
             lane.add_to_head(new.belt, new.entity);
             lane.insert_items_at(&existing_items);
+            let len = new.belt.num_positions();
+            update_connection_offsets_for_lane(world, lane_ent, len);
 
             world.entity_mut(new.entity).insert(InLane::new(lane_ent));
         }
@@ -533,8 +560,7 @@ fn create_sideload_connection(
     let target_lane = get_lane(world, target_lane_ent);
     let range = target_lane.range_for(target_belt_ent).unwrap();
 
-    world.spawn(BeltConnection {
-        source: source_lane_ent,
+    world.entity_mut(source_lane_ent).insert(BeltConnection {
         target: target_lane_ent,
         offset: (range.start + range.end) / 2 - ITEM_SPACING / 2,
     });
@@ -626,12 +652,12 @@ impl BeltLike {
     }
 }
 
-fn transfers(conns: Query<&BeltConnection>, mut lanes: Query<&mut BeltLane>) {
-    for conn in conns {
+fn transfers(conns: Query<(Entity, &BeltConnection)>, mut lanes: Query<&mut BeltLane>) {
+    for (source_ent, conn) in conns.iter() {
         debug!("processing connection");
-        if conn.source == conn.target {
+        if source_ent == conn.target {
             debug!("loop connection");
-            let mut lane = lanes.get_mut(conn.source).unwrap();
+            let mut lane = lanes.get_mut(source_ent).unwrap();
             debug!("init  items: {:?}", lane.items.items);
             let Some((pos, _)) = lane.items.items.first_mut() else {
                 debug!("skipping transfer");
@@ -644,7 +670,7 @@ fn transfers(conns: Query<&BeltConnection>, mut lanes: Query<&mut BeltLane>) {
             debug!("final items: {:?}", lane.items.items);
         } else {
             debug!("non-loop connection");
-            let mut source_lane = lanes.get_mut(conn.source).unwrap();
+            let mut source_lane = lanes.get_mut(source_ent).unwrap();
             let Some((pos, item_ent)) = source_lane.items.items.first().copied() else {
                 continue;
             };
@@ -658,8 +684,11 @@ fn transfers(conns: Query<&BeltConnection>, mut lanes: Query<&mut BeltLane>) {
     }
 }
 
-fn determine_sideload_blocks(conns: Query<&BeltConnection>, mut lanes: Query<&mut BeltLane>) {
-    for conn in conns.iter().filter(|c| c.source != c.target) {
+fn determine_sideload_blocks(
+    conns: Query<(Entity, &BeltConnection)>,
+    mut lanes: Query<&mut BeltLane>,
+) {
+    for (source_ent, conn) in conns.iter().filter(|(ent, c)| *ent != c.target) {
         let central_lane = lanes.get(conn.target).unwrap();
         let is_blocked = central_lane.is_blocked_at(conn.offset);
 
@@ -667,7 +696,7 @@ fn determine_sideload_blocks(conns: Query<&BeltConnection>, mut lanes: Query<&mu
             let frag_ent = central_lane.belts.belts.first().unwrap().1;
             debug!("fragment {} is blocked", frag_ent);
         }
-        let mut other_lane = lanes.get_mut(conn.source).unwrap();
+        let mut other_lane = lanes.get_mut(source_ent).unwrap();
         other_lane.blocked = is_blocked;
     }
 }
@@ -1039,5 +1068,21 @@ mod tests {
         app.update();
         app.remove_belt_at((0, 0));
         app.update();
+    }
+
+    #[test]
+    fn item_moves_onto_extended_belt() {
+        let mut app = test_app();
+        let belt1 = app.add_belt((0, 0), Dir::East);
+        app.add_belt((1, 0), Dir::North);
+        app.add_belt((1, -1), Dir::North);
+        app.update();
+        app.add_belt((1, 1), Dir::North);
+        app.update();
+
+        let item = app.add_item(belt1, 0);
+        for _ in 0..((POSITIONS_PER_TILE / 2 + POSITIONS_PER_FRAGMENT) / BASE_BELT_SPEED + 1) {
+            app.update();
+        }
     }
 }

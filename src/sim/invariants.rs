@@ -7,6 +7,9 @@ use std::collections::HashSet;
 #[derive(ScheduleLabel, Debug, Hash, PartialEq, Eq, Clone)]
 struct InvariantChecks;
 
+#[derive(Component, Clone, Copy, Debug)]
+pub struct PreviousTransform(pub Transform);
+
 pub struct InvariantsPlugin;
 
 impl Plugin for InvariantsPlugin {
@@ -32,6 +35,7 @@ impl Plugin for InvariantsPlugin {
                 check_lane_ranges_contiguous,
                 check_inlane_bidirectional,
                 check_adjacent_belts_in_lane_are_connected,
+                (check_item_movement, update_previous_transforms).chain(),
             ),
         );
     }
@@ -245,5 +249,60 @@ fn check_adjacent_belts_in_lane_are_connected(
                 );
             }
         }
+    }
+}
+
+/// Invariant 12: Items should not move more than 1.1 pixels per frame
+/// (excludes items on belts that were updated this frame)
+fn check_item_movement(
+    belt_changes: Res<BeltChanges>,
+    lanes: Query<(Entity, &BeltLane)>,
+    items_with_prev: Query<(Entity, &Transform, &PreviousTransform), With<Item>>,
+) {
+    // Build set of changed belt entities
+    let changed_belts: HashSet<Entity> = belt_changes
+        .0
+        .iter()
+        .map(|change| change.entity())
+        .collect();
+
+    // Build map of item -> belt entity
+    let mut item_to_belt = std::collections::HashMap::new();
+    for (_lane_entity, lane) in lanes.iter() {
+        for (_pos, item_ent) in &lane.items.items {
+            // Find which belt this item is on
+            if let Some(belt_ent) = lane.belt_for(*_pos) {
+                item_to_belt.insert(*item_ent, belt_ent);
+            }
+        }
+    }
+
+    // Check each item's movement
+    for (item_entity, transform, prev_transform) in items_with_prev.iter() {
+        // Skip items on belts that were changed this frame
+        if let Some(&belt_ent) = item_to_belt.get(&item_entity) {
+            if changed_belts.contains(&belt_ent) {
+                continue;
+            }
+        }
+
+        let current_pos = transform.translation.xy();
+        let prev_pos = prev_transform.0.translation.xy();
+        let distance = current_pos.distance(prev_pos);
+
+        const MAX_MOVEMENT: f32 = 1.1;
+        if distance > MAX_MOVEMENT {
+            panic!(
+                "INVARIANT VIOLATION: Item {:?} moved {:.2} pixels in one frame (max {:.2}). Previous: {:?}, Current: {:?}",
+                item_entity, distance, MAX_MOVEMENT, prev_pos, current_pos
+            );
+        }
+    }
+}
+
+/// Update previous transforms for next frame's movement check
+fn update_previous_transforms(mut cmd: Commands, items: Query<(Entity, &Transform), With<Item>>) {
+    for (entity, transform) in items.iter() {
+        cmd.entity(entity).insert(PreviousTransform(*transform));
     }
 }
