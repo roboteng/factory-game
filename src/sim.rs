@@ -21,8 +21,10 @@ impl Plugin for SimPlugin {
             Update,
             (
                 link_belts,
-                transfers,
                 determine_sideload_blocks,
+                determine_double_sideload_blocks,
+                determine_double_sideload_contention,
+                transfers,
                 plan_moves,
                 do_moves,
             )
@@ -35,7 +37,7 @@ impl Plugin for SimPlugin {
 pub(crate) struct BeltLane {
     pub(crate) belts: Belts,
     pub(crate) items: Items,
-    pub(crate) blocked: bool,
+    pub(crate) is_blocked: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -58,7 +60,7 @@ impl BeltLane {
         Self {
             belts,
             items,
-            blocked: false,
+            is_blocked: false,
         }
     }
 
@@ -214,6 +216,17 @@ pub(crate) struct BeltConnection {
     /// Lane Entity
     pub(crate) target: Entity,
     pub(crate) offset: i32,
+}
+
+#[derive(Component, Debug, Clone, PartialEq, Eq)]
+pub(crate) struct DoubleBeltConnection {
+    /// Central belt lane entity
+    pub(crate) target: Entity,
+    /// Offset in target lane where items transfer
+    pub(crate) offset: i32,
+    /// The OTHER sideloading lane (which has BeltConnection)
+    /// This lane will be blocked if both have items ready
+    pub(crate) other_lane: Entity,
 }
 
 #[derive(Debug)]
@@ -559,11 +572,41 @@ fn create_sideload_connection(
     let target_lane_ent = get_lane_entity(world, target_belt_ent);
     let target_lane = get_lane(world, target_lane_ent);
     let range = target_lane.range_for(target_belt_ent).unwrap();
+    let offset = (range.start + range.end) / 2 - ITEM_SPACING / 2;
 
-    world.entity_mut(source_lane_ent).insert(BeltConnection {
-        target: target_lane_ent,
-        offset: (range.start + range.end) / 2 - ITEM_SPACING / 2,
-    });
+    let mut existing_connection: Option<Entity> = None;
+    let mut query = world.query::<(Entity, &BeltConnection)>();
+    for (ent, conn) in query.iter(world) {
+        if conn.target == target_lane_ent && ent != source_lane_ent {
+            existing_connection = Some(ent);
+            break;
+        }
+    }
+
+    if let Some(first_lane_ent) = existing_connection {
+        debug!(
+            "Second sideload detected: upgrading {:?} to DoubleBeltConnection, {:?} gets BeltConnection",
+            first_lane_ent, source_lane_ent
+        );
+
+        let first_conn = world
+            .entity_mut(first_lane_ent)
+            .take::<BeltConnection>()
+            .expect("First lane should have BeltConnection");
+
+        world
+            .entity_mut(first_lane_ent)
+            .insert(DoubleBeltConnection {
+                target: target_lane_ent,
+                offset: first_conn.offset,   // Preserve the original offset
+                other_lane: source_lane_ent, // Points to the second sideloading lane
+            });
+    } else {
+        world.entity_mut(source_lane_ent).insert(BeltConnection {
+            target: target_lane_ent,
+            offset,
+        });
+    }
 
     let fragment = BeltFragment::new(source_dir);
     let frag_ent = world
@@ -652,7 +695,45 @@ impl BeltLike {
     }
 }
 
-fn transfers(conns: Query<(Entity, &BeltConnection)>, mut lanes: Query<&mut BeltLane>) {
+fn transfers(
+    conns: Query<(Entity, &BeltConnection)>,
+    double_conns: Query<(Entity, &DoubleBeltConnection)>,
+    mut lanes: Query<&mut BeltLane>,
+) {
+    // Process DoubleBeltConnections FIRST (handles both sideloading lanes)
+    for (first_lane_ent, conn) in double_conns.iter() {
+        debug!("processing double connection");
+
+        // Try to transfer from the first lane (the one with DoubleBeltConnection)
+        let first_lane = lanes.get(first_lane_ent).unwrap();
+        if !first_lane.is_blocked {
+            if let Some((pos, item_ent)) = first_lane.items.items.first().copied() {
+                if pos < BASE_BELT_SPEED {
+                    debug!("double conn transferring from first lane, pos: {pos:?}");
+                    let mut source_lane = lanes.get_mut(first_lane_ent).unwrap();
+                    source_lane.items.items.remove(0);
+                    let mut target_lane = lanes.get_mut(conn.target).unwrap();
+                    target_lane.insert_item_at(conn.offset, item_ent);
+                }
+            }
+        }
+
+        // Try to transfer from the second lane (other_lane, has no connection component)
+        let second_lane_ent = conn.other_lane;
+        let second_lane = lanes.get(second_lane_ent).unwrap();
+        if !second_lane.is_blocked {
+            if let Some((pos, item_ent)) = second_lane.items.items.first().copied() {
+                if pos < BASE_BELT_SPEED {
+                    debug!("double conn transferring from second lane, pos: {pos:?}");
+                    let mut source_lane = lanes.get_mut(second_lane_ent).unwrap();
+                    source_lane.items.items.remove(0);
+                    let mut target_lane = lanes.get_mut(conn.target).unwrap();
+                    target_lane.insert_item_at(conn.offset, item_ent);
+                }
+            }
+        }
+    }
+
     for (source_ent, conn) in conns.iter() {
         debug!("processing connection");
         if source_ent == conn.target {
@@ -671,6 +752,10 @@ fn transfers(conns: Query<(Entity, &BeltConnection)>, mut lanes: Query<&mut Belt
         } else {
             debug!("non-loop connection");
             let mut source_lane = lanes.get_mut(source_ent).unwrap();
+            if source_lane.is_blocked {
+                debug!("connection blocked, skipping transfer");
+                continue;
+            }
             let Some((pos, item_ent)) = source_lane.items.items.first().copied() else {
                 continue;
             };
@@ -697,15 +782,85 @@ fn determine_sideload_blocks(
             debug!("fragment {} is blocked", frag_ent);
         }
         let mut other_lane = lanes.get_mut(source_ent).unwrap();
-        other_lane.blocked = is_blocked;
+        other_lane.is_blocked = is_blocked;
+    }
+}
+
+fn determine_double_sideload_blocks(
+    double_conns: Query<(Entity, &DoubleBeltConnection)>,
+    mut lanes: Query<&mut BeltLane>,
+) {
+    for (first_lane_ent, conn) in double_conns.iter() {
+        let central_lane = lanes.get(conn.target).unwrap();
+        let is_blocked = central_lane.is_blocked_at(conn.offset);
+
+        if is_blocked {
+            let frag_ent = central_lane.belts.belts.first().unwrap().1;
+            debug!("fragment {} is blocked", frag_ent);
+        }
+
+        // Set blocking for first lane (the one with DoubleBeltConnection)
+        let mut first_lane = lanes.get_mut(first_lane_ent).unwrap();
+        first_lane.is_blocked = is_blocked;
+
+        // Set blocking for second lane (other_lane, has no connection component)
+        let mut second_lane = lanes.get_mut(conn.other_lane).unwrap();
+        second_lane.is_blocked = is_blocked;
+    }
+}
+
+fn determine_double_sideload_contention(
+    double_conns: Query<(Entity, &DoubleBeltConnection)>,
+    mut lanes: Query<&mut BeltLane>,
+) {
+    // For each DoubleBeltConnection, check if BOTH the lane with DoubleBeltConnection
+    // AND the other_lane have items ready to transfer.
+    // If both are ready, block the other_lane to prevent simultaneous transfer.
+
+    for (first_lane_ent, double_conn) in double_conns.iter() {
+        let second_lane_ent = double_conn.other_lane;
+
+        // Check if first lane (with DoubleBeltConnection) has item ready
+        let first_lane = lanes.get(first_lane_ent).unwrap();
+        let first_ready = first_lane
+            .items
+            .items
+            .first()
+            .map_or(false, |(pos, _)| *pos < BASE_BELT_SPEED);
+
+        // Check if second lane (with BeltConnection) has item ready
+        let mut second_lane = lanes.get_mut(second_lane_ent).unwrap();
+        let second_ready = second_lane
+            .items
+            .items
+            .first()
+            .map_or(false, |(pos, _)| *pos < BASE_BELT_SPEED);
+
+        // If both are ready to transfer to the same position, block the second lane
+        // This ensures only ONE item transfers per frame, preventing overlap
+        if first_ready && second_ready {
+            debug!(
+                "Both lanes ready to transfer: first={:?}, second={:?}. Blocking second lane.",
+                first_lane_ent, second_lane_ent
+            );
+            second_lane.is_blocked = true;
+        }
     }
 }
 
 fn plan_moves(mut lanes: Query<&mut BeltLane>) {
     for mut lane in lanes.iter_mut() {
-        let base_offset = if lane.blocked { ITEM_SPACING } else { 0 };
+        let is_blocked = lane.is_blocked;
+        let base_offset = if is_blocked { ITEM_SPACING } else { 0 };
         for (i, (pos, _)) in lane.items.items.iter_mut().enumerate() {
-            let furthest = base_offset + i as i32 * ITEM_SPACING;
+            // If item is ready to transfer (pos < BASE_BELT_SPEED) and blocked,
+            // don't apply base_offset to avoid large jump
+            let effective_base_offset = if *pos < BASE_BELT_SPEED && is_blocked {
+                0
+            } else {
+                base_offset
+            };
+            let furthest = effective_base_offset + i as i32 * ITEM_SPACING;
             let k = (*pos - furthest).max(0);
             *pos = (k - BASE_BELT_SPEED).max(0) + furthest;
             debug!("Setting item at {}", pos);
@@ -1080,8 +1235,28 @@ mod tests {
         app.add_belt((1, 1), Dir::North);
         app.update();
 
-        let item = app.add_item(belt1, 0);
+        let _item = app.add_item(belt1, 0);
         for _ in 0..((POSITIONS_PER_TILE / 2 + POSITIONS_PER_FRAGMENT) / BASE_BELT_SPEED + 1) {
+            app.update();
+        }
+    }
+
+    #[test]
+    fn two_belts_side_loading_into_one() {
+        let mut app = test_app();
+
+        let belt1 = app.add_belt((1, 1), Dir::East);
+        let belt2 = app.add_belt((3, 1), Dir::West);
+        let belt3 = app.add_belt((2, 1), Dir::North);
+
+        app.update();
+
+        app.add_item(belt1, 0);
+        app.add_item(belt2, 0);
+        app.add_item(belt3, 0);
+
+        const STEPS: usize = (POSITIONS_PER_TILE / BASE_BELT_SPEED) as usize;
+        for _ in 0..STEPS {
             app.update();
         }
     }
