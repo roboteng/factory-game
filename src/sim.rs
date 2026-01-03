@@ -505,11 +505,19 @@ fn remove_belt(
         }
         (None, Some(_)) => {
             let mut lane = get_lane_mut(world, lane_ent);
-            lane.remove_head()
+            let items = lane.remove_head();
+            if lane.belts.belts.is_empty() {
+                world.despawn(lane_ent);
+            }
+            items
         }
         (Some((_, _, ConnectionType::Direct)), None) => {
             let mut lane = get_lane_mut(world, lane_ent);
-            lane.remove_tail()
+            let items = lane.remove_tail();
+            if lane.belts.belts.is_empty() {
+                world.despawn(lane_ent);
+            }
+            items
         }
         (Some((_, _, ConnectionType::Direct)), Some(_)) => {
             // Removing from middle of lane - would need to split lane
@@ -1259,5 +1267,14 @@ mod tests {
         for _ in 0..STEPS {
             app.update();
         }
+    }
+
+    #[test]
+    fn replace_belt() {
+        let mut app = test_app();
+        app.add_belt((3, 2), Dir::East);
+        app.add_belt((3, 1), Dir::North);
+        app.add_belt((3, 1), Dir::North);
+        app.update();
     }
 }
