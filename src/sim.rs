@@ -421,6 +421,10 @@ fn new_belt(
         (Some((side_ent, _, ConnectionType::SideLoad)), Some((behind_ent, _))) => {
             let lane_ent = get_lane_entity(world, behind_ent);
 
+            let mut lane = get_lane_mut(world, lane_ent);
+            lane.add_to_head(new.belt, new.entity);
+            lane.insert_items_at(&existing_items);
+
             create_sideload_connection(
                 world,
                 lane_ent,
@@ -428,10 +432,6 @@ fn new_belt(
                 new.belt.output(),
                 new.coords.step(new.belt.output()),
             );
-
-            let mut lane = get_lane_mut(world, lane_ent);
-            lane.add_to_head(new.belt, new.entity);
-            lane.insert_items_at(&existing_items);
             let len = new.belt.num_positions();
             update_connection_offsets_for_lane(world, lane_ent, len);
 
@@ -1275,6 +1275,16 @@ mod tests {
         app.add_belt((3, 2), Dir::East);
         app.add_belt((3, 1), Dir::North);
         app.add_belt((3, 1), Dir::North);
+        app.update();
+    }
+
+    #[test]
+    fn belt_chain_with_branches() {
+        let mut app = test_app();
+        app.add_belt((3, 2), Dir::East);
+        app.add_belt((3, 1), Dir::North);
+        app.add_belt((3, 3), Dir::South);
+        app.add_belt((2, 1), Dir::East);
         app.update();
     }
 }

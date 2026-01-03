@@ -36,6 +36,7 @@ impl Plugin for InvariantsPlugin {
                 check_inlane_bidirectional,
                 check_adjacent_belts_in_lane_are_connected,
                 (check_item_movement, update_previous_transforms).chain(),
+                // TODO: all_fragments_at_head_of_lane
             ),
         );
     }
