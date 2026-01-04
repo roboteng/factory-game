@@ -259,12 +259,22 @@ fn check_item_movement(
     belt_changes: Res<BeltChanges>,
     lanes: Query<(Entity, &BeltLane)>,
     items_with_prev: Query<(Entity, &Transform, &PreviousTransform), With<Item>>,
+    belts: Query<&WorldCoords, Or<(With<Belt>, With<BeltFragment>)>>,
 ) {
-    // Build set of changed belt entities
-    let changed_belts: HashSet<Entity> = belt_changes
+    // Build set of changed belt entities (including old entities from replaced belts)
+    let changed_belts: Vec<Entity> = belt_changes
         .0
         .iter()
-        .map(|change| change.entity())
+        .flat_map(|change| match change {
+            BeltChange::New(new_belt) => vec![new_belt.entity],
+            BeltChange::Removed(removed_belt) => vec![removed_belt.entity],
+            BeltChange::Replaced(ReplacedBelt {
+                entity,
+                old_entity: Some(old_entity),
+                ..
+            }) => vec![*entity, *old_entity],
+            BeltChange::Replaced(replaced) => vec![replaced.entity],
+        })
         .collect();
 
     // Build map of item -> belt entity
@@ -272,24 +282,29 @@ fn check_item_movement(
     for (_lane_entity, lane) in lanes.iter() {
         for (_pos, item_ent) in &lane.items.items {
             // Find which belt this item is on
-            if let Some(belt_ent) = lane.belt_for(*_pos) {
-                item_to_belt.insert(*item_ent, belt_ent);
-            }
+            let belt_ent = lane.belt_for(*_pos).unwrap();
+            item_to_belt.insert(*item_ent, belt_ent);
         }
     }
 
     // Check each item's movement
     for (item_entity, transform, prev_transform) in items_with_prev.iter() {
         // Skip items on belts that were changed this frame
-        if let Some(&belt_ent) = item_to_belt.get(&item_entity) {
-            if changed_belts.contains(&belt_ent) {
-                continue;
-            }
+        let &belt_ent = item_to_belt.get(&item_entity).unwrap();
+        let expected_coords = belts.get(belt_ent).unwrap();
+        let belt_pos = Vec2::from(*expected_coords);
+        if changed_belts.contains(&belt_ent) {
+            continue;
         }
 
         let current_pos = transform.translation.xy();
         let prev_pos = prev_transform.0.translation.xy();
         let distance = current_pos.distance(prev_pos);
+
+        assert!(
+            belt_pos.distance(current_pos) <= TILE_SIZE / 2.0,
+            "Item {item_entity:?} was not on belt {belt_ent:?}"
+        );
 
         const MAX_MOVEMENT: f32 = 1.1;
         if distance > MAX_MOVEMENT {

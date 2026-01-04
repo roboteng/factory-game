@@ -172,7 +172,7 @@ impl BeltLane {
         let part = self
             .items
             .items
-            .partition_point(|(p, _)| tail.0.contains(p));
+            .partition_point(|(p, _)| !tail.0.contains(p));
         let (keep_items, tail_items) = self.items.items.split_at_mut(part);
         let keep = Vec::from(keep_items);
         let ret = Vec::from_iter(tail_items.iter().map(|(pos, e)| (*pos, *e)));
@@ -1285,6 +1285,18 @@ mod tests {
         app.add_belt((3, 1), Dir::North);
         app.add_belt((3, 3), Dir::South);
         app.add_belt((2, 1), Dir::East);
+        app.update();
+    }
+
+    #[test]
+    fn replace_belt_with_item_on_curved_belt() {
+        let mut app = test_app();
+        app.add_belt((0, 0), Dir::East);
+        let belt2 = app.add_belt((1, 0), Dir::North);
+        app.update();
+        app.add_item(belt2, 0);
+        app.update();
+        app.add_belt((0, 0), Dir::North);
         app.update();
     }
 }
