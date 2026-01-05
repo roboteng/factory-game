@@ -1,7 +1,8 @@
 use bevy::prelude::*;
-use std::ops::Range;
+use std::{f32::consts::PI, ops::Range};
 
 const TILE_SIZE: f32 = 1.0;
+const BELT_HEIGHT: f32 = 0.25;
 
 pub struct CorePlugin;
 impl Plugin for CorePlugin {
@@ -72,8 +73,16 @@ pub struct LaneConnection {
 }
 
 fn on_place_belt(event: On<PlaceBelt>, mut cmd: Commands) {
-    cmd.entity(event.entity)
-        .insert(Transform::from_translation(Vec3::from(event.coords)));
+    let angle = match event.dir {
+        HorizontalDir::North => 0.0,
+        HorizontalDir::East => -PI / 2.0,
+        HorizontalDir::South => PI,
+        HorizontalDir::West => PI / 2.0,
+    };
+    cmd.entity(event.entity).insert(
+        Transform::from_translation(Vec3::from(event.coords))
+            .with_rotation(Quat::from_rotation_y(angle)),
+    );
 }
 
 impl From<WorldCoords> for Vec3 {
@@ -117,11 +126,46 @@ pub fn test_app() -> App {
 
 #[cfg(test)]
 mod tests {
+    use std::f32::consts::PI;
+
     use super::*;
+    #[allow(unused_imports)]
+    use pretty_assertions::{assert_eq, assert_ne};
 
     #[test]
-    fn foobar() {
+    fn north_betl_placement() {
         let mut app = test_app();
+
+        let entity = app.world_mut().spawn_empty().id();
+        app.world_mut().trigger(PlaceBelt {
+            entity,
+            coords: (0, 0, 0).into(),
+            dir: HorizontalDir::North,
+        });
         app.update();
+
+        let world = app.world_mut();
+        let &actual = world.query::<&Transform>().get(world, entity).unwrap();
+        let expected = Transform::from_translation(Vec3::new(0.0, 0.0, 0.0) * TILE_SIZE);
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn east_betl_placement() {
+        let mut app = test_app();
+
+        let entity = app.world_mut().spawn_empty().id();
+        app.world_mut().trigger(PlaceBelt {
+            entity,
+            coords: (0, 0, 0).into(),
+            dir: HorizontalDir::East,
+        });
+        app.update();
+
+        let world = app.world_mut();
+        let &actual = world.query::<&Transform>().get(world, entity).unwrap();
+        let expected = Transform::from_translation(Vec3::new(0.0, 0.0, 0.0) * TILE_SIZE)
+            .with_rotation(Quat::from_rotation_y(-PI / 2.0));
+        assert_eq!(actual, expected);
     }
 }
