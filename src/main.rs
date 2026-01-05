@@ -35,6 +35,6 @@ fn setup(mut cmd: Commands) {
     cmd.trigger(crate::core::PlaceBelt {
         entity,
         coords: (0, 0, 1).into(),
-        dir: HorizontalDir::East,
+        dir: HorizontalDir::North,
     })
 }

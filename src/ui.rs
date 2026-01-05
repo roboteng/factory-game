@@ -47,10 +47,9 @@ fn setup(
     cmd.spawn((PointLight::default(), camera_and_light_transform));
 }
 
-fn on_place_belt(event: On<PlaceBelt>, mut cmd: Commands, render_stuff: Res<RenderStuff>) {
-    cmd.entity(event.entity).insert((
-        Mesh3d(render_stuff.cube_mesh_handle.clone()),
-        MeshMaterial3d(render_stuff.material_mesh_handle.clone()),
+fn on_place_belt(event: On<PlaceBelt>, mut cmd: Commands, asset_server: Res<AssetServer>) {
+    cmd.entity(event.entity).insert(SceneRoot(
+        asset_server.load(GltfAssetLabel::Scene(0).from_asset("box.glb")),
     ));
 }
 
