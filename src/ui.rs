@@ -24,6 +24,7 @@ fn setup(
     mut cmd: Commands,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut meshes: ResMut<Assets<Mesh>>,
+    asset_server: Res<AssetServer>,
 ) {
     // Create and save a handle to the mesh.
     let cube_mesh_handle: Handle<Mesh> = meshes.add(create_cube_mesh());
@@ -45,11 +46,16 @@ fn setup(
 
     // Light up the scene.
     cmd.spawn((PointLight::default(), camera_and_light_transform));
+
+    cmd.spawn((
+        SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/item.glb"))),
+        Transform::from_xyz(0.0, 0.25, 0.0),
+    ));
 }
 
 fn on_place_belt(event: On<PlaceBelt>, mut cmd: Commands, asset_server: Res<AssetServer>) {
     cmd.entity(event.entity).insert(SceneRoot(
-        asset_server.load(GltfAssetLabel::Scene(0).from_asset("box.glb")),
+        asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/box.glb")),
     ));
 }
 
