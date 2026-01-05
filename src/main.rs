@@ -28,7 +28,13 @@ fn setup(mut cmd: Commands) {
     let entity = cmd.spawn_empty().id();
     cmd.trigger(crate::core::PlaceBelt {
         entity,
-        coords: (0, 0, 0).into(),
+        coords: (1, 0, 0).into(),
         dir: HorizontalDir::East,
     });
+    let entity = cmd.spawn_empty().id();
+    cmd.trigger(crate::core::PlaceBelt {
+        entity,
+        coords: (0, 0, 1).into(),
+        dir: HorizontalDir::East,
+    })
 }

@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use std::ops::Range;
 
-const TILE_SIZE: f32 = 32.0;
+const TILE_SIZE: f32 = 1.0;
 
 pub struct CorePlugin;
 impl Plugin for CorePlugin {
@@ -78,7 +78,7 @@ fn on_place_belt(event: On<PlaceBelt>, mut cmd: Commands) {
 
 impl From<WorldCoords> for Vec3 {
     fn from(coords: WorldCoords) -> Self {
-        Vec3::new(coords.x as f32, coords.y as f32, 0.0) * TILE_SIZE
+        Vec3::new(coords.x as f32, coords.y as f32, coords.z as f32) * TILE_SIZE
     }
 }
 
