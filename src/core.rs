@@ -5,9 +5,19 @@ const TILE_SIZE: f32 = 32.0;
 
 pub struct CorePlugin;
 impl Plugin for CorePlugin {
-    fn build(&self, app: &mut App) {}
+    fn build(&self, app: &mut App) {
+        app.add_observer(on_place_belt);
+    }
 }
 
+#[derive(EntityEvent)]
+pub struct PlaceBelt {
+    pub entity: Entity,
+    pub coords: WorldCoords,
+    pub dir: HorizontalDir,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WorldCoords {
     x: i32,
     y: i32,
@@ -59,6 +69,27 @@ pub struct BeltConnection {
 pub struct LaneConnection {
     pub target: Entity,
     pub offset: i32,
+}
+
+fn on_place_belt(event: On<PlaceBelt>, mut cmd: Commands) {
+    cmd.entity(event.entity)
+        .insert(Transform::from_translation(Vec3::from(event.coords)));
+}
+
+impl From<WorldCoords> for Vec3 {
+    fn from(coords: WorldCoords) -> Self {
+        Vec3::new(coords.x as f32, coords.y as f32, 0.0) * TILE_SIZE
+    }
+}
+
+impl From<(i32, i32, i32)> for WorldCoords {
+    fn from(coords: (i32, i32, i32)) -> Self {
+        WorldCoords {
+            x: coords.0,
+            y: coords.1,
+            z: coords.2,
+        }
+    }
 }
 
 #[cfg(test)]

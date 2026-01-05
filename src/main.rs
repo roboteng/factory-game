@@ -1,5 +1,7 @@
 use bevy::prelude::*;
 
+use crate::core::{HorizontalDir, WorldCoords};
+
 mod core;
 #[cfg(feature = "invariant-ckeck")]
 mod invariants;
@@ -17,5 +19,16 @@ fn main() {
     #[cfg(feature = "invariant-ckeck")]
     app.add_plugins(invariants::InvariantsPlugin);
 
+    app.add_systems(Startup, setup);
+
     app.run();
+}
+
+fn setup(mut cmd: Commands) {
+    let entity = cmd.spawn_empty().id();
+    cmd.trigger(crate::core::PlaceBelt {
+        entity,
+        coords: (0, 0, 0).into(),
+        dir: HorizontalDir::East,
+    });
 }
