@@ -1,8 +1,8 @@
 use bevy::prelude::*;
 use std::{f32::consts::PI, ops::Range};
 
-const TILE_SIZE: f32 = 2.0;
-const BELT_HEIGHT: f32 = 0.25;
+pub const TILE_SIZE: f32 = 2.0;
+pub const BELT_HEIGHT: f32 = 0.25;
 
 pub struct CorePlugin;
 impl Plugin for CorePlugin {

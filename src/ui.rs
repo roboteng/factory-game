@@ -2,16 +2,30 @@ use crate::core::*;
 
 use bevy::{
     asset::RenderAssetUsages,
+    input::mouse::AccumulatedMouseMotion,
     mesh::{Indices, PrimitiveTopology},
     prelude::*,
+    window::{CursorGrabMode, CursorOptions},
 };
 
 pub struct UiPlugin;
 impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, setup);
+        app.add_systems(Update, camera_movement);
+        app.add_systems(Update, camera_look);
+        app.add_systems(Update, cursor_grab);
         app.add_observer(on_place_belt);
     }
+}
+
+#[derive(Component)]
+struct FirstPersonCamera {
+    pitch: f32,
+    yaw: f32,
+    sensitivity: f32,
+    speed: f32,
+    fixed_y: f32,
 }
 
 #[derive(Resource)]
@@ -38,18 +52,28 @@ fn setup(
     });
 
     // Transform for the camera and lighting, looking at (0,0,0) (the position of the mesh).
-    let camera_and_light_transform =
-        Transform::from_xyz(1.8, 1.8, 1.8).looking_at(Vec3::ZERO, Vec3::Y);
+    let camera_transform = Transform::from_xyz(1.8, 1.8, 1.8).looking_at(Vec3::ZERO, Vec3::Y);
+    let light_transform = camera_transform;
 
-    // Camera in 3D space.
-    cmd.spawn((Camera3d::default(), camera_and_light_transform));
+    // Camera in 3D space with first-person controls.
+    cmd.spawn((
+        Camera3d::default(),
+        camera_transform,
+        FirstPersonCamera {
+            pitch: 0.0,
+            yaw: 0.0,
+            sensitivity: 0.002,
+            speed: 5.0,
+            fixed_y: camera_transform.translation.y,
+        },
+    ));
 
     // Light up the scene.
-    cmd.spawn((PointLight::default(), camera_and_light_transform));
+    cmd.spawn((PointLight::default(), light_transform));
 
     cmd.spawn((
         SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/item.glb"))),
-        Transform::from_xyz(0.0, 0.25, 0.0),
+        Transform::from_translation(Vec3::new(0.0, -0.125, 0.0) * TILE_SIZE),
     ));
 }
 
@@ -205,4 +229,73 @@ fn create_cube_mesh() -> Mesh {
         16,19,17 , 17,19,18, // back (+z)
         20,21,23 , 21,22,23, // forward (-z)
     ]))
+}
+
+fn cursor_grab(
+    mut cursor_options: Single<&mut CursorOptions>,
+    mouse: Res<ButtonInput<MouseButton>>,
+    key: Res<ButtonInput<KeyCode>>,
+) {
+    if mouse.just_pressed(MouseButton::Left) {
+        cursor_options.visible = false;
+        cursor_options.grab_mode = CursorGrabMode::Locked;
+    }
+
+    if key.just_pressed(KeyCode::Escape) {
+        cursor_options.visible = true;
+        cursor_options.grab_mode = CursorGrabMode::None;
+    }
+}
+
+fn camera_look(
+    accumulated_mouse_motion: Res<AccumulatedMouseMotion>,
+    mut query: Query<(&mut Transform, &mut FirstPersonCamera)>,
+) {
+    for (mut transform, mut camera) in query.iter_mut() {
+        let delta = accumulated_mouse_motion.delta;
+
+        camera.yaw -= delta.x * camera.sensitivity;
+        camera.pitch -= delta.y * camera.sensitivity;
+        camera.pitch = camera.pitch.clamp(-1.54, 1.54); // Limit pitch to avoid flipping
+
+        // Apply rotation: yaw around Y axis, pitch around X axis
+        transform.rotation =
+            Quat::from_rotation_y(camera.yaw) * Quat::from_rotation_x(camera.pitch);
+    }
+}
+
+fn camera_movement(
+    time: Res<Time>,
+    keys: Res<ButtonInput<KeyCode>>,
+    mut query: Query<(&mut Transform, &FirstPersonCamera)>,
+) {
+    for (mut transform, camera) in query.iter_mut() {
+        let mut direction = Vec3::ZERO;
+
+        // Get forward and right directions based on yaw only (no pitch)
+        let forward = Vec3::new(-camera.yaw.sin(), 0.0, -camera.yaw.cos());
+        let right = Vec3::new(camera.yaw.cos(), 0.0, -camera.yaw.sin());
+
+        if keys.pressed(KeyCode::KeyW) {
+            direction += forward;
+        }
+        if keys.pressed(KeyCode::KeyS) {
+            direction -= forward;
+        }
+        if keys.pressed(KeyCode::KeyA) {
+            direction -= right;
+        }
+        if keys.pressed(KeyCode::KeyD) {
+            direction += right;
+        }
+
+        if direction.length_squared() > 0.0 {
+            direction = direction.normalize();
+        }
+
+        transform.translation += direction * camera.speed * time.delta_secs();
+
+        // Keep Y position fixed
+        transform.translation.y = camera.fixed_y;
+    }
 }
