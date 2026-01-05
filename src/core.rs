@@ -93,27 +93,24 @@ impl From<(i32, i32, i32)> for WorldCoords {
 }
 
 #[cfg(test)]
-pub fn test_app() -> App {
-    use bevy::log::{
-        LogPlugin,
-        tracing_subscriber::{Layer, fmt::layer},
-    };
+fn init_tracing() {
+    use tracing_subscriber::{EnvFilter, fmt};
+    let _ = fmt()
+        .with_env_filter(
+            EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| EnvFilter::new("warn,factory_game=debug")),
+        )
+        .with_target(false)
+        .with_test_writer()
+        .without_time()
+        .try_init();
+}
 
+#[cfg(test)]
+pub fn test_app() -> App {
+    init_tracing();
     let mut app = App::new();
     app.add_plugins(MinimalPlugins);
-    app.add_plugins(LogPlugin {
-        filter: "warn,factory_game=debug".to_string(),
-        fmt_layer: |_| {
-            Some(
-                layer()
-                    .with_target(false)
-                    .with_test_writer()
-                    .without_time()
-                    .boxed(),
-            )
-        },
-        ..default()
-    });
     app.add_plugins(CorePlugin);
     app
 }
@@ -126,6 +123,5 @@ mod tests {
     fn foobar() {
         let mut app = test_app();
         app.update();
-        info!("log message");
     }
 }

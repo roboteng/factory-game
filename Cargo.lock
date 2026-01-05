@@ -2261,6 +2261,7 @@ dependencies = [
  "pretty_assertions",
  "proptest",
  "rand 0.8.5",
+ "tracing-subscriber",
 ]
 
 [[package]]
