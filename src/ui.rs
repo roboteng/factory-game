@@ -7,10 +7,12 @@ use bevy::{
     prelude::*,
     window::{CursorGrabMode, CursorOptions},
 };
+use rand::Rng;
 
 pub struct UiPlugin;
 impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
+        app.insert_resource(ClearColor(Color::srgb(0.01, 0.01, 0.05))); // Dark night sky
         app.add_systems(Startup, setup);
         app.add_systems(Update, camera_movement);
         app.add_systems(Update, camera_look);
@@ -66,6 +68,11 @@ fn setup(
             speed: 5.0,
             fixed_y: camera_transform.translation.y,
         },
+        AmbientLight {
+            color: Color::WHITE,
+            brightness: 100.0,
+            affects_lightmapped_meshes: true,
+        },
     ));
 
     // Light up the scene.
@@ -75,6 +82,49 @@ fn setup(
         SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/item.glb"))),
         Transform::from_translation(Vec3::new(0.0, -0.125, 0.0) * BLOCK_SIZE),
     ));
+
+    // Generate stars
+    spawn_stars(&mut cmd, &mut meshes, &mut materials);
+}
+
+fn spawn_stars(
+    cmd: &mut Commands,
+    meshes: &mut ResMut<Assets<Mesh>>,
+    materials: &mut ResMut<Assets<StandardMaterial>>,
+) {
+    let mut rng = rand::thread_rng();
+    let star_count = 500;
+    let sky_radius = 500.0;
+
+    // Create a small sphere mesh for stars
+    let star_mesh = meshes.add(Sphere::new(0.5).mesh().ico(2).unwrap());
+
+    for _ in 0..star_count {
+        // Generate random point on sphere using spherical coordinates
+        let theta = rng.gen_range(0.0..std::f32::consts::TAU);
+        let phi = rng.gen_range(0.0..std::f32::consts::PI);
+
+        let x = sky_radius * phi.sin() * theta.cos();
+        let y = sky_radius * phi.cos();
+        let z = sky_radius * phi.sin() * theta.sin();
+
+        // Random brightness for stars
+        let brightness = rng.gen_range(0.5..1.5);
+        let star_color = Color::srgb(brightness, brightness, brightness * 0.95);
+
+        // Create emissive material for star
+        let star_material = materials.add(StandardMaterial {
+            base_color: star_color,
+            emissive: LinearRgba::new(brightness * 2.0, brightness * 2.0, brightness * 1.9, 1.0),
+            ..default()
+        });
+
+        cmd.spawn((
+            Mesh3d(star_mesh.clone()),
+            MeshMaterial3d(star_material),
+            Transform::from_translation(Vec3::new(x, y, z)),
+        ));
+    }
 }
 
 fn on_place_belt(event: On<PlaceBelt>, mut cmd: Commands, asset_server: Res<AssetServer>) {
