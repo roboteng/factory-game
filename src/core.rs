@@ -1,8 +1,20 @@
 use bevy::prelude::*;
 use std::{f32::consts::PI, ops::Range};
 
-pub const TILE_SIZE: f32 = 2.0;
-pub const BELT_HEIGHT: f32 = 0.25;
+pub const BLOCK_SIZE: f32 = 2.0;
+pub const HALF_BLOCK_SIZE: f32 = BLOCK_SIZE / 2.0;
+pub const ITEM_SIZE: f32 = BLOCK_SIZE / 4.0;
+pub const HALF_ITEM_SIZE: f32 = ITEM_SIZE / 2.0;
+/// How far from the bottom of the voxel the belt surface is.
+pub const BELT_HEIGHT: f32 = 0.25 * BLOCK_SIZE;
+pub const BELT_HEIGHT_FROM_CENTER: f32 = -HALF_BLOCK_SIZE + BELT_HEIGHT;
+/// Ratio of a unit voxel of how far a lane is offset from center.
+pub const LANE_OFFSET_FACTOR: f32 = 0.25;
+/// How far from center each lane is.
+pub const LANE_OFFSET: f32 = LANE_OFFSET_FACTOR * BLOCK_SIZE;
+
+pub const POSITIONS_PER_BELT: i32 = 256;
+pub const ITEM_SPACING: i32 = POSITIONS_PER_BELT / 4;
 
 pub struct CorePlugin;
 impl Plugin for CorePlugin {
@@ -87,7 +99,7 @@ fn on_place_belt(event: On<PlaceBelt>, mut cmd: Commands) {
 
 impl From<WorldCoords> for Vec3 {
     fn from(coords: WorldCoords) -> Self {
-        Vec3::new(coords.x as f32, coords.y as f32, coords.z as f32) * TILE_SIZE
+        Vec3::new(coords.x as f32, coords.y as f32, coords.z as f32) * BLOCK_SIZE
     }
 }
 
@@ -99,6 +111,58 @@ impl From<(i32, i32, i32)> for WorldCoords {
             z: coords.2,
         }
     }
+}
+
+pub enum Lane {
+    Left,
+    Right,
+}
+
+impl HorizontalDir {
+    pub fn angle(&self) -> f32 {
+        match self {
+            HorizontalDir::North => 0.0,
+            HorizontalDir::East => -PI / 2.0,
+            HorizontalDir::South => PI,
+            HorizontalDir::West => PI / 2.0,
+        }
+    }
+}
+
+pub fn item_position(
+    belt: BeltShape,
+    coords: impl Into<WorldCoords>,
+    lane: Lane,
+    pos: i32,
+) -> Transform {
+    let start = Vec3::new(HALF_BLOCK_SIZE, BELT_HEIGHT_FROM_CENTER, -LANE_OFFSET);
+    let end = Vec3::new(-HALF_BLOCK_SIZE, BELT_HEIGHT_FROM_CENTER, -LANE_OFFSET);
+
+    let t = (pos + ITEM_SPACING / 2) as f32 / POSITIONS_PER_BELT as f32;
+    let angle = match belt {
+        BeltShape::Straight(dir) => dir.angle(),
+        _ => todo!(),
+    };
+    Transform::from_translation(start.lerp(end, t).rotate_y(angle))
+}
+
+impl Into<Vec3> for HorizontalDir {
+    fn into(self) -> Vec3 {
+        match self {
+            HorizontalDir::North => Vec3::X,
+            HorizontalDir::South => Vec3::NEG_X,
+            HorizontalDir::East => Vec3::Z,
+            HorizontalDir::West => Vec3::NEG_Z,
+        }
+    }
+}
+
+fn assert_close(left: Vec3, right: Vec3) {
+    let dist = left.distance(right);
+    assert!(
+        dist < 0.0001,
+        "Left:\n\t{left:?}\nand Right:\n\t{right:?}\nare distance of {dist} away"
+    );
 }
 
 #[cfg(test)]
@@ -126,8 +190,6 @@ pub fn test_app() -> App {
 
 #[cfg(test)]
 mod tests {
-    use std::f32::consts::PI;
-
     use super::*;
     #[allow(unused_imports)]
     use pretty_assertions::{assert_eq, assert_ne};
@@ -146,7 +208,7 @@ mod tests {
 
         let world = app.world_mut();
         let &actual = world.query::<&Transform>().get(world, entity).unwrap();
-        let expected = Transform::from_translation(Vec3::new(0.0, 0.0, 0.0) * TILE_SIZE);
+        let expected = Transform::from_translation(Vec3::new(0.0, 0.0, 0.0) * BLOCK_SIZE);
         assert_eq!(actual, expected);
     }
 
@@ -164,8 +226,58 @@ mod tests {
 
         let world = app.world_mut();
         let &actual = world.query::<&Transform>().get(world, entity).unwrap();
-        let expected = Transform::from_translation(Vec3::new(0.0, 0.0, 0.0) * TILE_SIZE)
+        let expected = Transform::from_translation(Vec3::new(0.0, 0.0, 0.0) * BLOCK_SIZE)
             .with_rotation(Quat::from_rotation_y(-PI / 2.0));
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn item_positioning_front_boundary() {
+        let actual = item_position(
+            BeltShape::Straight(HorizontalDir::North),
+            (0, 0, 0),
+            Lane::Left,
+            -ITEM_SPACING / 2,
+        );
+        let expected = Transform::from_translation(Vec3::new(
+            HALF_BLOCK_SIZE,
+            -HALF_BLOCK_SIZE + BELT_HEIGHT,
+            -LANE_OFFSET,
+        ));
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn item_positioning_start() {
+        let actual = item_position(
+            BeltShape::Straight(HorizontalDir::North),
+            (0, 0, 0),
+            Lane::Left,
+            0,
+        );
+        let expected = Transform::from_translation(Vec3::new(
+            HALF_BLOCK_SIZE - HALF_ITEM_SIZE,
+            -HALF_BLOCK_SIZE + BELT_HEIGHT,
+            -LANE_OFFSET,
+        ));
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn item_positioning_start_east() {
+        let actual = item_position(
+            BeltShape::Straight(HorizontalDir::East),
+            (0, 0, 0),
+            Lane::Left,
+            0,
+        );
+        let expected = Transform::from_translation(Vec3::new(
+            LANE_OFFSET,
+            -HALF_BLOCK_SIZE + BELT_HEIGHT,
+            HALF_BLOCK_SIZE - HALF_ITEM_SIZE,
+        ));
+        assert_close(actual.translation, expected.translation);
+        assert_eq!(actual.rotation, expected.rotation);
+        assert_eq!(actual.scale, expected.scale);
     }
 }
