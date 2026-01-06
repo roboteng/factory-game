@@ -80,7 +80,12 @@ fn setup(
 
     cmd.spawn((
         SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/item.glb"))),
-        Transform::from_translation(Vec3::new(0.0, -0.125, 0.0) * BLOCK_SIZE),
+        item_position(
+            BeltShape::Straight(HorizontalDir::North),
+            (0, 0, 0),
+            Lane::Left,
+            0,
+        ),
     ));
 
     // Generate stars
