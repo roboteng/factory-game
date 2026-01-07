@@ -72,6 +72,7 @@ pub struct BeltLane {
 pub struct Belts {
     belts: Vec<BeltShape>,
     coords: Vec<WorldCoords>,
+    entities: Vec<Entity>,
     left_range: Vec<Range<i32>>,
     right_range: Vec<Range<i32>>,
 }
@@ -124,6 +125,7 @@ fn on_place_belt(event: On<PlaceBelt>, mut cmd: Commands) {
         .spawn(BeltLane::from_belt(
             BeltShape::Straight(event.dir),
             event.coords,
+            event.entity,
         ))
         .id();
     cmd.entity(event.entity).insert((
@@ -286,11 +288,12 @@ impl Curve {
 }
 
 impl BeltLane {
-    pub fn from_belt(belt: BeltShape, coords: WorldCoords) -> Self {
+    pub fn from_belt(belt: BeltShape, coords: WorldCoords, entity: Entity) -> Self {
         Self {
             belts: Belts {
                 belts: vec![belt],
                 coords: vec![coords],
+                entities: vec![entity],
                 left_range: vec![0..belt.left_num_pos()],
                 right_range: vec![0..belt.right_num_pos()],
             },
@@ -650,6 +653,7 @@ mod tests {
             belts: Belts {
                 belts: vec![BeltShape::Straight(HorizontalDir::North)],
                 coords: vec![(0, 0, 0).into()],
+                entities: vec![entity],
                 left_range: vec![(0..POSITIONS_PER_BELT)],
                 right_range: vec![(0..POSITIONS_PER_BELT)],
             },
@@ -662,8 +666,12 @@ mod tests {
     #[test]
     fn lane_add_to_tail() {
         init_tracing();
-        let mut lane =
-            BeltLane::from_belt(BeltShape::Straight(HorizontalDir::North), (0, 0, 0).into());
+        let entity = Entity::from_raw_u32(0).unwrap();
+        let mut lane = BeltLane::from_belt(
+            BeltShape::Straight(HorizontalDir::North),
+            (0, 0, 0).into(),
+            entity,
+        );
         lane.add_to_tail(BeltShape::Straight(HorizontalDir::North), (-1, 0, 0).into());
         let expected = BeltLane {
             belts: Belts {
@@ -672,6 +680,7 @@ mod tests {
                     BeltShape::Straight(HorizontalDir::North),
                 ],
                 coords: vec![(0, 0, 0).into(), (-1, 0, 0).into()],
+                entities: vec![entity],
                 left_range: vec![
                     (0..POSITIONS_PER_BELT),
                     (POSITIONS_PER_BELT..(2 * POSITIONS_PER_BELT)),
