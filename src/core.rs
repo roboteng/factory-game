@@ -25,6 +25,8 @@ impl Plugin for CorePlugin {
     fn build(&self, app: &mut App) {
         app.add_observer(on_place_belt);
         app.add_observer(on_place_item);
+
+        app.add_systems(PostUpdate, delete);
     }
 }
 
@@ -94,7 +96,7 @@ pub enum Curve {
 
 /// Item ID
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub struct Item(u32);
+pub struct Item(pub u32);
 
 pub struct BeltConnection {
     pub left: LaneConnection,
@@ -112,6 +114,9 @@ pub struct InLane {
     pub lane: Entity,
 }
 
+#[derive(Component)]
+pub struct Delete;
+
 fn on_place_belt(event: On<PlaceBelt>, mut cmd: Commands) {
     let angle = event.dir.angle();
 
@@ -128,10 +133,22 @@ fn on_place_belt(event: On<PlaceBelt>, mut cmd: Commands) {
     ));
 }
 
-fn on_place_item(event: On<PlaceItem>, belts: Query<&InLane>, mut lanes: Query<&mut BeltLane>) {
+fn on_place_item(
+    event: On<PlaceItem>,
+    belts: Query<&InLane>,
+    mut lanes: Query<&mut BeltLane>,
+    mut cmd: Commands,
+) {
     let lane_ent = belts.get(event.belt).unwrap().lane;
     let mut lane = lanes.get_mut(lane_ent).unwrap();
     lane.push_item(event.item, event.lane, event.position);
+    cmd.entity(event.entity).insert(Delete);
+}
+
+fn delete(mut commands: Commands, mut entities: Query<Entity, With<Delete>>) {
+    for entity in entities.iter_mut() {
+        commands.entity(entity).despawn();
+    }
 }
 
 impl From<WorldCoords> for Vec3 {
@@ -279,6 +296,29 @@ impl BeltLane {
             Lane::Left => self.left_items.push((pos, item)),
             Lane::Right => self.right_items.push((pos, item)),
         }
+    }
+
+    pub fn item_iter<T>(&self, f: impl Fn(Item, i32, BeltShape, Lane, WorldCoords) -> T) -> Vec<T> {
+        let mut items = vec![];
+        for item in self.left_items.iter() {
+            items.push(f(
+                item.1,
+                item.0,
+                self.belts.belts[0],
+                Lane::Left,
+                self.belts.coords[0],
+            ));
+        }
+        for item in self.right_items.iter() {
+            items.push(f(
+                item.1,
+                item.0,
+                self.belts.belts[0],
+                Lane::Right,
+                self.belts.coords[0],
+            ));
+        }
+        items
     }
 }
 
