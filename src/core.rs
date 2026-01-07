@@ -1,6 +1,5 @@
-use bevy::prelude::*;
+use bevy::{math::ops::sin_cos, prelude::*};
 use std::{f32::consts::PI, ops::Range};
-use tracing_subscriber::field::debug;
 
 pub const BLOCK_SIZE: f32 = 2.0;
 pub const HALF_BLOCK_SIZE: f32 = BLOCK_SIZE / 2.0;
@@ -97,12 +96,7 @@ pub struct LaneConnection {
 }
 
 fn on_place_belt(event: On<PlaceBelt>, mut cmd: Commands) {
-    let angle = match event.dir {
-        HorizontalDir::North => 0.0,
-        HorizontalDir::East => -PI / 2.0,
-        HorizontalDir::South => PI,
-        HorizontalDir::West => PI / 2.0,
-    };
+    let angle = event.dir.angle();
     cmd.entity(event.entity).insert(
         Transform::from_translation(Vec3::from(event.coords))
             .with_rotation(Quat::from_rotation_y(angle)),
@@ -258,10 +252,11 @@ pub fn item_position(
             };
             let angle_offset = (pos + ITEM_SPACING / 2) as f32 / n_pos as f32 * PI / 2.0;
             let angle_base = curve.input().angle();
+            // Positions move the opposite way of items, so this is backwards
             let angle = if curve.is_clockwise() {
-                angle_base - angle_offset
-            } else {
                 angle_base + angle_offset
+            } else {
+                angle_base - angle_offset
             };
             debug!(
                 "angle: {}*pi, angle_offset: {}*pi, angle_base: {}*pi",
@@ -269,16 +264,21 @@ pub fn item_position(
                 angle_offset / PI,
                 angle_base / PI
             );
-            let local_offset = center_offset + lane_offset * Vec2::from(curve.input());
+            let local_offset = center_offset
+                + lane_offset * {
+                    let (sin, cos) = sin_cos(angle);
+                    Vec2 { x: -sin, y: cos }
+                };
             debug!(
                 "center_offset: {center_offset:?}, lane_offset: {lane_offset}, local_offset: {:?}, ",
                 local_offset
             );
             Transform::from_translation(Vec3::new(
-                local_offset.x * BLOCK_SIZE,
-                BELT_HEIGHT_FROM_CENTER,
                 local_offset.y * BLOCK_SIZE,
+                BELT_HEIGHT_FROM_CENTER,
+                local_offset.x * BLOCK_SIZE,
             ))
+            .with_rotation(Quat::from_rotation_y(angle + PI / 2.0))
         }
     }
 }
@@ -296,7 +296,7 @@ impl From<HorizontalDir> for Vec3 {
 
 impl From<HorizontalDir> for Vec2 {
     fn from(value: HorizontalDir) -> Self {
-        Vec3::from(value).xz()
+        Vec3::from(value).zx()
     }
 }
 
@@ -471,5 +471,25 @@ mod tests {
             -LANE_OFFSET,
         ));
         assert_close(actual.translation, expected.translation);
+        assert_eq!(actual.rotation, expected.rotation);
+    }
+
+    #[test]
+    fn item_positioning_end_curved() {
+        init_tracing();
+        let actual = item_position(
+            BeltShape::Curve(Curve::EastToNorth),
+            (0, 0, 0),
+            Lane::Left,
+            POSITIONS_PER_INNER_CURVE - ITEM_SPACING / 2,
+        );
+        let expected = Transform::from_translation(Vec3::new(
+            LANE_OFFSET,
+            -HALF_BLOCK_SIZE + BELT_HEIGHT,
+            -HALF_BLOCK_SIZE,
+        ))
+        .with_rotation(Quat::from_axis_angle(Vec3::Y, -PI / 2.0));
+        assert_close(actual.translation, expected.translation);
+        assert_eq!(actual.rotation, expected.rotation);
     }
 }
