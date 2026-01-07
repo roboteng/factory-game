@@ -26,7 +26,7 @@ impl Plugin for CorePlugin {
         app.add_observer(on_place_belt);
         app.add_observer(on_place_item);
 
-        app.add_systems(PostUpdate, delete);
+        app.add_systems(Update, replace_items);
     }
 }
 
@@ -95,7 +95,7 @@ pub enum Curve {
 }
 
 /// Item ID
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Component, Debug, PartialEq, Eq, Clone, Copy)]
 pub struct Item(pub u32);
 
 pub struct BeltConnection {
@@ -115,7 +115,7 @@ pub struct InLane {
 }
 
 #[derive(Component)]
-pub struct Delete;
+pub struct ItemPool;
 
 fn on_place_belt(event: On<PlaceBelt>, mut cmd: Commands) {
     let angle = event.dir.angle();
@@ -142,12 +142,20 @@ fn on_place_item(
     let lane_ent = belts.get(event.belt).unwrap().lane;
     let mut lane = lanes.get_mut(lane_ent).unwrap();
     lane.push_item(event.item, event.lane, event.position);
-    cmd.entity(event.entity).insert(Delete);
+    cmd.entity(event.entity).insert(ItemPool);
 }
 
-fn delete(mut commands: Commands, mut entities: Query<Entity, With<Delete>>) {
-    for entity in entities.iter_mut() {
-        commands.entity(entity).despawn();
+fn replace_items(
+    lanes: Query<&BeltLane>,
+    mut items: Query<(&mut Item, &mut Transform), With<ItemPool>>,
+) {
+    for ((item, pos, belt, lane, coords), mut b) in Iterator::zip(
+        lanes.iter().map(|l| l.item_iter()).flatten(),
+        items.iter_mut(),
+    ) {
+        let transform = item_position(belt, coords, lane, pos);
+        *b.0 = item;
+        *b.1 = transform;
     }
 }
 
@@ -291,6 +299,19 @@ impl BeltLane {
         }
     }
 
+    fn add_to_tail(&mut self, shape: BeltShape, coords: WorldCoords) {
+        self.belts.belts.push(shape);
+        self.belts.coords.push(coords);
+        let left_end = self.belts.left_range.last().unwrap().end;
+        let right_end = self.belts.right_range.last().unwrap().end;
+        self.belts
+            .left_range
+            .push(left_end..left_end + shape.left_num_pos());
+        self.belts
+            .right_range
+            .push(right_end..right_end + shape.right_num_pos());
+    }
+
     pub fn push_item(&mut self, item: Item, lane: Lane, pos: i32) {
         match lane {
             Lane::Left => self.left_items.push((pos, item)),
@@ -298,27 +319,30 @@ impl BeltLane {
         }
     }
 
-    pub fn item_iter<T>(&self, f: impl Fn(Item, i32, BeltShape, Lane, WorldCoords) -> T) -> Vec<T> {
-        let mut items = vec![];
-        for item in self.left_items.iter() {
-            items.push(f(
+    pub fn item_iter<'a>(
+        &'a self,
+    ) -> impl Iterator<Item = (Item, i32, BeltShape, Lane, WorldCoords)> + 'a {
+        let left_items = self.left_items.iter().map(|item| {
+            (
                 item.1,
                 item.0,
                 self.belts.belts[0],
                 Lane::Left,
                 self.belts.coords[0],
-            ));
-        }
-        for item in self.right_items.iter() {
-            items.push(f(
+            )
+        });
+
+        let right_items = self.right_items.iter().map(|item| {
+            (
                 item.1,
                 item.0,
                 self.belts.belts[0],
                 Lane::Right,
                 self.belts.coords[0],
-            ));
-        }
-        items
+            )
+        });
+
+        left_items.chain(right_items)
     }
 }
 
@@ -633,5 +657,33 @@ mod tests {
             right_items: vec![],
         };
         assert_eq!(*actual, expected);
+    }
+
+    #[test]
+    fn lane_add_to_tail() {
+        init_tracing();
+        let mut lane =
+            BeltLane::from_belt(BeltShape::Straight(HorizontalDir::North), (0, 0, 0).into());
+        lane.add_to_tail(BeltShape::Straight(HorizontalDir::North), (-1, 0, 0).into());
+        let expected = BeltLane {
+            belts: Belts {
+                belts: vec![
+                    BeltShape::Straight(HorizontalDir::North),
+                    BeltShape::Straight(HorizontalDir::North),
+                ],
+                coords: vec![(0, 0, 0).into(), (-1, 0, 0).into()],
+                left_range: vec![
+                    (0..POSITIONS_PER_BELT),
+                    (POSITIONS_PER_BELT..(2 * POSITIONS_PER_BELT)),
+                ],
+                right_range: vec![
+                    (0..POSITIONS_PER_BELT),
+                    (POSITIONS_PER_BELT..(2 * POSITIONS_PER_BELT)),
+                ],
+            },
+            left_items: vec![],
+            right_items: vec![],
+        };
+        assert_eq!(lane, expected);
     }
 }

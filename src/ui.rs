@@ -18,6 +18,7 @@ impl Plugin for UiPlugin {
         app.add_systems(Update, camera_look);
         app.add_systems(Update, cursor_grab);
         app.add_observer(on_place_belt);
+        app.add_observer(on_place_item);
     }
 }
 
@@ -135,6 +136,12 @@ fn spawn_stars(
 fn on_place_belt(event: On<PlaceBelt>, mut cmd: Commands, asset_server: Res<AssetServer>) {
     cmd.entity(event.entity).insert(SceneRoot(
         asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/box.glb")),
+    ));
+}
+
+fn on_place_item(event: On<PlaceItem>, mut cmd: Commands, asset_server: Res<AssetServer>) {
+    cmd.entity(event.entity).insert(SceneRoot(
+        asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/item.glb")),
     ));
 }
 

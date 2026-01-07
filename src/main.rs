@@ -34,11 +34,27 @@ fn setup(mut cmd: Commands) {
         coords: (1, 0, 0).into(),
         dir: HorizontalDir::North,
     });
+    let item = cmd.spawn_empty().id();
+    cmd.trigger(PlaceItem {
+        entity: item,
+        item: Item(0),
+        belt: entity,
+        lane: Lane::Left,
+        position: 0,
+    });
     let entity = cmd.spawn_empty().id();
     cmd.trigger(crate::core::PlaceBelt {
         entity,
         coords: (0, 0, 1).into(),
         dir: HorizontalDir::East,
+    });
+    let item = cmd.spawn_empty().id();
+    cmd.trigger(PlaceItem {
+        entity: item,
+        item: Item(0),
+        belt: entity,
+        lane: Lane::Left,
+        position: 0,
     });
     let entity = cmd.spawn_empty().id();
     cmd.trigger(crate::core::PlaceBelt {
@@ -46,11 +62,27 @@ fn setup(mut cmd: Commands) {
         coords: (0, 0, 0).into(),
         dir: HorizontalDir::North,
     });
+    let item = cmd.spawn_empty().id();
+    cmd.trigger(PlaceItem {
+        entity: item,
+        item: Item(0),
+        belt: entity,
+        lane: Lane::Left,
+        position: 0,
+    });
     let entity = cmd.spawn_empty().id();
     cmd.trigger(crate::core::PlaceBelt {
         entity,
         coords: (-1, 0, 0).into(),
         dir: HorizontalDir::North,
+    });
+    let item = cmd.spawn_empty().id();
+    cmd.trigger(PlaceItem {
+        entity: item,
+        item: Item(0),
+        belt: entity,
+        lane: Lane::Left,
+        position: 0,
     });
 }
 
