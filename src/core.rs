@@ -24,6 +24,7 @@ pub struct CorePlugin;
 impl Plugin for CorePlugin {
     fn build(&self, app: &mut App) {
         app.add_observer(on_place_belt);
+        app.add_observer(on_place_item);
     }
 }
 
@@ -32,6 +33,15 @@ pub struct PlaceBelt {
     pub entity: Entity,
     pub coords: WorldCoords,
     pub dir: HorizontalDir,
+}
+
+#[derive(EntityEvent)]
+pub struct PlaceItem {
+    pub entity: Entity,
+    pub item: Item,
+    pub belt: Entity,
+    pub lane: Lane,
+    pub position: i32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -49,13 +59,14 @@ pub enum HorizontalDir {
     West,
 }
 
-#[derive(Component)]
+#[derive(Component, Debug, PartialEq, Eq)]
 pub struct BeltLane {
     pub belts: Belts,
     pub left_items: Vec<(i32, Item)>,
     pub right_items: Vec<(i32, Item)>,
 }
 
+#[derive(Debug, PartialEq, Eq)]
 pub struct Belts {
     belts: Vec<BeltShape>,
     coords: Vec<WorldCoords>,
@@ -82,6 +93,7 @@ pub enum Curve {
 }
 
 /// Item ID
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct Item(u32);
 
 pub struct BeltConnection {
@@ -95,12 +107,31 @@ pub struct LaneConnection {
     pub offset: i32,
 }
 
+#[derive(Component)]
+pub struct InLane {
+    pub lane: Entity,
+}
+
 fn on_place_belt(event: On<PlaceBelt>, mut cmd: Commands) {
     let angle = event.dir.angle();
-    cmd.entity(event.entity).insert(
+
+    let lane_ent = cmd
+        .spawn(BeltLane::from_belt(
+            BeltShape::Straight(event.dir),
+            event.coords,
+        ))
+        .id();
+    cmd.entity(event.entity).insert((
         Transform::from_translation(Vec3::from(event.coords))
             .with_rotation(Quat::from_rotation_y(angle)),
-    );
+        InLane { lane: lane_ent },
+    ));
+}
+
+fn on_place_item(event: On<PlaceItem>, belts: Query<&InLane>, mut lanes: Query<&mut BeltLane>) {
+    let lane_ent = belts.get(event.belt).unwrap().lane;
+    let mut lane = lanes.get_mut(lane_ent).unwrap();
+    lane.push_item(event.item, event.lane, event.position);
 }
 
 impl From<WorldCoords> for Vec3 {
@@ -158,6 +189,19 @@ impl BeltShape {
             BeltShape::Curve(curve) => curve.input(),
         }
     }
+
+    pub fn left_num_pos(&self) -> i32 {
+        match self {
+            BeltShape::Straight(_) => POSITIONS_PER_BELT,
+            BeltShape::Curve(_) => todo!(),
+        }
+    }
+    pub fn right_num_pos(&self) -> i32 {
+        match self {
+            BeltShape::Straight(_) => POSITIONS_PER_BELT,
+            BeltShape::Curve(_) => todo!(),
+        }
+    }
 }
 
 impl Curve {
@@ -212,6 +256,28 @@ impl Curve {
             Lane::Left
         } else {
             Lane::Right
+        }
+    }
+}
+
+impl BeltLane {
+    pub fn from_belt(belt: BeltShape, coords: WorldCoords) -> Self {
+        Self {
+            belts: Belts {
+                belts: vec![belt],
+                coords: vec![coords],
+                left_range: vec![0..belt.left_num_pos()],
+                right_range: vec![0..belt.right_num_pos()],
+            },
+            left_items: vec![],
+            right_items: vec![],
+        }
+    }
+
+    pub fn push_item(&mut self, item: Item, lane: Lane, pos: i32) {
+        match lane {
+            Lane::Left => self.left_items.push((pos, item)),
+            Lane::Right => self.right_items.push((pos, item)),
         }
     }
 }
@@ -273,11 +339,13 @@ pub fn item_position(
                 "center_offset: {center_offset:?}, lane_offset: {lane_offset}, local_offset: {:?}, ",
                 local_offset
             );
-            Transform::from_translation(Vec3::new(
-                local_offset.y * BLOCK_SIZE,
-                BELT_HEIGHT_FROM_CENTER,
-                local_offset.x * BLOCK_SIZE,
-            ))
+            Transform::from_translation(
+                Vec3::new(
+                    local_offset.y * BLOCK_SIZE,
+                    BELT_HEIGHT_FROM_CENTER,
+                    local_offset.x * BLOCK_SIZE,
+                ) + Vec3::from(coords.into()),
+            )
             .with_rotation(Quat::from_rotation_y(angle + PI / 2.0))
         }
     }
@@ -491,5 +559,39 @@ mod tests {
         .with_rotation(Quat::from_axis_angle(Vec3::Y, -PI / 2.0));
         assert_close(actual.translation, expected.translation);
         assert_eq!(actual.rotation, expected.rotation);
+    }
+
+    #[test]
+    fn item_on_belt() {
+        let mut app = test_app();
+        let entity = app.world_mut().spawn_empty().id();
+        app.world_mut().trigger(PlaceBelt {
+            entity,
+            coords: (0, 0, 0).into(),
+            dir: HorizontalDir::North,
+        });
+        app.update();
+
+        let world = app.world_mut();
+        let item_ent = world.spawn_empty().id();
+        world.trigger(PlaceItem {
+            entity: item_ent,
+            item: Item(0),
+            belt: entity,
+            lane: Lane::Left,
+            position: 0,
+        });
+        let actual = world.query::<&BeltLane>().single(world).unwrap();
+        let expected = BeltLane {
+            belts: Belts {
+                belts: vec![BeltShape::Straight(HorizontalDir::North)],
+                coords: vec![(0, 0, 0).into()],
+                left_range: vec![(0..POSITIONS_PER_BELT)],
+                right_range: vec![(0..POSITIONS_PER_BELT)],
+            },
+            left_items: vec![(0, Item(0))],
+            right_items: vec![],
+        };
+        assert_eq!(*actual, expected);
     }
 }
