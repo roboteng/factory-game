@@ -82,9 +82,9 @@ fn setup(
     cmd.spawn((
         SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/item.glb"))),
         item_position(
-            BeltShape::Straight(HorizontalDir::North),
+            BeltShape::Straight(HDir::North),
             (0, 0, 0),
-            Lane::Left,
+            LaneSide::Left,
             0,
         ),
     ));

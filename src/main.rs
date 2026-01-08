@@ -32,56 +32,56 @@ fn setup(mut cmd: Commands) {
     cmd.trigger(crate::core::PlaceBelt {
         entity,
         coords: (1, 0, 0).into(),
-        dir: HorizontalDir::North,
+        dir: HDir::North,
     });
     let item = cmd.spawn_empty().id();
     cmd.trigger(PlaceItem {
         entity: item,
         item: Item(0),
         belt: entity,
-        lane: Lane::Left,
+        lane: LaneSide::Left,
         position: 0,
     });
     let entity = cmd.spawn_empty().id();
     cmd.trigger(crate::core::PlaceBelt {
         entity,
         coords: (0, 0, 1).into(),
-        dir: HorizontalDir::East,
+        dir: HDir::East,
     });
     let item = cmd.spawn_empty().id();
     cmd.trigger(PlaceItem {
         entity: item,
         item: Item(0),
         belt: entity,
-        lane: Lane::Left,
+        lane: LaneSide::Left,
         position: 0,
     });
     let entity = cmd.spawn_empty().id();
     cmd.trigger(crate::core::PlaceBelt {
         entity,
         coords: (0, 0, 0).into(),
-        dir: HorizontalDir::North,
+        dir: HDir::North,
     });
     let item = cmd.spawn_empty().id();
     cmd.trigger(PlaceItem {
         entity: item,
         item: Item(0),
         belt: entity,
-        lane: Lane::Left,
+        lane: LaneSide::Left,
         position: 0,
     });
     let entity = cmd.spawn_empty().id();
     cmd.trigger(crate::core::PlaceBelt {
         entity,
         coords: (-1, 0, 0).into(),
-        dir: HorizontalDir::North,
+        dir: HDir::North,
     });
     let item = cmd.spawn_empty().id();
     cmd.trigger(PlaceItem {
         entity: item,
         item: Item(0),
         belt: entity,
-        lane: Lane::Left,
+        lane: LaneSide::Left,
         position: 0,
     });
 }
@@ -98,7 +98,7 @@ fn update(mut should_run: ResMut<ShouldRun>, belts: Query<(Entity, &InLane)>, mu
                 entity: item,
                 item: Item(0),
                 belt: entity,
-                lane: Lane::Left,
+                lane: LaneSide::Left,
                 position: 0,
             });
         }

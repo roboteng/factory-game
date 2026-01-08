@@ -30,11 +30,15 @@ impl Plugin for CorePlugin {
     }
 }
 
+// ------
+// Models
+// ------
+
 #[derive(EntityEvent)]
 pub struct PlaceBelt {
     pub entity: Entity,
     pub coords: WorldCoords,
-    pub dir: HorizontalDir,
+    pub dir: HDir,
 }
 
 #[derive(EntityEvent)]
@@ -42,19 +46,20 @@ pub struct PlaceItem {
     pub entity: Entity,
     pub item: Item,
     pub belt: Entity,
-    pub lane: Lane,
+    pub lane: LaneSide,
     pub position: i32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WorldCoords {
-    x: i32,
-    y: i32,
-    z: i32,
+    pub x: i32,
+    pub y: i32,
+    pub z: i32,
 }
 
+/// Horizon direction
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum HorizontalDir {
+pub enum HDir {
     North,
     South,
     East,
@@ -63,23 +68,30 @@ pub enum HorizontalDir {
 
 #[derive(Component, Debug, PartialEq, Eq)]
 pub struct BeltLane {
-    pub belts: Belts,
-    pub left_items: Vec<(i32, Item)>,
-    pub right_items: Vec<(i32, Item)>,
+    pub belts: Vec<BeltEntry>,
+    pub left_items: Vec<ItemEntry>,
+    pub right_items: Vec<ItemEntry>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub struct Belts {
-    belts: Vec<BeltShape>,
-    coords: Vec<WorldCoords>,
-    entities: Vec<Entity>,
-    left_range: Vec<Range<i32>>,
-    right_range: Vec<Range<i32>>,
+pub struct BeltEntry {
+    pub belt: BeltShape,
+    pub coords: WorldCoords,
+    pub entity: Entity,
+    pub left_range: Range<i32>,
+    pub right_range: Range<i32>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct ItemEntry {
+    pub pos: i32,
+    pub item: Item,
+    pub entity: Entity,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BeltShape {
-    Straight(HorizontalDir),
+    Straight(HDir),
     Curve(Curve),
 }
 
@@ -118,6 +130,16 @@ pub struct InLane {
 #[derive(Component)]
 pub struct ItemPool;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LaneSide {
+    Left,
+    Right,
+}
+
+// -------
+// Systems
+// -------
+
 fn on_place_belt(event: On<PlaceBelt>, mut cmd: Commands) {
     let angle = event.dir.angle();
 
@@ -143,7 +165,14 @@ fn on_place_item(
 ) {
     let lane_ent = belts.get(event.belt).unwrap().lane;
     let mut lane = lanes.get_mut(lane_ent).unwrap();
-    lane.push_item(event.item, event.lane, event.position);
+    lane.push_item(
+        ItemEntry {
+            pos: event.position,
+            item: event.item,
+            entity: event.entity,
+        },
+        event.lane,
+    );
     cmd.entity(event.entity).insert(ItemPool);
 }
 
@@ -161,6 +190,178 @@ fn replace_items(
     }
 }
 
+// -----------
+// Model impls
+// -----------
+
+impl HDir {
+    pub fn angle(&self) -> f32 {
+        match self {
+            Self::North => 0.0,
+            Self::East => -PI / 2.0,
+            Self::South => PI,
+            Self::West => PI / 2.0,
+        }
+    }
+
+    pub fn opposite(&self) -> Self {
+        match self {
+            Self::North => Self::South,
+            Self::East => Self::West,
+            Self::South => Self::North,
+            Self::West => Self::East,
+        }
+    }
+}
+
+impl BeltShape {
+    pub fn output(&self) -> HDir {
+        match self {
+            Self::Straight(dir) => *dir,
+            Self::Curve(curve) => curve.output(),
+        }
+    }
+    pub fn input(&self) -> HDir {
+        match self {
+            Self::Straight(dir) => *dir,
+            Self::Curve(curve) => curve.input(),
+        }
+    }
+
+    pub fn left_num_pos(&self) -> i32 {
+        match self {
+            Self::Straight(_) => POSITIONS_PER_BELT,
+            Self::Curve(_) => todo!(),
+        }
+    }
+    pub fn right_num_pos(&self) -> i32 {
+        match self {
+            Self::Straight(_) => POSITIONS_PER_BELT,
+            Self::Curve(_) => todo!(),
+        }
+    }
+}
+
+impl Curve {
+    pub fn input(&self) -> HDir {
+        match self {
+            Self::NorthToEast => HDir::North,
+            Self::EastToSouth => HDir::East,
+            Self::SouthToWest => HDir::South,
+            Self::WestToNorth => HDir::West,
+            Self::NorthToWest => HDir::North,
+            Self::EastToNorth => HDir::East,
+            Self::SouthToEast => HDir::South,
+            Self::WestToSouth => HDir::West,
+        }
+    }
+
+    pub fn output(&self) -> HDir {
+        match self {
+            Self::NorthToEast => HDir::East,
+            Self::EastToSouth => HDir::South,
+            Self::SouthToWest => HDir::West,
+            Self::WestToNorth => HDir::North,
+            Self::NorthToWest => HDir::West,
+            Self::EastToNorth => HDir::North,
+            Self::SouthToEast => HDir::East,
+            Self::WestToSouth => HDir::South,
+        }
+    }
+
+    pub fn is_clockwise(&self) -> bool {
+        match self {
+            Self::NorthToEast => true,
+            Self::EastToSouth => true,
+            Self::SouthToWest => true,
+            Self::WestToNorth => true,
+            Self::NorthToWest => false,
+            Self::EastToNorth => false,
+            Self::SouthToEast => false,
+            Self::WestToSouth => false,
+        }
+    }
+
+    pub fn inner_lane(&self) -> LaneSide {
+        if self.is_clockwise() {
+            LaneSide::Right
+        } else {
+            LaneSide::Left
+        }
+    }
+    pub fn outet_lane(&self) -> LaneSide {
+        if self.is_clockwise() {
+            LaneSide::Left
+        } else {
+            LaneSide::Right
+        }
+    }
+}
+
+impl BeltLane {
+    pub fn from_belt(belt: BeltShape, coords: WorldCoords, entity: Entity) -> Self {
+        Self {
+            belts: vec![BeltEntry {
+                belt,
+                coords,
+                entity,
+                left_range: 0..belt.left_num_pos(),
+                right_range: 0..belt.right_num_pos(),
+            }],
+            left_items: vec![],
+            right_items: vec![],
+        }
+    }
+
+    fn add_to_tail(&mut self, shape: BeltShape, coords: WorldCoords, entity: Entity) {
+        let last = self.belts.last().unwrap();
+        let left_end = last.left_range.end;
+        let right_end = last.right_range.end;
+        self.belts.push(BeltEntry {
+            belt: shape,
+            coords,
+            entity,
+            left_range: left_end..left_end + shape.left_num_pos(),
+            right_range: right_end..right_end + shape.right_num_pos(),
+        });
+    }
+
+    pub fn push_item(&mut self, item: ItemEntry, lane: LaneSide) {
+        match lane {
+            LaneSide::Left => {
+                self.left_items.push(item);
+            }
+            LaneSide::Right => {
+                self.right_items.push(item);
+            }
+        }
+    }
+
+    pub fn item_iter<'a>(
+        &'a self,
+    ) -> impl Iterator<Item = (Item, i32, BeltShape, LaneSide, WorldCoords)> + 'a {
+        let belt_entry = &self.belts[0];
+        let belt = belt_entry.belt;
+        let coords = belt_entry.coords;
+
+        let left_items = self
+            .left_items
+            .iter()
+            .map(move |entry| (entry.item, entry.pos, belt, LaneSide::Left, coords));
+
+        let right_items = self
+            .right_items
+            .iter()
+            .map(move |entry| (entry.item, entry.pos, belt, LaneSide::Right, coords));
+
+        left_items.chain(right_items)
+    }
+}
+
+// -----------
+// Trait impls
+// -----------
+
 impl From<WorldCoords> for Vec3 {
     fn from(coords: WorldCoords) -> Self {
         Vec3::new(coords.x as f32, coords.y as f32, coords.z as f32) * BLOCK_SIZE
@@ -177,189 +378,48 @@ impl From<(i32, i32, i32)> for WorldCoords {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Lane {
-    Left,
-    Right,
-}
-
-impl HorizontalDir {
-    pub fn angle(&self) -> f32 {
-        match self {
-            HorizontalDir::North => 0.0,
-            HorizontalDir::East => -PI / 2.0,
-            HorizontalDir::South => PI,
-            HorizontalDir::West => PI / 2.0,
-        }
-    }
-
-    pub fn opposite(&self) -> Self {
-        match self {
-            HorizontalDir::North => HorizontalDir::South,
-            HorizontalDir::East => HorizontalDir::West,
-            HorizontalDir::South => HorizontalDir::North,
-            HorizontalDir::West => HorizontalDir::East,
+impl From<HDir> for Vec3 {
+    fn from(value: HDir) -> Vec3 {
+        match value {
+            HDir::North => Vec3::X,
+            HDir::South => Vec3::NEG_X,
+            HDir::East => Vec3::Z,
+            HDir::West => Vec3::NEG_Z,
         }
     }
 }
 
-impl BeltShape {
-    pub fn output(&self) -> HorizontalDir {
-        match self {
-            BeltShape::Straight(dir) => *dir,
-            BeltShape::Curve(curve) => curve.output(),
-        }
-    }
-    pub fn input(&self) -> HorizontalDir {
-        match self {
-            BeltShape::Straight(dir) => *dir,
-            BeltShape::Curve(curve) => curve.input(),
-        }
-    }
-
-    pub fn left_num_pos(&self) -> i32 {
-        match self {
-            BeltShape::Straight(_) => POSITIONS_PER_BELT,
-            BeltShape::Curve(_) => todo!(),
-        }
-    }
-    pub fn right_num_pos(&self) -> i32 {
-        match self {
-            BeltShape::Straight(_) => POSITIONS_PER_BELT,
-            BeltShape::Curve(_) => todo!(),
-        }
+impl From<HDir> for Vec2 {
+    fn from(value: HDir) -> Self {
+        Vec3::from(value).zx()
     }
 }
 
-impl Curve {
-    pub fn input(&self) -> HorizontalDir {
-        match self {
-            Curve::NorthToEast => HorizontalDir::North,
-            Curve::EastToSouth => HorizontalDir::East,
-            Curve::SouthToWest => HorizontalDir::South,
-            Curve::WestToNorth => HorizontalDir::West,
-            Curve::NorthToWest => HorizontalDir::North,
-            Curve::EastToNorth => HorizontalDir::East,
-            Curve::SouthToEast => HorizontalDir::South,
-            Curve::WestToSouth => HorizontalDir::West,
-        }
-    }
-
-    pub fn output(&self) -> HorizontalDir {
-        match self {
-            Curve::NorthToEast => HorizontalDir::East,
-            Curve::EastToSouth => HorizontalDir::South,
-            Curve::SouthToWest => HorizontalDir::West,
-            Curve::WestToNorth => HorizontalDir::North,
-            Curve::NorthToWest => HorizontalDir::West,
-            Curve::EastToNorth => HorizontalDir::North,
-            Curve::SouthToEast => HorizontalDir::East,
-            Curve::WestToSouth => HorizontalDir::South,
-        }
-    }
-
-    pub fn is_clockwise(&self) -> bool {
-        match self {
-            Curve::NorthToEast => true,
-            Curve::EastToSouth => true,
-            Curve::SouthToWest => true,
-            Curve::WestToNorth => true,
-            Curve::NorthToWest => false,
-            Curve::EastToNorth => false,
-            Curve::SouthToEast => false,
-            Curve::WestToSouth => false,
-        }
-    }
-
-    pub fn inner_lane(&self) -> Lane {
-        if self.is_clockwise() {
-            Lane::Right
-        } else {
-            Lane::Left
-        }
-    }
-    pub fn outet_lane(&self) -> Lane {
-        if self.is_clockwise() {
-            Lane::Left
-        } else {
-            Lane::Right
-        }
-    }
-}
-
-impl BeltLane {
-    pub fn from_belt(belt: BeltShape, coords: WorldCoords, entity: Entity) -> Self {
+impl From<PlaceItem> for ItemEntry {
+    fn from(value: PlaceItem) -> Self {
         Self {
-            belts: Belts {
-                belts: vec![belt],
-                coords: vec![coords],
-                entities: vec![entity],
-                left_range: vec![0..belt.left_num_pos()],
-                right_range: vec![0..belt.right_num_pos()],
-            },
-            left_items: vec![],
-            right_items: vec![],
+            item: value.item,
+            entity: value.entity,
+            pos: value.position,
         }
-    }
-
-    fn add_to_tail(&mut self, shape: BeltShape, coords: WorldCoords) {
-        self.belts.belts.push(shape);
-        self.belts.coords.push(coords);
-        let left_end = self.belts.left_range.last().unwrap().end;
-        let right_end = self.belts.right_range.last().unwrap().end;
-        self.belts
-            .left_range
-            .push(left_end..left_end + shape.left_num_pos());
-        self.belts
-            .right_range
-            .push(right_end..right_end + shape.right_num_pos());
-    }
-
-    pub fn push_item(&mut self, item: Item, lane: Lane, pos: i32) {
-        match lane {
-            Lane::Left => self.left_items.push((pos, item)),
-            Lane::Right => self.right_items.push((pos, item)),
-        }
-    }
-
-    pub fn item_iter<'a>(
-        &'a self,
-    ) -> impl Iterator<Item = (Item, i32, BeltShape, Lane, WorldCoords)> + 'a {
-        let left_items = self.left_items.iter().map(|item| {
-            (
-                item.1,
-                item.0,
-                self.belts.belts[0],
-                Lane::Left,
-                self.belts.coords[0],
-            )
-        });
-
-        let right_items = self.right_items.iter().map(|item| {
-            (
-                item.1,
-                item.0,
-                self.belts.belts[0],
-                Lane::Right,
-                self.belts.coords[0],
-            )
-        });
-
-        left_items.chain(right_items)
     }
 }
+
+// --------
+// Functions
+// ---------
 
 pub fn item_position(
     belt: BeltShape,
     coords: impl Into<WorldCoords>,
-    lane: Lane,
+    lane: LaneSide,
     pos: i32,
 ) -> Transform {
     match belt {
         BeltShape::Straight(dir) => {
             let z = match lane {
-                Lane::Left => -LANE_OFFSET,
-                Lane::Right => LANE_OFFSET,
+                LaneSide::Left => -LANE_OFFSET,
+                LaneSide::Right => LANE_OFFSET,
             };
             let start = Vec3::new(HALF_BLOCK_SIZE, BELT_HEIGHT_FROM_CENTER, z);
             let end = Vec3::new(-HALF_BLOCK_SIZE, BELT_HEIGHT_FROM_CENTER, z);
@@ -418,23 +478,6 @@ pub fn item_position(
     }
 }
 
-impl From<HorizontalDir> for Vec3 {
-    fn from(value: HorizontalDir) -> Vec3 {
-        match value {
-            HorizontalDir::North => Vec3::X,
-            HorizontalDir::South => Vec3::NEG_X,
-            HorizontalDir::East => Vec3::Z,
-            HorizontalDir::West => Vec3::NEG_Z,
-        }
-    }
-}
-
-impl From<HorizontalDir> for Vec2 {
-    fn from(value: HorizontalDir) -> Self {
-        Vec3::from(value).zx()
-    }
-}
-
 fn assert_close(left: Vec3, right: Vec3) {
     let dist = left.distance(right);
     assert!(
@@ -480,7 +523,7 @@ mod tests {
         app.world_mut().trigger(PlaceBelt {
             entity,
             coords: (0, 0, 0).into(),
-            dir: HorizontalDir::North,
+            dir: HDir::North,
         });
         app.update();
 
@@ -498,7 +541,7 @@ mod tests {
         app.world_mut().trigger(PlaceBelt {
             entity,
             coords: (0, 0, 0).into(),
-            dir: HorizontalDir::East,
+            dir: HDir::East,
         });
         app.update();
 
@@ -512,9 +555,9 @@ mod tests {
     #[test]
     fn item_positioning_front_boundary() {
         let actual = item_position(
-            BeltShape::Straight(HorizontalDir::North),
+            BeltShape::Straight(HDir::North),
             (0, 0, 0),
-            Lane::Left,
+            LaneSide::Left,
             -ITEM_SPACING / 2,
         );
         let expected = Transform::from_translation(Vec3::new(
@@ -528,9 +571,9 @@ mod tests {
     #[test]
     fn item_positioning_start() {
         let actual = item_position(
-            BeltShape::Straight(HorizontalDir::North),
+            BeltShape::Straight(HDir::North),
             (0, 0, 0),
-            Lane::Left,
+            LaneSide::Left,
             0,
         );
         let expected = Transform::from_translation(Vec3::new(
@@ -544,9 +587,9 @@ mod tests {
     #[test]
     fn item_positioning_start_east() {
         let actual = item_position(
-            BeltShape::Straight(HorizontalDir::East),
+            BeltShape::Straight(HDir::East),
             (0, 0, 0),
-            Lane::Left,
+            LaneSide::Left,
             0,
         );
         let expected = Transform::from_translation(Vec3::new(
@@ -562,9 +605,9 @@ mod tests {
     #[test]
     fn item_positioning_start_right() {
         let actual = item_position(
-            BeltShape::Straight(HorizontalDir::North),
+            BeltShape::Straight(HDir::North),
             (0, 0, 0),
-            Lane::Right,
+            LaneSide::Right,
             0,
         );
         let expected = Transform::from_translation(Vec3::new(
@@ -578,9 +621,9 @@ mod tests {
     #[test]
     fn item_positioning_start_coords() {
         let actual = item_position(
-            BeltShape::Straight(HorizontalDir::North),
+            BeltShape::Straight(HDir::North),
             (1, 1, 1),
-            Lane::Left,
+            LaneSide::Left,
             0,
         );
         let expected = Transform::from_translation(Vec3::new(
@@ -597,7 +640,7 @@ mod tests {
         let actual = item_position(
             BeltShape::Curve(Curve::EastToNorth),
             (0, 0, 0),
-            Lane::Left,
+            LaneSide::Left,
             -ITEM_SPACING / 2,
         );
         let expected = Transform::from_translation(Vec3::new(
@@ -615,7 +658,7 @@ mod tests {
         let actual = item_position(
             BeltShape::Curve(Curve::EastToNorth),
             (0, 0, 0),
-            Lane::Left,
+            LaneSide::Left,
             POSITIONS_PER_INNER_CURVE - ITEM_SPACING / 2,
         );
         let expected = Transform::from_translation(Vec3::new(
@@ -635,7 +678,7 @@ mod tests {
         app.world_mut().trigger(PlaceBelt {
             entity,
             coords: (0, 0, 0).into(),
-            dir: HorizontalDir::North,
+            dir: HDir::North,
         });
         app.update();
 
@@ -645,19 +688,23 @@ mod tests {
             entity: item_ent,
             item: Item(0),
             belt: entity,
-            lane: Lane::Left,
+            lane: LaneSide::Left,
             position: 0,
         });
         let actual = world.query::<&BeltLane>().single(world).unwrap();
         let expected = BeltLane {
-            belts: Belts {
-                belts: vec![BeltShape::Straight(HorizontalDir::North)],
-                coords: vec![(0, 0, 0).into()],
-                entities: vec![entity],
-                left_range: vec![(0..POSITIONS_PER_BELT)],
-                right_range: vec![(0..POSITIONS_PER_BELT)],
-            },
-            left_items: vec![(0, Item(0))],
+            belts: vec![BeltEntry {
+                belt: BeltShape::Straight(HDir::North),
+                coords: (0, 0, 0).into(),
+                entity,
+                left_range: 0..POSITIONS_PER_BELT,
+                right_range: 0..POSITIONS_PER_BELT,
+            }],
+            left_items: vec![ItemEntry {
+                pos: 0,
+                item: Item(0),
+                entity: item_ent,
+            }],
             right_items: vec![],
         };
         assert_eq!(*actual, expected);
@@ -667,29 +714,27 @@ mod tests {
     fn lane_add_to_tail() {
         init_tracing();
         let entity = Entity::from_raw_u32(0).unwrap();
-        let mut lane = BeltLane::from_belt(
-            BeltShape::Straight(HorizontalDir::North),
-            (0, 0, 0).into(),
-            entity,
-        );
-        lane.add_to_tail(BeltShape::Straight(HorizontalDir::North), (-1, 0, 0).into());
+        let mut lane =
+            BeltLane::from_belt(BeltShape::Straight(HDir::North), (0, 0, 0).into(), entity);
+        let tail = Entity::from_raw_u32(0).unwrap();
+        lane.add_to_tail(BeltShape::Straight(HDir::North), (-1, 0, 0).into(), tail);
         let expected = BeltLane {
-            belts: Belts {
-                belts: vec![
-                    BeltShape::Straight(HorizontalDir::North),
-                    BeltShape::Straight(HorizontalDir::North),
-                ],
-                coords: vec![(0, 0, 0).into(), (-1, 0, 0).into()],
-                entities: vec![entity],
-                left_range: vec![
-                    (0..POSITIONS_PER_BELT),
-                    (POSITIONS_PER_BELT..(2 * POSITIONS_PER_BELT)),
-                ],
-                right_range: vec![
-                    (0..POSITIONS_PER_BELT),
-                    (POSITIONS_PER_BELT..(2 * POSITIONS_PER_BELT)),
-                ],
-            },
+            belts: vec![
+                BeltEntry {
+                    belt: BeltShape::Straight(HDir::North),
+                    coords: (0, 0, 0).into(),
+                    entity,
+                    left_range: 0..POSITIONS_PER_BELT,
+                    right_range: 0..POSITIONS_PER_BELT,
+                },
+                BeltEntry {
+                    belt: BeltShape::Straight(HDir::North),
+                    coords: (-1, 0, 0).into(),
+                    entity: tail,
+                    left_range: POSITIONS_PER_BELT..(2 * POSITIONS_PER_BELT),
+                    right_range: POSITIONS_PER_BELT..(2 * POSITIONS_PER_BELT),
+                },
+            ],
             left_items: vec![],
             right_items: vec![],
         };
