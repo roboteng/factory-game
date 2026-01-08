@@ -1,5 +1,8 @@
+pub use crate::core::lane::*;
 use bevy::{math::ops::sin_cos, prelude::*};
 use std::{f32::consts::PI, ops::Range};
+
+mod lane;
 
 pub const BLOCK_SIZE: f32 = 2.0;
 pub const HALF_BLOCK_SIZE: f32 = BLOCK_SIZE / 2.0;
@@ -66,29 +69,6 @@ pub enum HDir {
     West,
 }
 
-#[derive(Component, Debug, PartialEq, Eq)]
-pub struct BeltLane {
-    pub belts: Vec<BeltEntry>,
-    pub left_items: Vec<ItemEntry>,
-    pub right_items: Vec<ItemEntry>,
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub struct BeltEntry {
-    pub belt: BeltShape,
-    pub coords: WorldCoords,
-    pub entity: Entity,
-    pub left_range: Range<i32>,
-    pub right_range: Range<i32>,
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub struct ItemEntry {
-    pub pos: i32,
-    pub item: Item,
-    pub entity: Entity,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BeltShape {
     Straight(HDir),
@@ -111,11 +91,6 @@ pub enum Curve {
 #[derive(Component, Debug, PartialEq, Eq, Clone, Copy)]
 pub struct Item(pub u32);
 
-pub struct BeltConnection {
-    pub left: LaneConnection,
-    pub right: LaneConnection,
-}
-
 #[derive(Debug, Component)]
 pub struct LaneConnection {
     pub target: Entity,
@@ -125,15 +100,6 @@ pub struct LaneConnection {
 #[derive(Component)]
 pub struct InLane {
     pub lane: Entity,
-}
-
-#[derive(Component)]
-pub struct ItemPool;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LaneSide {
-    Left,
-    Right,
 }
 
 // -------
@@ -173,13 +139,9 @@ fn on_place_item(
         },
         event.lane,
     );
-    cmd.entity(event.entity).insert(ItemPool);
 }
 
-fn replace_items(
-    lanes: Query<&BeltLane>,
-    mut items: Query<(&mut Item, &mut Transform), With<ItemPool>>,
-) {
+fn replace_items(lanes: Query<&BeltLane>, mut items: Query<(&mut Item, &mut Transform)>) {
     for ((item, pos, belt, lane, coords), mut b) in Iterator::zip(
         lanes.iter().map(|l| l.item_iter()).flatten(),
         items.iter_mut(),
@@ -298,66 +260,6 @@ impl Curve {
     }
 }
 
-impl BeltLane {
-    pub fn from_belt(belt: BeltShape, coords: WorldCoords, entity: Entity) -> Self {
-        Self {
-            belts: vec![BeltEntry {
-                belt,
-                coords,
-                entity,
-                left_range: 0..belt.left_num_pos(),
-                right_range: 0..belt.right_num_pos(),
-            }],
-            left_items: vec![],
-            right_items: vec![],
-        }
-    }
-
-    fn add_to_tail(&mut self, shape: BeltShape, coords: WorldCoords, entity: Entity) {
-        let last = self.belts.last().unwrap();
-        let left_end = last.left_range.end;
-        let right_end = last.right_range.end;
-        self.belts.push(BeltEntry {
-            belt: shape,
-            coords,
-            entity,
-            left_range: left_end..left_end + shape.left_num_pos(),
-            right_range: right_end..right_end + shape.right_num_pos(),
-        });
-    }
-
-    pub fn push_item(&mut self, item: ItemEntry, lane: LaneSide) {
-        match lane {
-            LaneSide::Left => {
-                self.left_items.push(item);
-            }
-            LaneSide::Right => {
-                self.right_items.push(item);
-            }
-        }
-    }
-
-    pub fn item_iter<'a>(
-        &'a self,
-    ) -> impl Iterator<Item = (Item, i32, BeltShape, LaneSide, WorldCoords)> + 'a {
-        let belt_entry = &self.belts[0];
-        let belt = belt_entry.belt;
-        let coords = belt_entry.coords;
-
-        let left_items = self
-            .left_items
-            .iter()
-            .map(move |entry| (entry.item, entry.pos, belt, LaneSide::Left, coords));
-
-        let right_items = self
-            .right_items
-            .iter()
-            .map(move |entry| (entry.item, entry.pos, belt, LaneSide::Right, coords));
-
-        left_items.chain(right_items)
-    }
-}
-
 // -----------
 // Trait impls
 // -----------
@@ -392,16 +294,6 @@ impl From<HDir> for Vec3 {
 impl From<HDir> for Vec2 {
     fn from(value: HDir) -> Self {
         Vec3::from(value).zx()
-    }
-}
-
-impl From<PlaceItem> for ItemEntry {
-    fn from(value: PlaceItem) -> Self {
-        Self {
-            item: value.item,
-            entity: value.entity,
-            pos: value.position,
-        }
     }
 }
 
@@ -487,7 +379,7 @@ fn assert_close(left: Vec3, right: Vec3) {
 }
 
 #[cfg(test)]
-fn init_tracing() {
+pub fn init_tracing() {
     use tracing_subscriber::{EnvFilter, fmt};
     let _ = fmt()
         .with_env_filter(
@@ -708,36 +600,5 @@ mod tests {
             right_items: vec![],
         };
         assert_eq!(*actual, expected);
-    }
-
-    #[test]
-    fn lane_add_to_tail() {
-        init_tracing();
-        let entity = Entity::from_raw_u32(0).unwrap();
-        let mut lane =
-            BeltLane::from_belt(BeltShape::Straight(HDir::North), (0, 0, 0).into(), entity);
-        let tail = Entity::from_raw_u32(0).unwrap();
-        lane.add_to_tail(BeltShape::Straight(HDir::North), (-1, 0, 0).into(), tail);
-        let expected = BeltLane {
-            belts: vec![
-                BeltEntry {
-                    belt: BeltShape::Straight(HDir::North),
-                    coords: (0, 0, 0).into(),
-                    entity,
-                    left_range: 0..POSITIONS_PER_BELT,
-                    right_range: 0..POSITIONS_PER_BELT,
-                },
-                BeltEntry {
-                    belt: BeltShape::Straight(HDir::North),
-                    coords: (-1, 0, 0).into(),
-                    entity: tail,
-                    left_range: POSITIONS_PER_BELT..(2 * POSITIONS_PER_BELT),
-                    right_range: POSITIONS_PER_BELT..(2 * POSITIONS_PER_BELT),
-                },
-            ],
-            left_items: vec![],
-            right_items: vec![],
-        };
-        assert_eq!(lane, expected);
     }
 }
