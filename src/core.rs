@@ -66,7 +66,7 @@ pub struct RemoveBelt {
     pub entity: Entity,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct WorldCoords {
     pub x: i32,
     pub y: i32,
@@ -82,7 +82,10 @@ pub enum HDir {
     West,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Component)]
+pub struct Belt;
+
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BeltShape {
     Straight(HDir),
     Curve(Curve),
@@ -197,9 +200,11 @@ fn on_place_belt(
     let belt = plan_belt_placement(&event, &belt_coords);
     let angle = belt.output().angle();
 
-    cmd.entity(event.entity)
-        .insert((Transform::from_translation(Vec3::from(event.coords))
-            .with_rotation(Quat::from_rotation_y(angle)),));
+    cmd.entity(event.entity).insert((
+        Transform::from_translation(Vec3::from(event.coords))
+            .with_rotation(Quat::from_rotation_y(angle)),
+        Belt,
+    ));
     belt_coords.insert(event.coords, event.entity, belt);
 
     // Emit Replaced if replacing an existing belt, otherwise New
@@ -261,8 +266,28 @@ fn on_place_item(event: On<PlaceItem>, belts: Query<&InLane>, mut lanes: Query<&
     .expect("Invarient broken");
 }
 
-fn on_remove_belt(event: On<RemoveBelt>) {
-    todo!();
+fn on_remove_belt(
+    event: On<RemoveBelt>,
+    belts: Query<(&BeltShape, &WorldCoords), With<Belt>>,
+    mut changes: ResMut<BeltChanges>,
+    mut belt_coords: ResMut<BeltCoords>,
+) {
+    let Ok((belt, coords)) = belts.get(event.entity) else {
+        warn!(
+            "Attempted to remove belt entity {:?} but it doesn't exist",
+            event.entity
+        );
+        return;
+    };
+
+    debug!("Removing belt at {:?}", coords);
+
+    belt_coords.remove(*coords);
+    changes.push(RemovedBelt {
+        entity: event.entity,
+        old_belt: *belt,
+        coords: *coords,
+    });
 }
 
 fn replace_items(lanes: Query<&BeltLane>, mut items: Query<(&mut Item, &mut Transform)>) {
@@ -429,13 +454,25 @@ impl BeltShape {
     pub fn left_num_pos(&self) -> i32 {
         match self {
             Self::Straight(_) => POSITIONS_PER_BELT,
-            Self::Curve(_) => todo!(),
+            Self::Curve(curve) => {
+                if curve.is_clockwise() {
+                    POSITIONS_PER_OUTER_CURVE
+                } else {
+                    POSITIONS_PER_INNER_CURVE
+                }
+            }
         }
     }
     pub fn right_num_pos(&self) -> i32 {
         match self {
             Self::Straight(_) => POSITIONS_PER_BELT,
-            Self::Curve(_) => todo!(),
+            Self::Curve(curve) => {
+                if curve.is_clockwise() {
+                    POSITIONS_PER_INNER_CURVE
+                } else {
+                    POSITIONS_PER_OUTER_CURVE
+                }
+            }
         }
     }
 }
@@ -943,7 +980,53 @@ fn remove_belt(
     remaining_entities: &[Entity],
     removed: &RemovedBelt,
 ) -> (Vec<ItemEntry>, Vec<ItemEntry>) {
-    todo!()
+    let belt_coords = world.resource::<BeltCoords>();
+    let ahead_belt = ahead_connected_belt(
+        &belt_coords,
+        remaining_entities,
+        removed.coords,
+        removed.old_belt.output(),
+    );
+    let behind_belt = behind_connected_belt(
+        &belt_coords,
+        remaining_entities,
+        removed.coords,
+        removed.old_belt.input(),
+    );
+    debug!("Behind belt: {:?}", behind_belt);
+    debug!("ahead belt: {:?}", ahead_belt);
+    let lane_ent = get_lane_entity(world, removed.entity);
+    match (ahead_belt, behind_belt) {
+        (None, None) => {
+            let lane = get_lane(world, lane_ent);
+            let left = lane.lanes[LaneSide::Left].clone();
+            let right = lane.lanes[LaneSide::Right].clone();
+            world.despawn(lane_ent);
+            (left, right)
+        }
+        (None, Some(_)) => {
+            let mut lane = get_lane_mut(world, lane_ent);
+            let items = lane.remove_head();
+            if lane.belts.is_empty() {
+                world.despawn(lane_ent);
+            }
+            items
+        }
+        (Some((_, _, ConnectionType::Direct)), None) => {
+            let mut lane = get_lane_mut(world, lane_ent);
+            let items = lane.remove_tail();
+            if lane.belts.is_empty() {
+                world.despawn(lane_ent);
+            }
+            items
+        }
+        (Some((_, _, ConnectionType::Direct)), Some(_)) => {
+            // Removing from middle of lane - would need to split lane
+            todo!("remove belt from middle of lane")
+        }
+        (Some((_, _, ConnectionType::SideLoad(_))), None) => todo!(),
+        (Some((_, _, ConnectionType::SideLoad(_))), Some(_)) => todo!(),
+    }
 }
 
 fn replace_belt(world: &mut World, remaining_entities: &[Entity], replaced: &ReplacedBelt) {

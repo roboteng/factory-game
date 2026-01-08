@@ -198,12 +198,28 @@ impl BeltLane {
         todo!()
     }
 
-    pub fn remove_head(&mut self) -> Vec<(i32, Entity, LaneSide)> {
+    pub fn remove_head(&mut self) -> (Vec<ItemEntry>, Vec<ItemEntry>) {
         todo!()
     }
 
-    pub fn remove_tail(&mut self) -> Vec<(i32, Entity, LaneSide)> {
-        todo!()
+    pub fn remove_tail(&mut self) -> (Vec<ItemEntry>, Vec<ItemEntry>) {
+        let last = self.belts.len();
+        let tail = self.belts.remove(last - 1);
+
+        let part = self.lanes[Left].partition_point(|item| !tail.ranges[Left].contains(&item.pos));
+        let (keep_items, tail_items) = self.lanes[Left].split_at_mut(part);
+        let keep = Vec::from(keep_items);
+        let left = Vec::from_iter(tail_items.iter().cloned());
+        self.lanes[Left] = keep;
+
+        let part =
+            self.lanes[Right].partition_point(|item| !tail.ranges[Right].contains(&item.pos));
+        let (keep_items, tail_items) = self.lanes[Right].split_at_mut(part);
+        let keep = Vec::from(keep_items);
+        let right = Vec::from_iter(tail_items.iter().cloned());
+        self.lanes[Right] = keep;
+
+        (left, right)
     }
 
     pub fn is_blocked_at(&self, offset: i32, lane: LaneSide) -> bool {
