@@ -75,6 +75,7 @@ pub enum BeltShape {
     Curve(Curve),
 }
 
+#[expect(unused)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Curve {
     NorthToEast,
@@ -91,6 +92,7 @@ pub enum Curve {
 #[derive(Component, Debug, PartialEq, Eq, Clone, Copy)]
 pub struct Item(pub u32);
 
+#[expect(unused)]
 #[derive(Debug, Component)]
 pub struct LaneConnection {
     pub target: Entity,
@@ -123,21 +125,17 @@ fn on_place_belt(event: On<PlaceBelt>, mut cmd: Commands) {
     ));
 }
 
-fn on_place_item(
-    event: On<PlaceItem>,
-    belts: Query<&InLane>,
-    mut lanes: Query<&mut BeltLane>,
-    mut cmd: Commands,
-) {
+fn on_place_item(event: On<PlaceItem>, belts: Query<&InLane>, mut lanes: Query<&mut BeltLane>) {
     let lane_ent = belts.get(event.belt).unwrap().lane;
     let mut lane = lanes.get_mut(lane_ent).unwrap();
-    lane.push_item(
+    lane.add_item(
         ItemEntry {
             pos: event.position,
             item: event.item,
             entity: event.entity,
         },
         event.lane,
+        event.belt,
     );
 }
 
@@ -251,6 +249,7 @@ impl Curve {
             LaneSide::Left
         }
     }
+    #[expect(unused)]
     pub fn outet_lane(&self) -> LaneSide {
         if self.is_clockwise() {
             LaneSide::Left

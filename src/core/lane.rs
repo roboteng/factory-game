@@ -20,7 +20,7 @@ pub struct BeltEntry {
     pub right_range: Range<i32>,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct ItemEntry {
     pub pos: i32,
     pub item: Item,
@@ -65,13 +65,25 @@ impl BeltLane {
         });
     }
 
-    pub fn push_item(&mut self, item: ItemEntry, lane: LaneSide) {
+    /// The pos in the `ItemEntry` is relative to the start of the belt, not the lane
+    pub fn add_item(&mut self, item: ItemEntry, lane: LaneSide, belt: Entity) -> Option<()> {
+        let entry = self.belts.iter().find(|b| b.entity == belt)?;
         match lane {
             LaneSide::Left => {
-                self.left_items.push(item);
+                let offset = entry.left_range.start;
+                self.left_items.push(ItemEntry {
+                    pos: offset + item.pos,
+                    ..item
+                });
+                Some(())
             }
             LaneSide::Right => {
-                self.right_items.push(item);
+                let offset = entry.right_range.start;
+                self.right_items.push(ItemEntry {
+                    pos: offset + item.pos,
+                    ..item
+                });
+                Some(())
             }
         }
     }
@@ -111,9 +123,15 @@ impl From<PlaceItem> for ItemEntry {
     }
 }
 
+// ---------
+// Functions
+// ---------
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[allow(unused_imports)]
+    use pretty_assertions::{assert_eq, assert_ne};
 
     #[test]
     fn lane_add_to_tail() {
@@ -144,5 +162,63 @@ mod tests {
             right_items: vec![],
         };
         assert_eq!(lane, expected);
+    }
+
+    #[test]
+    fn item_on_lane() {
+        init_tracing();
+        let belt_ent = Entity::from_raw_u32(0).unwrap();
+        let mut lane =
+            BeltLane::from_belt(BeltShape::Straight(HDir::North), (0, 0, 0).into(), belt_ent);
+        lane.add_item(
+            ItemEntry {
+                pos: 0,
+                item: Item(0),
+                entity: Entity::from_raw_u32(10).unwrap(),
+            },
+            LaneSide::Left,
+            belt_ent,
+        );
+        let actual = lane.left_items[0];
+        let expected = ItemEntry {
+            pos: 0,
+            item: Item(0),
+            entity: Entity::from_raw_u32(10).unwrap(),
+        };
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn item_on_lane_next_belt() {
+        init_tracing();
+        let belt_ent_1 = Entity::from_raw_u32(0).unwrap();
+        let belt_ent_2 = Entity::from_raw_u32(1).unwrap();
+        let mut lane = BeltLane::from_belt(
+            BeltShape::Straight(HDir::North),
+            (0, 0, 0).into(),
+            belt_ent_1,
+        );
+        lane.add_to_tail(
+            BeltShape::Straight(HDir::North),
+            (-1, 0, 0).into(),
+            belt_ent_2,
+        );
+
+        lane.add_item(
+            ItemEntry {
+                pos: 0,
+                item: Item(0),
+                entity: Entity::from_raw_u32(10).unwrap(),
+            },
+            LaneSide::Left,
+            belt_ent_2,
+        );
+        let actual = lane.left_items[0];
+        let expected = ItemEntry {
+            pos: POSITIONS_PER_BELT,
+            item: Item(0),
+            entity: Entity::from_raw_u32(10).unwrap(),
+        };
+        assert_eq!(actual, expected);
     }
 }
