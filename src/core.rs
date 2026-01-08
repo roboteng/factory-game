@@ -588,15 +588,19 @@ mod tests {
                 belt: BeltShape::Straight(HDir::North),
                 coords: (0, 0, 0).into(),
                 entity,
-                left_range: 0..POSITIONS_PER_BELT,
-                right_range: 0..POSITIONS_PER_BELT,
+                ranges: Ranges {
+                    left: 0..POSITIONS_PER_BELT,
+                    right: 0..POSITIONS_PER_BELT,
+                },
             }],
-            left_items: vec![ItemEntry {
-                pos: 0,
-                item: Item(0),
-                entity: item_ent,
-            }],
-            right_items: vec![],
+            lanes: Lanes {
+                left: vec![ItemEntry {
+                    pos: 0,
+                    item: Item(0),
+                    entity: item_ent,
+                }],
+                right: vec![],
+            },
         };
         assert_eq!(*actual, expected);
     }

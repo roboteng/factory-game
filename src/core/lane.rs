@@ -1,3 +1,5 @@
+use std::ops::{Index, IndexMut};
+
 use super::*;
 
 // ------
@@ -7,8 +9,19 @@ use super::*;
 #[derive(Component, Debug, PartialEq, Eq)]
 pub struct BeltLane {
     pub belts: Vec<BeltEntry>,
-    pub left_items: Vec<ItemEntry>,
-    pub right_items: Vec<ItemEntry>,
+    pub lanes: Lanes,
+}
+
+#[derive(Debug, PartialEq, Eq, Default)]
+pub struct Lanes {
+    pub left: Vec<ItemEntry>,
+    pub right: Vec<ItemEntry>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct Ranges {
+    pub left: Range<i32>,
+    pub right: Range<i32>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -16,8 +29,7 @@ pub struct BeltEntry {
     pub belt: BeltShape,
     pub coords: WorldCoords,
     pub entity: Entity,
-    pub left_range: Range<i32>,
-    pub right_range: Range<i32>,
+    pub ranges: Ranges,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -32,6 +44,7 @@ pub enum LaneSide {
     Left,
     Right,
 }
+use LaneSide::{Left, Right};
 
 //
 // Model impls
@@ -44,48 +57,39 @@ impl BeltLane {
                 belt,
                 coords,
                 entity,
-                left_range: 0..belt.left_num_pos(),
-                right_range: 0..belt.right_num_pos(),
+                ranges: Ranges {
+                    left: 0..belt.left_num_pos(),
+                    right: 0..belt.right_num_pos(),
+                },
             }],
-            left_items: vec![],
-            right_items: vec![],
+            lanes: default(),
         }
     }
 
     pub fn add_to_tail(&mut self, shape: BeltShape, coords: WorldCoords, entity: Entity) {
         let last = self.belts.last().unwrap();
-        let left_end = last.left_range.end;
-        let right_end = last.right_range.end;
+        let left_end = last.ranges.left.end;
+        let right_end = last.ranges.right.end;
         self.belts.push(BeltEntry {
             belt: shape,
             coords,
             entity,
-            left_range: left_end..left_end + shape.left_num_pos(),
-            right_range: right_end..right_end + shape.right_num_pos(),
+            ranges: Ranges {
+                left: left_end..left_end + shape.left_num_pos(),
+                right: right_end..right_end + shape.right_num_pos(),
+            },
         });
     }
 
     /// The pos in the `ItemEntry` is relative to the start of the belt, not the lane
     pub fn add_item(&mut self, item: ItemEntry, lane: LaneSide, belt: Entity) -> Option<()> {
         let entry = self.belts.iter().find(|b| b.entity == belt)?;
-        match lane {
-            LaneSide::Left => {
-                let offset = entry.left_range.start;
-                self.left_items.push(ItemEntry {
-                    pos: offset + item.pos,
-                    ..item
-                });
-                Some(())
-            }
-            LaneSide::Right => {
-                let offset = entry.right_range.start;
-                self.right_items.push(ItemEntry {
-                    pos: offset + item.pos,
-                    ..item
-                });
-                Some(())
-            }
-        }
+        let offset = entry.ranges[lane].start;
+        self.lanes[lane].push(ItemEntry {
+            pos: offset + item.pos,
+            ..item
+        });
+        Some(())
     }
 
     pub fn item_iter<'a>(
@@ -95,13 +99,11 @@ impl BeltLane {
         let belt = belt_entry.belt;
         let coords = belt_entry.coords;
 
-        let left_items = self
-            .left_items
+        let left_items = self.lanes[Left]
             .iter()
             .map(move |entry| (entry.item, entry.pos, belt, LaneSide::Left, coords));
 
-        let right_items = self
-            .right_items
+        let right_items = self.lanes[Right]
             .iter()
             .map(move |entry| (entry.item, entry.pos, belt, LaneSide::Right, coords));
 
@@ -119,6 +121,46 @@ impl From<PlaceItem> for ItemEntry {
             item: value.item,
             entity: value.entity,
             pos: value.position,
+        }
+    }
+}
+
+impl Index<LaneSide> for Lanes {
+    type Output = Vec<ItemEntry>;
+
+    fn index(&self, index: LaneSide) -> &Self::Output {
+        match index {
+            LaneSide::Left => &self.left,
+            LaneSide::Right => &self.right,
+        }
+    }
+}
+
+impl IndexMut<LaneSide> for Lanes {
+    fn index_mut(&mut self, index: LaneSide) -> &mut Self::Output {
+        match index {
+            LaneSide::Left => &mut self.left,
+            LaneSide::Right => &mut self.right,
+        }
+    }
+}
+
+impl Index<LaneSide> for Ranges {
+    type Output = Range<i32>;
+
+    fn index(&self, index: LaneSide) -> &Self::Output {
+        match index {
+            LaneSide::Left => &self.left,
+            LaneSide::Right => &self.right,
+        }
+    }
+}
+
+impl IndexMut<LaneSide> for Ranges {
+    fn index_mut(&mut self, index: LaneSide) -> &mut Self::Output {
+        match index {
+            LaneSide::Left => &mut self.left,
+            LaneSide::Right => &mut self.right,
         }
     }
 }
@@ -147,19 +189,25 @@ mod tests {
                     belt: BeltShape::Straight(HDir::North),
                     coords: (0, 0, 0).into(),
                     entity,
-                    left_range: 0..POSITIONS_PER_BELT,
-                    right_range: 0..POSITIONS_PER_BELT,
+                    ranges: Ranges {
+                        left: 0..POSITIONS_PER_BELT,
+                        right: 0..POSITIONS_PER_BELT,
+                    },
                 },
                 BeltEntry {
                     belt: BeltShape::Straight(HDir::North),
                     coords: (-1, 0, 0).into(),
                     entity: tail,
-                    left_range: POSITIONS_PER_BELT..(2 * POSITIONS_PER_BELT),
-                    right_range: POSITIONS_PER_BELT..(2 * POSITIONS_PER_BELT),
+                    ranges: Ranges {
+                        left: POSITIONS_PER_BELT..(2 * POSITIONS_PER_BELT),
+                        right: POSITIONS_PER_BELT..(2 * POSITIONS_PER_BELT),
+                    },
                 },
             ],
-            left_items: vec![],
-            right_items: vec![],
+            lanes: Lanes {
+                left: vec![],
+                right: vec![],
+            },
         };
         assert_eq!(lane, expected);
     }
@@ -179,7 +227,7 @@ mod tests {
             LaneSide::Left,
             belt_ent,
         );
-        let actual = lane.left_items[0];
+        let actual = lane.lanes[Left][0];
         let expected = ItemEntry {
             pos: 0,
             item: Item(0),
@@ -213,7 +261,7 @@ mod tests {
             LaneSide::Left,
             belt_ent_2,
         );
-        let actual = lane.left_items[0];
+        let actual = lane.lanes[Left][0];
         let expected = ItemEntry {
             pos: POSITIONS_PER_BELT,
             item: Item(0),
