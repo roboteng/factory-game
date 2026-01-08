@@ -1,3 +1,4 @@
+#![allow(unused)]
 use bevy::prelude::*;
 
 use crate::core::*;
@@ -34,56 +35,56 @@ fn setup(mut cmd: Commands) {
         coords: (1, 0, 0).into(),
         dir: HDir::North,
     });
-    let item = cmd.spawn_empty().id();
-    cmd.trigger(PlaceItem {
-        entity: item,
-        item: Item(0),
-        belt: entity,
-        lane: LaneSide::Left,
-        position: 0,
-    });
-    let entity = cmd.spawn_empty().id();
-    cmd.trigger(crate::core::PlaceBelt {
-        entity,
-        coords: (0, 0, 1).into(),
-        dir: HDir::East,
-    });
-    let item = cmd.spawn_empty().id();
-    cmd.trigger(PlaceItem {
-        entity: item,
-        item: Item(0),
-        belt: entity,
-        lane: LaneSide::Left,
-        position: 0,
-    });
+    // let item = cmd.spawn_empty().id();
+    // cmd.trigger(PlaceItem {
+    //     entity: item,
+    //     item: Item(0),
+    //     belt: entity,
+    //     lane: LaneSide::Left,
+    //     position: 0,
+    // });
+    // let entity = cmd.spawn_empty().id();
+    // cmd.trigger(crate::core::PlaceBelt {
+    //     entity,
+    //     coords: (0, 0, 1).into(),
+    //     dir: HDir::East,
+    // });
+    // let item = cmd.spawn_empty().id();
+    // cmd.trigger(PlaceItem {
+    //     entity: item,
+    //     item: Item(0),
+    //     belt: entity,
+    //     lane: LaneSide::Left,
+    //     position: 0,
+    // });
     let entity = cmd.spawn_empty().id();
     cmd.trigger(crate::core::PlaceBelt {
         entity,
         coords: (0, 0, 0).into(),
         dir: HDir::North,
     });
-    let item = cmd.spawn_empty().id();
-    cmd.trigger(PlaceItem {
-        entity: item,
-        item: Item(0),
-        belt: entity,
-        lane: LaneSide::Left,
-        position: 0,
-    });
+    // let item = cmd.spawn_empty().id();
+    // cmd.trigger(PlaceItem {
+    //     entity: item,
+    //     item: Item(0),
+    //     belt: entity,
+    //     lane: LaneSide::Left,
+    //     position: 0,
+    // });
     let entity = cmd.spawn_empty().id();
     cmd.trigger(crate::core::PlaceBelt {
         entity,
         coords: (-1, 0, 0).into(),
         dir: HDir::North,
     });
-    let item = cmd.spawn_empty().id();
-    cmd.trigger(PlaceItem {
-        entity: item,
-        item: Item(0),
-        belt: entity,
-        lane: LaneSide::Left,
-        position: 0,
-    });
+    // let item = cmd.spawn_empty().id();
+    // cmd.trigger(PlaceItem {
+    //     entity: item,
+    //     item: Item(0),
+    //     belt: entity,
+    //     lane: LaneSide::Left,
+    //     position: 0,
+    // });
 }
 
 #[derive(Resource, Default)]

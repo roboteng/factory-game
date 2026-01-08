@@ -6,25 +6,25 @@ use super::*;
 // Models
 // ------
 
-#[derive(Component, Debug, PartialEq, Eq)]
+#[derive(Component, Debug, PartialEq, Eq, Clone)]
 pub struct BeltLane {
     pub belts: Vec<BeltEntry>,
     pub lanes: Lanes,
 }
 
-#[derive(Debug, PartialEq, Eq, Default)]
+#[derive(Debug, PartialEq, Eq, Default, Clone)]
 pub struct Lanes {
     pub left: Vec<ItemEntry>,
     pub right: Vec<ItemEntry>,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Ranges {
     pub left: Range<i32>,
     pub right: Range<i32>,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct BeltEntry {
     pub belt: BeltShape,
     pub coords: WorldCoords,
@@ -32,7 +32,7 @@ pub struct BeltEntry {
     pub ranges: Ranges,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord)]
 pub struct ItemEntry {
     pub pos: i32,
     pub item: Item,
@@ -45,10 +45,11 @@ pub enum LaneSide {
     Right,
 }
 use LaneSide::{Left, Right};
+pub const SIDES: [LaneSide; 2] = [Left, Right];
 
-//
+// -----------
 // Model impls
-//
+// -----------
 
 impl BeltLane {
     pub fn from_belt(belt: BeltShape, coords: WorldCoords, entity: Entity) -> Self {
@@ -81,15 +82,67 @@ impl BeltLane {
         });
     }
 
+    pub fn add_to_head(&mut self, belt: BeltShape, coords: WorldCoords, entity: Entity) {
+        let left_offset = belt.left_num_pos();
+        let right_offset = belt.right_num_pos();
+        self.add_offsets_to_head(left_offset, right_offset);
+        self.belts.insert(
+            0,
+            BeltEntry {
+                belt,
+                coords,
+                entity,
+                ranges: Ranges {
+                    left: 0..left_offset,
+                    right: 0..right_offset,
+                },
+            },
+        );
+    }
+
+    pub fn merge(&mut self, mut other: BeltLane) {
+        let (left, right) = self.lengths();
+        other.add_offsets_to_head(left, right);
+        self.belts.extend(other.belts);
+        self.lanes.left.extend(other.lanes.left);
+        self.lanes.right.extend(other.lanes.right);
+    }
+
+    pub fn replace_belt(&mut self, old: Entity, new: Entity) -> Result<(), ()> {
+        let b = self.belts.iter_mut().find(|b| b.entity == old).ok_or(())?;
+        b.entity = new;
+        Ok(())
+    }
+
+    /// Returns (left, right)
+    pub fn lengths(&self) -> (i32, i32) {
+        let left = self.belts.last().unwrap().ranges.left.end;
+        let right = self.belts.last().unwrap().ranges.right.end;
+        (left, right)
+    }
+
+    fn add_offsets_to_head(&mut self, left_offset: i32, right_offset: i32) {
+        for belt in self.belts.iter_mut() {
+            belt.ranges.left.start += left_offset;
+            belt.ranges.right.start += right_offset;
+        }
+        for items in self.lanes.left.iter_mut() {
+            items.pos += left_offset;
+        }
+        for items in self.lanes.right.iter_mut() {
+            items.pos += right_offset;
+        }
+    }
+
     /// The pos in the `ItemEntry` is relative to the start of the belt, not the lane
-    pub fn add_item(&mut self, item: ItemEntry, lane: LaneSide, belt: Entity) -> Option<()> {
-        let entry = self.belts.iter().find(|b| b.entity == belt)?;
+    pub fn add_item(&mut self, item: ItemEntry, lane: LaneSide, belt: Entity) -> Result<(), ()> {
+        let entry = self.belts.iter().find(|b| b.entity == belt).ok_or(())?;
         let offset = entry.ranges[lane].start;
         self.lanes[lane].push(ItemEntry {
             pos: offset + item.pos,
             ..item
         });
-        Some(())
+        Ok(())
     }
 
     pub fn item_iter<'a>(
@@ -108,6 +161,53 @@ impl BeltLane {
             .map(move |entry| (entry.item, entry.pos, belt, LaneSide::Right, coords));
 
         left_items.chain(right_items)
+    }
+
+    pub fn range_for(&self, belt: Entity) -> Option<Ranges> {
+        todo!()
+    }
+
+    pub fn insert_item_at(&mut self, pos: i32, item: Entity, lane: LaneSide) {
+        todo!()
+    }
+
+    pub fn insert_items_at(&mut self, items: &[ItemEntry], side: LaneSide) {
+        for item in items {
+            self.lanes[side].push(*item);
+        }
+        self.lanes[side].sort();
+    }
+
+    pub fn belt_for(&self, pos: i32, lane: LaneSide) -> Option<Entity> {
+        todo!()
+    }
+
+    pub fn num_positions(&self, lane: LaneSide) -> i32 {
+        todo!()
+    }
+
+    pub fn relative_pos(&self, pos: i32, lane: LaneSide) -> i32 {
+        todo!()
+    }
+
+    pub fn prepend_fragment(&mut self, belt: BeltShape, coords: WorldCoords, entity: Entity) {
+        todo!()
+    }
+
+    fn shorten_by(&mut self, left_len: i32, right_len: i32) {
+        todo!()
+    }
+
+    pub fn remove_head(&mut self) -> Vec<(i32, Entity, LaneSide)> {
+        todo!()
+    }
+
+    pub fn remove_tail(&mut self) -> Vec<(i32, Entity, LaneSide)> {
+        todo!()
+    }
+
+    pub fn is_blocked_at(&self, offset: i32, lane: LaneSide) -> bool {
+        todo!()
     }
 }
 
@@ -226,7 +326,8 @@ mod tests {
             },
             LaneSide::Left,
             belt_ent,
-        );
+        )
+        .unwrap();
         let actual = lane.lanes[Left][0];
         let expected = ItemEntry {
             pos: 0,
@@ -260,7 +361,8 @@ mod tests {
             },
             LaneSide::Left,
             belt_ent_2,
-        );
+        )
+        .unwrap();
         let actual = lane.lanes[Left][0];
         let expected = ItemEntry {
             pos: POSITIONS_PER_BELT,
