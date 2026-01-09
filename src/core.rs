@@ -48,7 +48,7 @@ impl Plugin for CorePlugin {
         app.add_systems(Update, (link_belts, replace_items).chain());
         app.add_systems(
             PostUpdate,
-            (despawn_old_belt_entities, clear_changed_belts).chain(),
+            (despawn_old_entities, clear_changed_belts).chain(),
         );
     }
 }
@@ -96,6 +96,10 @@ pub enum HDir {
 
 #[derive(Component)]
 pub struct Belt;
+
+/// Entities with this will get deleted in `PostUpdate'
+#[derive(Component)]
+pub struct Delete;
 
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BeltShape {
@@ -179,19 +183,9 @@ pub struct ReplacedBelt {
 // Systems
 // -------
 
-fn despawn_old_belt_entities(
-    mut cmd: Commands,
-    mut belt_coords: ResMut<BeltCoords>,
-    changes: Res<BeltChanges>,
-) {
-    for change in changes.0.iter() {
-        let BeltChange::Removed(r) = change else {
-            continue;
-        };
-        cmd.entity(r.entity).despawn();
-        if Some((r.entity, r.old_belt)) == belt_coords.get(r.coords) {
-            belt_coords.remove(r.coords);
-        }
+fn despawn_old_entities(mut cmd: Commands, q: Query<Entity, With<Delete>>) {
+    for entity in q {
+        cmd.entity(entity).despawn();
     }
 }
 
@@ -228,6 +222,7 @@ fn on_place_belt(
             new_belt: belt,
             coords: event.coords,
         });
+        cmd.entity(old_entity).insert(Delete);
     } else {
         changes.push(NewBelt {
             entity: event.entity,

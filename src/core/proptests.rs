@@ -5,7 +5,7 @@ use proptest::prelude::*;
 
 fn execute_action_sequence(actions: Vec<Action>) {
     let mut app = test_app_with_invariants();
-    let mut state = TestState::new();
+    let mut state = TestState::default();
 
     for (i, action) in actions.iter().enumerate() {
         match action {
@@ -58,7 +58,6 @@ proptest! {
     #![proptest_config(ProptestConfig::with_cases(100))]
 
     #[test]
-    #[ignore = "curved belt merge logic not yet implemented"]
     fn arbitrary_action_sequences_maintain_invariants(
         actions in arb_action_sequence()
     ) {

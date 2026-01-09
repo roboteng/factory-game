@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc ed7cdeabc3c4cece699e484e6f8f2c2824a6c681463981339e1710c2b07de342 # shrinks to actions = [PlaceBelt { coords: WorldCoords { x: 2, y: -1, z: 0 }, dir: North }, PlaceBelt { coords: WorldCoords { x: 2, y: -1, z: 0 }, dir: North }]
