@@ -49,8 +49,6 @@ fn execute_action_sequence(actions: Vec<Action>) {
 
 fn test_app_with_invariants() -> App {
     let mut app = test_app();
-    #[cfg(feature = "invariant-ckeck")]
-    app.add_plugins(crate::core::invariants::InvariantsPlugin);
     app
 }
 

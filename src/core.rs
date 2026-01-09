@@ -4,7 +4,7 @@ use std::{collections::HashMap, f32::consts::PI, ops::Range};
 
 mod lane;
 
-#[cfg(feature = "invariant-ckeck")]
+#[cfg(feature = "invariant-check")]
 pub mod invariants;
 
 #[cfg(all(test, feature = "proptests"))]
@@ -38,6 +38,8 @@ pub const SIDES: [LaneSide; 2] = [LaneSide::Left, LaneSide::Right];
 pub struct CorePlugin;
 impl Plugin for CorePlugin {
     fn build(&self, app: &mut App) {
+        #[cfg(feature = "invariant-check")]
+        app.add_plugins(crate::core::invariants::InvariantsPlugin);
         app.add_observer(on_place_belt);
         app.add_observer(on_place_item);
         app.add_observer(on_remove_belt);
@@ -396,6 +398,10 @@ impl BeltCoords {
 
     pub fn remove(&mut self, coords: WorldCoords) -> Option<(Entity, BeltShape)> {
         self.0.remove(&coords)
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (&WorldCoords, &(Entity, BeltShape))> {
+        self.0.iter()
     }
 }
 
@@ -1259,6 +1265,15 @@ mod tests {
     use super::*;
     #[allow(unused_imports)]
     use pretty_assertions::{assert_eq, assert_ne};
+
+    #[test]
+    #[should_panic]
+    fn panics_on_invarient_failure() {
+        let mut app = test_app();
+        let world = app.world_mut();
+        world.spawn(InLane::new(Entity::from_raw_u32(2).unwrap()));
+        app.update();
+    }
 
     #[test]
     fn north_betl_placement() {

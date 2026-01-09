@@ -5,9 +5,9 @@ edition = "2024"
 resolver = "2"
 
 [features]
-default = ["invariant-ckeck", "ui"]
+default = ["invariant-check", "ui"]
 ui = ["bevy/3d","bevy/bevy_color", "dep:rand"]
-invariant-ckeck = []
+invariant-check = []
 proptests = ["dep:proptest", "dep:rand"]
 
 [dependencies]

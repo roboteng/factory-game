@@ -4,8 +4,6 @@ use bevy::prelude::*;
 use crate::core::*;
 
 mod core;
-#[cfg(feature = "invariant-ckeck")]
-mod invariants;
 mod sim;
 #[cfg(feature = "ui")]
 mod ui;
@@ -17,7 +15,7 @@ fn main() {
 
     #[cfg(feature = "ui")]
     app.add_plugins(ui::UiPlugin);
-    #[cfg(feature = "invariant-ckeck")]
+    #[cfg(feature = "invariant-check")]
     app.add_plugins(invariants::InvariantsPlugin);
 
     app.add_systems(Startup, setup);
