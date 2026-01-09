@@ -4,6 +4,14 @@ use std::{collections::HashMap, f32::consts::PI, ops::Range};
 
 mod lane;
 
+#[cfg(feature = "invariant-ckeck")]
+pub mod invariants;
+
+#[cfg(all(test, feature = "proptests"))]
+mod proptest_actions;
+#[cfg(all(test, feature = "proptests"))]
+mod proptests;
+
 pub const BLOCK_SIZE: f32 = 2.0;
 pub const HALF_BLOCK_SIZE: f32 = BLOCK_SIZE / 2.0;
 pub const ITEM_SIZE: f32 = BLOCK_SIZE / 4.0;
@@ -18,10 +26,14 @@ pub const LANE_OFFSET: f32 = LANE_OFFSET_FACTOR * BLOCK_SIZE;
 
 pub const POSITIONS_PER_BELT: i32 = 256;
 pub const ITEM_SPACING: i32 = POSITIONS_PER_BELT / 4;
+pub const POSITIONS_PER_FRAGMENT: i32 =
+    (POSITIONS_PER_BELT as f32 * (1.0 - LANE_OFFSET_FACTOR * 2.0) / 2.0).round() as i32;
 pub const POSITIONS_PER_INNER_CURVE: i32 =
     ((0.5 - LANE_OFFSET_FACTOR) * POSITIONS_PER_BELT as f32 * PI / 2.0).round() as i32;
 pub const POSITIONS_PER_OUTER_CURVE: i32 =
     ((0.5 + LANE_OFFSET_FACTOR) * POSITIONS_PER_BELT as f32 * PI / 2.0).round() as i32;
+
+pub const SIDES: [LaneSide; 2] = [LaneSide::Left, LaneSide::Right];
 
 pub struct CorePlugin;
 impl Plugin for CorePlugin {
@@ -89,9 +101,9 @@ pub struct Belt;
 pub enum BeltShape {
     Straight(HDir),
     Curve(Curve),
+    Fragment(HDir),
 }
 
-#[expect(unused)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Curve {
     NorthToEast,
@@ -194,20 +206,20 @@ fn on_place_belt(
         event.entity, event.coords, event.dir
     );
 
-    // Check if there's an old belt at these coords
-    let old_entity_and_belt = belt_coords.get(event.coords);
-
     let belt = plan_belt_placement(&event, &belt_coords);
     let angle = belt.output().angle();
+
+    let old_entity_and_belt = belt_coords.get(event.coords);
 
     cmd.entity(event.entity).insert((
         Transform::from_translation(Vec3::from(event.coords))
             .with_rotation(Quat::from_rotation_y(angle)),
         Belt,
+        belt,
+        event.coords,
     ));
     belt_coords.insert(event.coords, event.entity, belt);
 
-    // Emit Replaced if replacing an existing belt, otherwise New
     if let Some((old_entity, old_belt)) = old_entity_and_belt {
         changes.push(ReplacedBelt {
             entity: event.entity,
@@ -435,12 +447,14 @@ impl BeltShape {
         match self {
             Self::Straight(dir) => *dir,
             Self::Curve(curve) => curve.output(),
+            Self::Fragment(dir) => *dir,
         }
     }
     pub fn input(&self) -> HDir {
         match self {
             Self::Straight(dir) => *dir,
             Self::Curve(curve) => curve.input(),
+            Self::Fragment(dir) => *dir,
         }
     }
 
@@ -461,6 +475,7 @@ impl BeltShape {
                     POSITIONS_PER_INNER_CURVE
                 }
             }
+            Self::Fragment(_) => POSITIONS_PER_FRAGMENT,
         }
     }
     pub fn right_num_pos(&self) -> i32 {
@@ -473,6 +488,7 @@ impl BeltShape {
                     POSITIONS_PER_OUTER_CURVE
                 }
             }
+            Self::Fragment(_) => POSITIONS_PER_FRAGMENT,
         }
     }
 }
@@ -760,6 +776,7 @@ pub fn item_position(
             )
             .with_rotation(Quat::from_rotation_y(angle + PI / 2.0))
         }
+        BeltShape::Fragment(dir) => todo!(),
     }
 }
 
@@ -913,6 +930,7 @@ fn new_belt(
                 side_ent,
                 new.belt.output(),
                 new.coords.step(new.belt.output()),
+                side,
             );
 
             world.entity_mut(new.entity).insert(InLane::new(lane_ent));
@@ -931,9 +949,12 @@ fn new_belt(
                 side_ent,
                 new.belt.output(),
                 new.coords.step(new.belt.output()),
+                side,
             );
-            let len = new.belt.num_pos(side);
-            update_connection_offsets_for_lane(world, lane_ent, side, len);
+            for side in SIDES {
+                let len = new.belt.num_pos(side);
+                update_connection_offsets_for_lane(world, lane_ent, side, len);
+            }
 
             world.entity_mut(new.entity).insert(InLane::new(lane_ent));
         }
@@ -954,6 +975,7 @@ fn new_belt(
                 new.entity,
                 new.belt.output().right(),
                 new.coords,
+                LaneSide::Left,
             );
         }
 
@@ -970,6 +992,7 @@ fn new_belt(
                 new.entity,
                 new.belt.output().left(),
                 new.coords,
+                LaneSide::Right,
             );
         }
     }
@@ -1091,8 +1114,25 @@ fn create_sideload_connection(
     target_belt_ent: Entity,
     source_dir: HDir,
     intersection_coords: WorldCoords,
+    side: LaneSide,
 ) {
-    todo!()
+    let target_lane_ent = get_lane_entity(world, target_belt_ent);
+    let target_lane = get_lane(world, target_lane_ent);
+
+    // Get the ranges for the target belt
+    let ranges = target_lane.range_for(target_belt_ent).unwrap();
+
+    let offset = (ranges[side].start + ranges[side].end) / 2;
+
+    // Create the connection
+    world.entity_mut(source_lane_ent).insert(LaneConnection {
+        target: target_lane_ent,
+        offset,
+        side,
+    });
+
+    // TODO: Add fragment for visual representation
+    // For now, skip fragment creation as it's mainly cosmetic
 }
 
 fn get_lane_entity(world: &mut World, belt_ent: Entity) -> Entity {
@@ -1120,7 +1160,31 @@ fn update_connection_offsets_for_lane(
     side: LaneSide,
     offset: i32,
 ) {
-    todo!()
+    // Update connection on this lane (if present and matches side)
+    if let Some(mut conn) = world.entity_mut(lane_ent).get_mut::<LaneConnection>() {
+        conn.offset += offset;
+    }
+
+    // Update loop connection on this lane (if present)
+    if let Some(mut conn) = world.entity_mut(lane_ent).get_mut::<LaneLoopConnection>() {
+        conn.left_offset += offset;
+        conn.right_offset += offset;
+    }
+
+    // Find and update all connections pointing to this lane
+    let mut conns_to_update: Vec<Entity> = Vec::new();
+    let mut query = world.query::<(Entity, &LaneConnection)>();
+    for (source_ent, conn) in query.iter(world) {
+        if conn.target == lane_ent {
+            conns_to_update.push(source_ent);
+        }
+    }
+
+    for source_ent in conns_to_update {
+        if let Some(mut conn) = world.entity_mut(source_ent).get_mut::<LaneConnection>() {
+            conn.offset += offset;
+        }
+    }
 }
 
 fn assert_close(left: Vec3, right: Vec3) {
@@ -1155,6 +1219,47 @@ pub fn test_app() -> App {
 }
 
 #[cfg(test)]
+pub trait AppExtension {
+    fn add_belt(&mut self, coords: impl Into<WorldCoords>, dir: HDir) -> Entity;
+    fn add_item(&mut self, belt: Entity, pos: i32, lane: LaneSide) -> Entity;
+    fn find_item(&mut self, item: Entity) -> Option<(Item, Transform)>;
+}
+
+#[cfg(test)]
+impl AppExtension for App {
+    fn add_belt(&mut self, coords: impl Into<WorldCoords>, dir: HDir) -> Entity {
+        let entity = self.world_mut().spawn_empty().id();
+        self.world_mut().trigger(PlaceBelt {
+            entity,
+            dir,
+            coords: coords.into(),
+        });
+        entity
+    }
+
+    fn add_item(&mut self, belt: Entity, pos: i32, lane: LaneSide) -> Entity {
+        let entity = self.world_mut().spawn_empty().id();
+        self.world_mut().trigger(PlaceItem {
+            entity,
+            item: Item(0),
+            belt,
+            lane,
+            position: pos,
+        });
+        entity
+    }
+
+    fn find_item(&mut self, item: Entity) -> Option<(Item, Transform)> {
+        let world = self.world_mut();
+        world
+            .query::<(&Item, &Transform)>()
+            .get(world, item)
+            .ok()
+            .map(|(item, transform)| (*item, *transform))
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     #[allow(unused_imports)]
@@ -1164,12 +1269,7 @@ mod tests {
     fn north_betl_placement() {
         let mut app = test_app();
 
-        let entity = app.world_mut().spawn_empty().id();
-        app.world_mut().trigger(PlaceBelt {
-            entity,
-            coords: (0, 0, 0).into(),
-            dir: HDir::North,
-        });
+        let entity = app.add_belt((0, 0, 0), HDir::North);
         app.update();
 
         let world = app.world_mut();
@@ -1182,12 +1282,7 @@ mod tests {
     fn east_betl_placement() {
         let mut app = test_app();
 
-        let entity = app.world_mut().spawn_empty().id();
-        app.world_mut().trigger(PlaceBelt {
-            entity,
-            coords: (0, 0, 0).into(),
-            dir: HDir::East,
-        });
+        let entity = app.add_belt((0, 0, 0), HDir::East);
         app.update();
 
         let world = app.world_mut();
@@ -1319,23 +1414,12 @@ mod tests {
     #[test]
     fn item_on_belt() {
         let mut app = test_app();
-        let entity = app.world_mut().spawn_empty().id();
-        app.world_mut().trigger(PlaceBelt {
-            entity,
-            coords: (0, 0, 0).into(),
-            dir: HDir::North,
-        });
+        let entity = app.add_belt((0, 0, 0), HDir::North);
         app.update();
 
+        let item_ent = app.add_item(entity, 0, LaneSide::Left);
+
         let world = app.world_mut();
-        let item_ent = world.spawn_empty().id();
-        world.trigger(PlaceItem {
-            entity: item_ent,
-            item: Item(0),
-            belt: entity,
-            lane: LaneSide::Left,
-            position: 0,
-        });
         let mut q = world.query::<&BeltLane>();
         let actual = q.single(world).unwrap();
         let expected = BeltLane {

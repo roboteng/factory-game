@@ -164,11 +164,10 @@ impl BeltLane {
     }
 
     pub fn range_for(&self, belt: Entity) -> Option<Ranges> {
-        todo!()
-    }
-
-    pub fn insert_item_at(&mut self, pos: i32, item: Entity, lane: LaneSide) {
-        todo!()
+        self.belts
+            .iter()
+            .find(|b| b.entity == belt)
+            .map(|b| b.ranges.clone())
     }
 
     pub fn insert_items_at(&mut self, items: &[ItemEntry], side: LaneSide) {
@@ -179,27 +178,74 @@ impl BeltLane {
     }
 
     pub fn belt_for(&self, pos: i32, lane: LaneSide) -> Option<Entity> {
-        todo!()
+        self.belts
+            .iter()
+            .find(|b| b.ranges[lane].contains(&pos))
+            .map(|b| b.entity)
     }
 
     pub fn num_positions(&self, lane: LaneSide) -> i32 {
-        todo!()
+        self.belts.last().map(|b| b.ranges[lane].end).unwrap_or(0)
     }
 
     pub fn relative_pos(&self, pos: i32, lane: LaneSide) -> i32 {
-        todo!()
+        self.belts
+            .iter()
+            .find(|b| b.ranges[lane].contains(&pos))
+            .map(|b| pos - b.ranges[lane].start)
+            .unwrap()
     }
 
-    pub fn prepend_fragment(&mut self, belt: BeltShape, coords: WorldCoords, entity: Entity) {
-        todo!()
+    pub fn prepend_fragment(&mut self, output: HDir, coords: WorldCoords, entity: Entity) {
+        self.add_offsets_to_head(POSITIONS_PER_FRAGMENT, POSITIONS_PER_FRAGMENT);
+        self.belts.insert(
+            0,
+            BeltEntry {
+                belt: BeltShape::Fragment(output),
+                coords,
+                entity,
+                ranges: Ranges {
+                    left: 0..POSITIONS_PER_FRAGMENT,
+                    right: 0..POSITIONS_PER_FRAGMENT,
+                },
+            },
+        );
     }
 
     fn shorten_by(&mut self, left_len: i32, right_len: i32) {
-        todo!()
+        self.lanes[Left]
+            .iter_mut()
+            .for_each(|item| item.pos -= left_len);
+        self.lanes[Right]
+            .iter_mut()
+            .for_each(|item| item.pos -= right_len);
+        self.belts.iter_mut().for_each(|belt| {
+            belt.ranges.left.start -= left_len;
+            belt.ranges.left.end -= left_len;
+            belt.ranges.right.start -= right_len;
+            belt.ranges.right.end -= right_len;
+        });
     }
 
     pub fn remove_head(&mut self) -> (Vec<ItemEntry>, Vec<ItemEntry>) {
-        todo!()
+        let head = self.belts.remove(0);
+
+        // Process left lane
+        let part = self.lanes[Left].partition_point(|item| head.ranges[Left].contains(&item.pos));
+        let (head_items, keep_items) = self.lanes[Left].split_at_mut(part);
+        let keep = Vec::from(keep_items);
+        let left = Vec::from_iter(head_items.iter().cloned());
+        self.lanes[Left] = keep;
+
+        // Process right lane
+        let part = self.lanes[Right].partition_point(|item| head.ranges[Right].contains(&item.pos));
+        let (head_items, keep_items) = self.lanes[Right].split_at_mut(part);
+        let keep = Vec::from(keep_items);
+        let right = Vec::from_iter(head_items.iter().cloned());
+        self.lanes[Right] = keep;
+
+        self.shorten_by(head.ranges.left.end, head.ranges.right.end);
+        (left, right)
     }
 
     pub fn remove_tail(&mut self) -> (Vec<ItemEntry>, Vec<ItemEntry>) {
@@ -222,8 +268,11 @@ impl BeltLane {
         (left, right)
     }
 
-    pub fn is_blocked_at(&self, offset: i32, lane: LaneSide) -> bool {
-        todo!()
+    pub fn is_blocking_at(&self, offset: i32, lane: LaneSide) -> bool {
+        debug!("Checking if {:?} blocked at {}", self, offset);
+        self.lanes[lane]
+            .iter()
+            .any(|item| item.pos >= offset - ITEM_SPACING && item.pos < offset)
     }
 }
 
