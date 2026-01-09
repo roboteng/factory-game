@@ -59,14 +59,14 @@ impl Plugin for CorePlugin {
 // Models
 // ------
 
-#[derive(EntityEvent)]
+#[derive(EntityEvent, Debug)]
 pub struct PlaceBelt {
     pub entity: Entity,
     pub coords: WorldCoords,
     pub dir: HDir,
 }
 
-#[derive(EntityEvent)]
+#[derive(EntityEvent, Debug)]
 pub struct PlaceItem {
     pub entity: Entity,
     pub item: Item,
@@ -1452,5 +1452,21 @@ mod tests {
             },
         };
         assert_eq!(*actual, expected);
+    }
+
+    #[test]
+    fn belt_has_inlane() {
+        let mut app = test_app();
+        let mut world = app.world_mut();
+        let entity = world.spawn_empty().id();
+        world.trigger(PlaceBelt {
+            entity,
+            dir: HDir::North,
+            coords: (0, 0, 0).into(),
+        });
+        app.update();
+
+        let mut world = app.world_mut();
+        world.query::<&InLane>().single(world).unwrap();
     }
 }

@@ -15,8 +15,6 @@ fn main() {
 
     #[cfg(feature = "ui")]
     app.add_plugins(ui::UiPlugin);
-    #[cfg(feature = "invariant-check")]
-    app.add_plugins(invariants::InvariantsPlugin);
 
     app.add_systems(Startup, setup);
     app.add_systems(Update, update);

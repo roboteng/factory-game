@@ -14,10 +14,10 @@ impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(ClearColor(Color::srgb(0.01, 0.01, 0.05))); // Dark night sky
         app.add_systems(Startup, setup);
-        app.add_systems(Update, camera_movement);
+        app.add_systems(PreUpdate, camera_movement);
         app.add_systems(Update, camera_look);
-        app.add_systems(Update, handle_click_to_place);
-        app.add_systems(Update, handle_place_item_on_belt);
+        app.add_systems(PreUpdate, handle_click_to_place);
+        app.add_systems(PreUpdate, handle_place_item_on_belt);
         app.add_systems(Update, cursor_grab.after(handle_click_to_place));
         app.add_observer(on_place_belt);
         app.add_observer(on_place_item);
@@ -372,7 +372,8 @@ fn handle_click_to_place(
     mut cmd: Commands,
 ) {
     // Only handle clicks when cursor is grabbed (in game mode)
-    if !mouse.just_pressed(MouseButton::Left) || cursor_options.grab_mode != CursorGrabMode::Locked {
+    if !mouse.just_pressed(MouseButton::Left) || cursor_options.grab_mode != CursorGrabMode::Locked
+    {
         return;
     }
 
@@ -404,12 +405,11 @@ fn handle_click_to_place(
     // Convert world position to WorldCoords
     // WorldCoords are discrete grid coordinates, world positions are multiplied by BLOCK_SIZE (2.0)
     let world_x = (intersection.x / BLOCK_SIZE).round() as i32;
-    let world_y = (intersection.y / BLOCK_SIZE).round() as i32;
     let world_z = (intersection.z / BLOCK_SIZE).round() as i32;
 
     let coords = WorldCoords {
         x: world_x,
-        y: world_y,
+        y: 0,
         z: world_z,
     };
 
@@ -423,11 +423,13 @@ fn handle_click_to_place(
 
     // Create entity and trigger PlaceBelt event
     let entity = cmd.spawn_empty().id();
-    cmd.trigger(PlaceBelt {
+    let event = PlaceBelt {
         entity,
         coords,
         dir,
-    });
+    };
+    debug!("Triggering: {event:?}");
+    cmd.trigger(event);
 }
 
 fn angle_to_hdir(angle: f32) -> HDir {
@@ -490,12 +492,9 @@ fn handle_place_item_on_belt(
         let belt_center = Vec3::from(*coords);
 
         // Ray-AABB intersection test
-        if let Some((t, hit_point)) = ray_box_intersection(
-            ray_origin,
-            ray_dir,
-            belt_center,
-            Vec3::splat(BLOCK_SIZE),
-        ) {
+        if let Some((t, hit_point)) =
+            ray_box_intersection(ray_origin, ray_dir, belt_center, Vec3::splat(BLOCK_SIZE))
+        {
             if closest_hit.is_none() || t < closest_hit.as_ref().unwrap().0 {
                 closest_hit = Some((t, *entity, *belt_shape, *coords, hit_point));
             }
@@ -540,13 +539,15 @@ fn handle_place_item_on_belt(
 
         // Create item entity and trigger PlaceItem event
         let item_entity = cmd.spawn_empty().id();
-        cmd.trigger(PlaceItem {
+        let event = PlaceItem {
             entity: item_entity,
             item: Item(0),
             belt: belt_entity,
             lane,
             position,
-        });
+        };
+        debug!("triggering: {event:?}");
+        cmd.trigger(event);
     }
 }
 
