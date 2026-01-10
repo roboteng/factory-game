@@ -14,11 +14,15 @@ impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(ClearColor(Color::srgb(0.01, 0.01, 0.05))); // Dark night sky
         app.add_systems(Startup, setup);
+
+        // Systems that trigger events Must run in PreUpdate
         app.add_systems(PreUpdate, camera_movement);
-        app.add_systems(Update, camera_look);
         app.add_systems(PreUpdate, handle_click_to_place);
         app.add_systems(PreUpdate, handle_place_item_on_belt);
+
+        app.add_systems(Update, camera_look);
         app.add_systems(Update, cursor_grab.after(handle_click_to_place));
+
         app.add_observer(on_place_belt);
         app.add_observer(on_place_item);
     }
