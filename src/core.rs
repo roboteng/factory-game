@@ -34,7 +34,6 @@ pub const POSITIONS_PER_INNER_CURVE: i32 =
     ((0.5 - LANE_OFFSET_FACTOR) * POSITIONS_PER_BELT as f32 * PI / 2.0).round() as i32;
 pub const POSITIONS_PER_OUTER_CURVE: i32 =
     ((0.5 + LANE_OFFSET_FACTOR) * POSITIONS_PER_BELT as f32 * PI / 2.0).round() as i32;
-pub const POSITIONS_PER_CURVED_BELT: i32 = POSITIONS_PER_OUTER_CURVE; // Use outer curve as reference
 pub const ITEMS_PER_BELT: i32 = POSITIONS_PER_BELT / ITEM_SPACING;
 
 pub const SIDES: [LaneSide; 2] = [LaneSide::Left, LaneSide::Right];
@@ -135,8 +134,9 @@ pub struct Item(pub u32);
 #[derive(Debug, Component)]
 pub struct LaneConnection {
     pub target: Entity,
-    pub offset: i32,
-    pub side: LaneSide,
+    pub left_offset: i32,
+    pub right_offset: i32,
+    pub target_side: LaneSide,
 }
 #[derive(Debug, Component)]
 pub struct LaneLoopConnection {
@@ -1115,11 +1115,41 @@ fn ahead_connected_belt(
                 if ahead.input().opposite() == dir {
                     None
                 } else {
-                    let side = LaneSide::Left; // TODO
-                    Some((entity, ahead, ConnectionType::SideLoad(side)))
+                    // Determine which side of the target belt this is sideloading into
+                    let target_side = determine_sideload_target_side(dir, ahead.input());
+                    Some((entity, ahead, ConnectionType::SideLoad(target_side)))
                 }
             }
         })
+}
+
+/// Determine which side of the target belt a sideloading connection targets
+/// based on the direction the source is coming from and the target's input direction
+fn determine_sideload_target_side(source_dir: HDir, target_input: HDir) -> LaneSide {
+    use HDir::*;
+    use LaneSide::*;
+
+    // From the perspective of someone standing on the target belt facing its input direction,
+    // determine if the source is approaching from the left or right
+    match (target_input, source_dir) {
+        // Target inputs from North (x+), determine if source is on left or right
+        (North, West) => Right, // Coming from West (z-) is on the right
+        (North, East) => Left,  // Coming from East (z+) is on the left
+
+        // Target inputs from South (x-), determine if source is on left or right
+        (South, East) => Right, // Coming from East (z+) is on the right
+        (South, West) => Left,  // Coming from West (z-) is on the left
+
+        // Target inputs from East (z+), determine if source is on left or right
+        (East, North) => Right, // Coming from North (x+) is on the right
+        (East, South) => Left,  // Coming from South (x-) is on the left
+
+        // Target inputs from West (z-), determine if source is on left or right
+        (West, South) => Right, // Coming from South (x-) is on the right
+        (West, North) => Left,  // Coming from North (x+) is on the left
+
+        _ => unreachable!("Invalid sideload: source {:?}, target {:?}", source_dir, target_input),
+    }
 }
 
 fn behind_connected_belt(
@@ -1140,7 +1170,7 @@ fn create_sideload_connection(
     target_belt_ent: Entity,
     source_dir: HDir,
     intersection_coords: WorldCoords,
-    side: LaneSide,
+    target_side: LaneSide,
 ) {
     let target_lane_ent = get_lane_entity(world, target_belt_ent);
     let target_lane = get_lane(world, target_lane_ent);
@@ -1148,13 +1178,22 @@ fn create_sideload_connection(
     // Get the ranges for the target belt
     let ranges = target_lane.range_for(target_belt_ent).unwrap();
 
-    let offset = (ranges[side].start + ranges[side].end) / 2;
+    // Find the centerpoint of the target belt range
+    let center = (ranges[target_side].start + ranges[target_side].end) / 2;
+
+    // Calculate lane offset
+    let lane_offset = (LANE_OFFSET_FACTOR * POSITIONS_PER_BELT as f32) as i32;
+
+    // Items from the "earlier" lane go ahead, "later" lane goes behind
+    let left_offset = center + lane_offset;
+    let right_offset = center - lane_offset;
 
     // Create the connection
     world.entity_mut(source_lane_ent).insert(LaneConnection {
         target: target_lane_ent,
-        offset,
-        side,
+        left_offset,
+        right_offset,
+        target_side,
     });
 
     // TODO: Add fragment for visual representation
@@ -1186,18 +1225,9 @@ fn update_connection_offsets_for_lane(
     side: LaneSide,
     offset: i32,
 ) {
-    // Update connection on this lane (if present and matches side)
-    if let Some(mut conn) = world.entity_mut(lane_ent).get_mut::<LaneConnection>() {
-        conn.offset += offset;
-    }
+    // Loops can't change length
 
-    // Update loop connection on this lane (if present)
-    if let Some(mut conn) = world.entity_mut(lane_ent).get_mut::<LaneLoopConnection>() {
-        conn.left_offset += offset;
-        conn.right_offset += offset;
-    }
-
-    // Find and update all connections pointing to this lane
+    // Find and update all connections pointing to this lane (sideload connections)
     let mut conns_to_update: Vec<Entity> = Vec::new();
     let mut query = world.query::<(Entity, &LaneConnection)>();
     for (source_ent, conn) in query.iter(world) {
@@ -1206,9 +1236,13 @@ fn update_connection_offsets_for_lane(
         }
     }
 
+    // For sideload connections, update both sides
     for source_ent in conns_to_update {
         if let Some(mut conn) = world.entity_mut(source_ent).get_mut::<LaneConnection>() {
-            conn.offset += offset;
+            if side == conn.target_side {
+                conn.left_offset += offset;
+                conn.right_offset += offset
+            }
         }
     }
 }

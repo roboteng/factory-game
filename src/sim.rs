@@ -137,19 +137,35 @@ fn transfers(
             continue;
         }
 
-        // Check the specified side for items to transfer
-        let side = conn.side;
-        if let Some(item_entry) = source_lane.lanes[side].first().copied() {
+        // Check left lane for items to transfer
+        if let Some(item_entry) = source_lane.lanes[LaneSide::Left].first().copied() {
             debug!("item at pos: {}", item_entry.pos);
             if item_entry.pos < BASE_BELT_SPEED {
-                source_lane.lanes[side].remove(0);
+                source_lane.lanes[LaneSide::Left].remove(0);
                 let mut target_lane = lanes.get_mut(conn.target).unwrap();
                 target_lane.insert_items_at(
                     &[ItemEntry {
-                        pos: conn.offset,
+                        pos: conn.left_offset,
                         ..item_entry
                     }],
-                    side,
+                    conn.target_side,
+                );
+            }
+        }
+
+        // Check right lane for items to transfer
+        let mut source_lane = lanes.get_mut(source_ent).unwrap();
+        if let Some(item_entry) = source_lane.lanes[LaneSide::Right].first().copied() {
+            debug!("item at pos: {}", item_entry.pos);
+            if item_entry.pos < BASE_BELT_SPEED {
+                source_lane.lanes[LaneSide::Right].remove(0);
+                let mut target_lane = lanes.get_mut(conn.target).unwrap();
+                target_lane.insert_items_at(
+                    &[ItemEntry {
+                        pos: conn.right_offset,
+                        ..item_entry
+                    }],
+                    conn.target_side,
                 );
             }
         }
@@ -329,15 +345,20 @@ mod tests {
         app.add_belt((1, 0, 1), HDir::West);
         let belt = app.add_belt((1, 0, 0), HDir::South);
         app.update();
-        let item = app.add_item(belt, 0, LaneSide::Left);
+        let item1 = app.add_item(belt, 0, LaneSide::Left);
+        let item2 = app.add_item(belt, 0, LaneSide::Right);
         app.update();
-        let mut prev_pos = app.find_item(item).unwrap().1.translation;
+        let mut prev_pos1 = app.find_item(item1).unwrap().1.translation;
+        let mut prev_pos2 = app.find_item(item2).unwrap().1.translation;
         app.update();
         // Loop through multiple cycles to verify item keeps moving
-        for _ in 0..(POSITIONS_PER_CURVED_BELT * 4 / BASE_BELT_SPEED + BASE_BELT_SPEED) {
-            let pos = app.find_item(item).unwrap().1.translation;
-            assert_ne!(pos, prev_pos, "Item should keep moving in loop");
-            prev_pos = pos;
+        for _ in 0..(POSITIONS_PER_OUTER_CURVE * 4 / BASE_BELT_SPEED + BASE_BELT_SPEED) {
+            let pos = app.find_item(item1).unwrap().1.translation;
+            assert_ne!(pos, prev_pos1, "Item should keep moving in loop");
+            prev_pos1 = pos;
+            let pos = app.find_item(item2).unwrap().1.translation;
+            assert_ne!(pos, prev_pos2, "Item should keep moving in loop");
+            prev_pos2 = pos;
             app.update();
         }
     }
@@ -420,5 +441,37 @@ mod tests {
         app.update();
         let actual = dist(&mut app, first_item, last_item);
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn side_loading_starts_earlier_lane() {
+        let mut app = test_app();
+        app.add_belt((0, 0, 0), HDir::North);
+        app.add_belt((-1, 0, 0), HDir::North);
+        app.update();
+        let side_load_belt = app.add_belt((0, 0, 1), HDir::West);
+        app.update();
+        let item = app.add_item(side_load_belt, 0, LaneSide::Left);
+        app.update();
+        let init_pos = app.find_item(item).unwrap().1.translation;
+        app.update();
+        let next_pos = app.find_item(item).unwrap().1.translation;
+        assert_ne!(init_pos, next_pos);
+    }
+
+    #[test]
+    fn side_loading_starts_later_lane() {
+        let mut app = test_app();
+        app.add_belt((0, 0, 0), HDir::North);
+        app.add_belt((-1, 0, 0), HDir::North);
+        app.update();
+        let side_load_belt = app.add_belt((0, 0, 1), HDir::West);
+        app.update();
+        let item = app.add_item(side_load_belt, 0, LaneSide::Right);
+        app.update();
+        let init_pos = app.find_item(item).unwrap().1.translation;
+        app.update();
+        let next_pos = app.find_item(item).unwrap().1.translation;
+        assert_ne!(init_pos, next_pos);
     }
 }
