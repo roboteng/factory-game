@@ -316,7 +316,11 @@ fn check_item_movement(
         let prev_pos = prev_transform.0.translation.xy();
         let distance = current_pos.distance(prev_pos);
 
-        const MAX_MOVEMENT: f32 = 2.0 / BLOCK_SIZE;
+        // 4.0 seems to be how much an item moves on a straight belt.
+        // We'll need to update this when we add faster belts.
+        // 5.0 gives us a little margin of error, but not much.
+        const MAX_MOVEMENT: f32 =
+            5.0 * BASE_BELT_SPEED as f32 / POSITIONS_PER_BELT as f32 / BLOCK_SIZE;
         if distance > MAX_MOVEMENT {
             panic!(
                 "INVARIANT VIOLATION: Item {:?} moved {:.2} pixels in one frame (max {:.2}). Previous: {:?}, Current: {:?}",
