@@ -35,7 +35,9 @@ impl Plugin for InvariantsPlugin {
                 check_inlane_bidirectional,
                 check_adjacent_belts_in_lane_are_connected,
                 (check_item_movement, update_previous_transforms).chain(),
-            ),
+                super::clear_changed_belts,
+            )
+                .chain(),
         );
     }
 }
@@ -259,6 +261,7 @@ fn check_adjacent_belts_in_lane_are_connected(
 fn check_item_movement(
     belt_changes: Res<BeltChanges>,
     lanes: Query<(Entity, &BeltLane)>,
+    loop_lanes: Query<Entity, With<super::LaneLoopConnection>>,
     items_with_prev: Query<(Entity, &Transform, &PreviousTransform), With<Item>>,
     belts: Query<&WorldCoords, With<Belt>>,
 ) {
@@ -277,28 +280,35 @@ fn check_item_movement(
         })
         .collect();
 
-    let mut item_to_belt = std::collections::HashMap::new();
-    for (_lane_entity, lane) in lanes.iter() {
-        for item_entry in lane.lanes.left.iter().chain(lane.lanes.right.iter()) {
-            let belt_ent = lane
-                .belt_for(item_entry.pos, LaneSide::Left)
-                .or_else(|| lane.belt_for(item_entry.pos, LaneSide::Right));
-            if let Some(belt_ent) = belt_ent {
-                item_to_belt.insert(item_entry.entity, belt_ent);
+    // Build a set of lanes that contain changed belts or are loop lanes
+    let mut changed_lanes = std::collections::HashSet::new();
+    for (lane_entity, lane) in lanes.iter() {
+        for belt_entry in &lane.belts {
+            if changed_belts.contains(&belt_entry.entity) {
+                changed_lanes.insert(lane_entity);
+                break;
             }
+        }
+    }
+    // Also skip lanes with loop connections (items can jump large distances when looping)
+    for loop_lane_ent in loop_lanes.iter() {
+        changed_lanes.insert(loop_lane_ent);
+    }
+
+    let mut item_to_lane = std::collections::HashMap::new();
+    for (lane_entity, lane) in lanes.iter() {
+        for item_entry in lane.lanes.left.iter().chain(lane.lanes.right.iter()) {
+            item_to_lane.insert(item_entry.entity, lane_entity);
         }
     }
 
     for (item_entity, transform, prev_transform) in items_with_prev.iter() {
-        let Some(&belt_ent) = item_to_belt.get(&item_entity) else {
+        let Some(&lane_ent) = item_to_lane.get(&item_entity) else {
             continue;
         };
 
-        let Ok(expected_coords) = belts.get(belt_ent) else {
-            continue;
-        };
-
-        if changed_belts.contains(&belt_ent) {
+        // Skip items in lanes that have changed belts
+        if changed_lanes.contains(&lane_ent) {
             continue;
         }
 

@@ -10,6 +10,7 @@ use super::*;
 pub struct BeltLane {
     pub belts: Vec<BeltEntry>,
     pub lanes: Lanes,
+    pub is_blocked: bool,
 }
 
 #[derive(Debug, PartialEq, Eq, Default, Clone)]
@@ -64,6 +65,7 @@ impl BeltLane {
                 },
             }],
             lanes: default(),
+            is_blocked: false,
         }
     }
 
@@ -124,7 +126,9 @@ impl BeltLane {
     fn add_offsets_to_head(&mut self, left_offset: i32, right_offset: i32) {
         for belt in self.belts.iter_mut() {
             belt.ranges.left.start += left_offset;
+            belt.ranges.left.end += left_offset;
             belt.ranges.right.start += right_offset;
+            belt.ranges.right.end += right_offset;
         }
         for items in self.lanes.left.iter_mut() {
             items.pos += left_offset;
@@ -148,17 +152,29 @@ impl BeltLane {
     pub fn item_iter<'a>(
         &'a self,
     ) -> impl Iterator<Item = (Item, i32, BeltShape, LaneSide, WorldCoords)> + 'a {
-        let belt_entry = &self.belts[0];
-        let belt = belt_entry.belt;
-        let coords = belt_entry.coords;
+        let left_items = self.lanes[Left].iter().map(move |entry| {
+            let belt_entry = self.belt_for(entry.pos, LaneSide::Left).unwrap();
+            let relative_pos = entry.pos - belt_entry.ranges.left.start;
+            (
+                entry.item,
+                relative_pos,
+                belt_entry.belt,
+                LaneSide::Left,
+                belt_entry.coords,
+            )
+        });
 
-        let left_items = self.lanes[Left]
-            .iter()
-            .map(move |entry| (entry.item, entry.pos, belt, LaneSide::Left, coords));
-
-        let right_items = self.lanes[Right]
-            .iter()
-            .map(move |entry| (entry.item, entry.pos, belt, LaneSide::Right, coords));
+        let right_items = self.lanes[Right].iter().map(move |entry| {
+            let belt_entry = self.belt_for(entry.pos, LaneSide::Right).unwrap();
+            let relative_pos = entry.pos - belt_entry.ranges.right.start;
+            (
+                entry.item,
+                relative_pos,
+                belt_entry.belt,
+                LaneSide::Right,
+                belt_entry.coords,
+            )
+        });
 
         left_items.chain(right_items)
     }
@@ -177,11 +193,10 @@ impl BeltLane {
         self.lanes[side].sort();
     }
 
-    pub fn belt_for(&self, pos: i32, lane: LaneSide) -> Option<Entity> {
+    pub fn belt_for(&self, pos: i32, lane: LaneSide) -> Option<&BeltEntry> {
         self.belts
             .iter()
             .find(|b| b.ranges[lane].contains(&pos))
-            .map(|b| b.entity)
     }
 
     pub fn num_positions(&self, lane: LaneSide) -> i32 {
@@ -273,6 +288,34 @@ impl BeltLane {
         self.lanes[lane]
             .iter()
             .any(|item| item.pos >= offset - ITEM_SPACING && item.pos < offset)
+    }
+
+    pub fn is_blocked_for_side(&self, _side: LaneSide) -> bool {
+        // For now, use the same blocking for both sides
+        // This could be made more sophisticated in the future
+        self.is_blocked
+    }
+
+    /// Update item positions for one simulation tick
+    pub fn tick(&mut self) {
+        for side in SIDES {
+            let is_blocked = self.is_blocked_for_side(side);
+            let base_offset = if is_blocked { ITEM_SPACING } else { 0 };
+
+            for (i, item_entry) in self.lanes[side].iter_mut().enumerate() {
+                // If item is ready to transfer (pos < BASE_BELT_SPEED) and blocked,
+                // don't apply base_offset to avoid large jump
+                let effective_base_offset = if item_entry.pos < BASE_BELT_SPEED && is_blocked {
+                    0
+                } else {
+                    base_offset
+                };
+                let furthest = effective_base_offset + i as i32 * ITEM_SPACING;
+                let k = (item_entry.pos - furthest).max(0);
+                item_entry.pos = (k - BASE_BELT_SPEED).max(0) + furthest;
+                debug!("Setting item at pos {}", item_entry.pos);
+            }
+        }
     }
 }
 
@@ -373,6 +416,7 @@ mod tests {
                 left: vec![],
                 right: vec![],
             },
+            is_blocked: false,
         };
         assert_eq!(lane, expected);
     }

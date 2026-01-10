@@ -26,12 +26,16 @@ pub const LANE_OFFSET: f32 = LANE_OFFSET_FACTOR * BLOCK_SIZE;
 
 pub const POSITIONS_PER_BELT: i32 = 256;
 pub const ITEM_SPACING: i32 = POSITIONS_PER_BELT / 4;
+pub const BASE_BELT_SPEED: i32 = 8; // Items move 8 positions per frame
+pub const BASE_ITEM_MOVEMENT: f32 = BLOCK_SIZE * BASE_BELT_SPEED as f32 / POSITIONS_PER_BELT as f32;
 pub const POSITIONS_PER_FRAGMENT: i32 =
     (POSITIONS_PER_BELT as f32 * (1.0 - LANE_OFFSET_FACTOR * 2.0) / 2.0).round() as i32;
 pub const POSITIONS_PER_INNER_CURVE: i32 =
     ((0.5 - LANE_OFFSET_FACTOR) * POSITIONS_PER_BELT as f32 * PI / 2.0).round() as i32;
 pub const POSITIONS_PER_OUTER_CURVE: i32 =
     ((0.5 + LANE_OFFSET_FACTOR) * POSITIONS_PER_BELT as f32 * PI / 2.0).round() as i32;
+pub const POSITIONS_PER_CURVED_BELT: i32 = POSITIONS_PER_OUTER_CURVE; // Use outer curve as reference
+pub const ITEMS_PER_BELT: i32 = POSITIONS_PER_BELT / ITEM_SPACING;
 
 pub const SIDES: [LaneSide; 2] = [LaneSide::Left, LaneSide::Right];
 
@@ -48,10 +52,12 @@ impl Plugin for CorePlugin {
         app.init_resource::<BeltChanges>();
 
         app.add_systems(Update, (link_belts, replace_items).chain());
-        app.add_systems(
-            PostUpdate,
-            (despawn_old_entities, clear_changed_belts).chain(),
-        );
+        app.add_systems(PostUpdate, despawn_old_entities);
+
+        // Only clear belt changes in PostUpdate if invariant checking is disabled
+        // Otherwise, it's cleared after invariant checks
+        #[cfg(not(feature = "invariant-check"))]
+        app.add_systems(PostUpdate, clear_changed_belts);
     }
 }
 
@@ -126,7 +132,6 @@ pub enum Curve {
 #[derive(Component, Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord)]
 pub struct Item(pub u32);
 
-#[expect(unused)]
 #[derive(Debug, Component)]
 pub struct LaneConnection {
     pub target: Entity,
@@ -138,6 +143,13 @@ pub struct LaneLoopConnection {
     pub target: Entity,
     pub left_offset: i32,
     pub right_offset: i32,
+}
+
+#[derive(Component, Debug, Clone, PartialEq, Eq)]
+pub struct DoubleBeltConnection {
+    pub target: Entity,
+    pub offset: i32,
+    pub other_lane: Entity,
 }
 
 #[derive(Component)]
@@ -244,10 +256,11 @@ fn on_place_belt(
         let new_belt = plan_belt_placement(&place, &belt_coords);
         if ahead_belt != new_belt {
             let angle = new_belt.output().angle();
-            // cmd.entity(place.entity)
-            //     .get_mut::<Transform>()
-            //     .unwrap()
-            //     .rotation = Quat::from_rotation_y(angle);
+            cmd.entity(place.entity).insert((
+                new_belt,
+                Transform::from_translation(Vec3::from(place.coords))
+                    .with_rotation(Quat::from_rotation_y(angle)),
+            ));
             belt_coords.insert(place.coords, place.entity, new_belt);
             changes.push(ReplacedBelt {
                 entity: place.entity,
@@ -260,7 +273,12 @@ fn on_place_belt(
     }
 }
 
-fn on_place_item(event: On<PlaceItem>, belts: Query<&InLane>, mut lanes: Query<&mut BeltLane>) {
+fn on_place_item(
+    event: On<PlaceItem>,
+    belts: Query<&InLane>,
+    mut lanes: Query<&mut BeltLane>,
+    mut commands: Commands,
+) {
     let lane_ent = belts.get(event.belt).unwrap().lane;
     let mut lane = lanes.get_mut(lane_ent).unwrap();
     lane.add_item(
@@ -273,10 +291,16 @@ fn on_place_item(event: On<PlaceItem>, belts: Query<&InLane>, mut lanes: Query<&
         event.belt,
     )
     .expect("Invarient broken");
+
+    // Add Item and Transform components to the entity
+    commands
+        .entity(event.entity)
+        .insert((event.item, Transform::default()));
 }
 
 fn on_remove_belt(
     event: On<RemoveBelt>,
+    mut cmd: Commands,
     belts: Query<(&BeltShape, &WorldCoords), With<Belt>>,
     mut changes: ResMut<BeltChanges>,
     mut belt_coords: ResMut<BeltCoords>,
@@ -297,6 +321,7 @@ fn on_remove_belt(
         old_belt: *belt,
         coords: *coords,
     });
+    cmd.entity(event.entity).insert(Delete);
 }
 
 fn replace_items(lanes: Query<&BeltLane>, mut items: Query<(&mut Item, &mut Transform)>) {
@@ -310,11 +335,11 @@ fn replace_items(lanes: Query<&BeltLane>, mut items: Query<(&mut Item, &mut Tran
     }
 }
 
-fn clear_changed_belts(mut changes: ResMut<BeltChanges>) {
+pub(crate) fn clear_changed_belts(mut changes: ResMut<BeltChanges>) {
     changes.clear();
 }
 
-fn link_belts(world: &mut World) {
+pub fn link_belts(world: &mut World) {
     let changed_belts = world.resource::<BeltChanges>().clone();
     if changed_belts.0.is_empty() {
         return;
@@ -364,24 +389,24 @@ impl WorldCoords {
     pub fn step(&self, dir: HDir) -> Self {
         match dir {
             HDir::North => Self {
-                x: self.x,
-                y: self.y,
-                z: self.z + 1,
-            },
-            HDir::East => Self {
                 x: self.x + 1,
                 y: self.y,
                 z: self.z,
             },
-            HDir::South => Self {
+            HDir::East => Self {
                 x: self.x,
                 y: self.y,
-                z: self.z - 1,
+                z: self.z + 1,
             },
-            HDir::West => Self {
+            HDir::South => Self {
                 x: self.x - 1,
                 y: self.y,
                 z: self.z,
+            },
+            HDir::West => Self {
+                x: self.x,
+                y: self.y,
+                z: self.z - 1,
             },
         }
     }
@@ -1216,6 +1241,7 @@ pub fn test_app() -> App {
     let mut app = App::new();
     app.add_plugins(MinimalPlugins);
     app.add_plugins(CorePlugin);
+    app.add_plugins(crate::sim::SimPlugin);
     app
 }
 
@@ -1224,6 +1250,7 @@ pub trait AppExtension {
     fn add_belt(&mut self, coords: impl Into<WorldCoords>, dir: HDir) -> Entity;
     fn add_item(&mut self, belt: Entity, pos: i32, lane: LaneSide) -> Entity;
     fn find_item(&mut self, item: Entity) -> Option<(Item, Transform)>;
+    fn remove_belt_at(&mut self, coords: impl Into<WorldCoords>) -> bool;
 }
 
 #[cfg(test)]
@@ -1257,6 +1284,15 @@ impl AppExtension for App {
             .get(world, item)
             .ok()
             .map(|(item, transform)| (*item, *transform))
+    }
+
+    fn remove_belt_at(&mut self, coords: impl Into<WorldCoords>) -> bool {
+        let coords = coords.into();
+        let Some((entity, _)) = self.world_mut().resource::<BeltCoords>().get(coords) else {
+            return false;
+        };
+        self.world_mut().trigger(RemoveBelt { entity });
+        true
     }
 }
 
@@ -1450,6 +1486,7 @@ mod tests {
                 }],
                 right: vec![],
             },
+            is_blocked: false,
         };
         assert_eq!(*actual, expected);
     }
