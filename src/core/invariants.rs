@@ -3,6 +3,7 @@ use bevy::ecs::schedule::{ExecutorKind, Schedule, ScheduleLabel};
 
 use crate::core::*;
 use std::collections::HashSet;
+use std::panic::Location;
 
 #[derive(ScheduleLabel, Debug, Hash, PartialEq, Eq, Clone)]
 struct InvariantChecks;
@@ -14,16 +15,15 @@ pub struct InvariantsPlugin;
 
 impl Plugin for InvariantsPlugin {
     fn build(&self, app: &mut App) {
-        // Create custom schedule
         let mut invariant_schedule = Schedule::new(InvariantChecks);
         invariant_schedule.set_executor_kind(ExecutorKind::SingleThreaded);
         app.add_schedule(invariant_schedule);
 
-        // Order it to run after PostUpdate
         let mut main_schedule_order = app.world_mut().resource_mut::<MainScheduleOrder>();
         main_schedule_order.insert_after(PostUpdate, InvariantChecks);
 
-        // Add systems to the custom schedule
+        app.init_resource::<BrokenInvariants>();
+
         app.add_systems(
             InvariantChecks,
             (
@@ -36,6 +36,10 @@ impl Plugin for InvariantsPlugin {
                 check_adjacent_belts_in_lane_are_connected,
                 (check_item_movement, update_previous_transforms).chain(),
                 super::clear_changed_belts,
+                |mut b: ResMut<BrokenInvariants>| {
+                    b.check();
+                    b.clear();
+                },
             )
                 .chain(),
         );
@@ -43,12 +47,15 @@ impl Plugin for InvariantsPlugin {
 }
 
 /// Invariant: All Belt entities must have WorldCoords
-fn check_belts_have_coords(query: Query<Entity, (With<Belt>, Without<WorldCoords>)>) {
+fn check_belts_have_coords(
+    query: Query<Entity, (With<Belt>, Without<WorldCoords>)>,
+    mut broken_invariants: ResMut<BrokenInvariants>,
+) {
     for entity in query.iter() {
-        panic!(
-            "INVARIANT VIOLATION: Belt entity {:?} does not have WorldCoords component",
+        broken_invariants.add(format!(
+            "Belt entity {:?} does not have WorldCoords component",
             entity
-        );
+        ));
     }
 }
 
@@ -56,76 +63,87 @@ fn check_belts_have_coords(query: Query<Entity, (With<Belt>, Without<WorldCoords
 fn check_belt_coords_sync(
     belt_coords: Res<BeltCoords>,
     belts: Query<(Entity, &BeltShape, &WorldCoords), With<Belt>>,
+    mut broken_invariants: ResMut<BrokenInvariants>,
 ) {
     for (entity, belt, coords) in belts.iter() {
         match belt_coords.get(*coords) {
             Some((res_entity, res_belt)) => {
                 if res_entity != entity {
-                    panic!(
-                        "INVARIANT VIOLATION: BeltCoords at {:?} points to entity {:?} but entity {:?} exists there",
+                    broken_invariants.add(format!(
+                        "BeltCoords at {:?} points to entity {:?} but entity {:?} exists there",
                         coords, res_entity, entity
-                    );
+                    ));
                 }
                 if res_belt != *belt {
-                    panic!(
-                        "INVARIANT VIOLATION: BeltCoords at {:?} has belt type {:?} but entity {:?} has {:?}",
+                    broken_invariants.add(format!(
+                        "BeltCoords at {:?} has belt type {:?} but entity {:?} has {:?}",
                         coords, res_belt, entity, belt
-                    );
+                    ));
                 }
             }
             None => {
-                panic!(
-                    "INVARIANT VIOLATION: Belt entity {:?} at {:?} is not in BeltCoords resource",
+                broken_invariants.add(format!(
+                    "Belt entity {:?} at {:?} is not in BeltCoords resource",
                     entity, coords
-                );
+                ));
             }
         }
     }
 }
 
 /// Invariant: No two belts should occupy the same WorldCoords
-fn check_no_duplicate_coords(belts: Query<(Entity, &WorldCoords), With<Belt>>) {
+fn check_no_duplicate_coords(
+    belts: Query<(Entity, &WorldCoords), With<Belt>>,
+    mut broken_invariants: ResMut<BrokenInvariants>,
+) {
     let mut coords_map = std::collections::HashMap::new();
 
     for (entity, coords) in belts.iter() {
         if let Some(existing_entity) = coords_map.insert(*coords, entity) {
-            panic!(
-                "INVARIANT VIOLATION: Multiple belts at {:?}: entities {:?} and {:?}",
+            broken_invariants.add(format!(
+                "Multiple belts at {:?}: entities {:?} and {:?}",
                 coords, existing_entity, entity
-            );
+            ));
         }
     }
 }
 
 /// Invariant: No belt entity should appear multiple times in a single lane
-fn check_no_duplicate_belts_in_lane(lanes: Query<(Entity, &BeltLane)>) {
+fn check_no_duplicate_belts_in_lane(
+    lanes: Query<(Entity, &BeltLane)>,
+    mut broken_invariants: ResMut<BrokenInvariants>,
+) {
     for (lane_entity, lane) in lanes.iter() {
         let mut seen_belts = HashSet::new();
         for belt_entry in &lane.belts {
             if !seen_belts.insert(belt_entry.entity) {
-                panic!(
-                    "INVARIANT VIOLATION: Lane {:?} contains belt {:?} multiple times. Full lane: {:?}",
+                broken_invariants.add(format!(
+                    "Lane {:?} contains belt {:?} multiple times. Full lane: {:?}",
                     lane_entity, belt_entry.entity, lane.belts
-                );
+                ));
             }
         }
     }
 }
 
 /// Invariant: Belt ranges in a lane must be contiguous and non-overlapping for both lanes
-fn check_lane_ranges_contiguous(lanes: Query<(Entity, &BeltLane)>) {
+fn check_lane_ranges_contiguous(
+    lanes: Query<(Entity, &BeltLane)>,
+    mut broken_invariants: ResMut<BrokenInvariants>,
+) {
     for (lane_entity, lane) in lanes.iter() {
         if lane.belts.is_empty() {
-            panic!("INVARIANT VIOLATION: Lane {:?} has no belts", lane_entity);
+            broken_invariants.add(format!("Lane {:?} has no belts", lane_entity));
+            continue;
         }
 
         // Check left lane
         let first = &lane.belts[0];
         if first.ranges.left.start != 0 && !matches!(first.belt, BeltShape::Fragment(_)) {
-            panic!(
-                "INVARIANT VIOLATION: Lane {:?} first belt left range doesn't start at 0. Range: {:?}",
+            broken_invariants.add(format!(
+                "Lane {:?} first belt left range doesn't start at 0. Range: {:?}",
                 lane_entity, first.ranges.left
-            );
+            ));
         }
 
         for i in 0..lane.belts.len() - 1 {
@@ -133,19 +151,19 @@ fn check_lane_ranges_contiguous(lanes: Query<(Entity, &BeltLane)>) {
             let next = &lane.belts[i + 1];
 
             if current.ranges.left.end != next.ranges.left.start {
-                panic!(
-                    "INVARIANT VIOLATION: Lane {:?} has non-contiguous left ranges: belt {:?} range {:?} followed by belt {:?} range {:?}",
+                broken_invariants.add(format!(
+                    "Lane {:?} has non-contiguous left ranges: belt {:?} range {:?} followed by belt {:?} range {:?}",
                     lane_entity, current.entity, current.ranges.left, next.entity, next.ranges.left
-                );
+                ));
             }
         }
 
         // Check right lane
         if first.ranges.right.start != 0 {
-            panic!(
-                "INVARIANT VIOLATION: Lane {:?} first belt right range doesn't start at 0. Range: {:?}",
+            broken_invariants.add(format!(
+                "Lane {:?} first belt right range doesn't start at 0. Range: {:?}",
                 lane_entity, first.ranges.right
-            );
+            ));
         }
 
         for i in 0..lane.belts.len() - 1 {
@@ -153,14 +171,14 @@ fn check_lane_ranges_contiguous(lanes: Query<(Entity, &BeltLane)>) {
             let next = &lane.belts[i + 1];
 
             if current.ranges.right.end != next.ranges.right.start {
-                panic!(
-                    "INVARIANT VIOLATION: Lane {:?} has non-contiguous right ranges: belt {:?} range {:?} followed by belt {:?} range {:?}",
+                broken_invariants.add(format!(
+                    "Lane {:?} has non-contiguous right ranges: belt {:?} range {:?} followed by belt {:?} range {:?}",
                     lane_entity,
                     current.entity,
                     current.ranges.right,
                     next.entity,
                     next.ranges.right
-                );
+                ));
             }
         }
     }
@@ -170,6 +188,7 @@ fn check_lane_ranges_contiguous(lanes: Query<(Entity, &BeltLane)>) {
 fn check_inlane_bidirectional(
     lanes: Query<(Entity, &BeltLane)>,
     belts_with_inlane: Query<(Entity, &InLane)>,
+    mut broken_invariants: ResMut<BrokenInvariants>,
 ) {
     let mut inlane_map = std::collections::HashMap::new();
     for (belt_entity, inlane) in belts_with_inlane.iter() {
@@ -181,17 +200,17 @@ fn check_inlane_bidirectional(
             match inlane_map.get(&belt_entry.entity) {
                 Some(&inlane_lane) => {
                     if inlane_lane != lane_entity {
-                        panic!(
-                            "INVARIANT VIOLATION: Belt {:?} is in lane {:?} but has InLane pointing to lane {:?}",
+                        broken_invariants.add(format!(
+                            "Belt {:?} is in lane {:?} but has InLane pointing to lane {:?}",
                             belt_entry.entity, lane_entity, inlane_lane
-                        );
+                        ));
                     }
                 }
                 None => {
-                    panic!(
-                        "INVARIANT VIOLATION: Belt {:?} is in lane {:?} but does not have InLane component",
+                    broken_invariants.add(format!(
+                        "Belt {:?} is in lane {:?} but does not have InLane component",
                         belt_entry.entity, lane_entity
-                    );
+                    ));
                 }
             }
         }
@@ -202,16 +221,16 @@ fn check_inlane_bidirectional(
         if let Ok((_, lane)) = lanes.get(lane_entity) {
             let found = lane.belts.iter().any(|entry| entry.entity == belt_entity);
             if !found {
-                panic!(
-                    "INVARIANT VIOLATION: Belt {:?} has InLane pointing to lane {:?}, but is not in that lane's belt list. Lane contains: {:?}",
+                broken_invariants.add(format!(
+                    "Belt {:?} has InLane pointing to lane {:?}, but is not in that lane's belt list. Lane contains: {:?}",
                     belt_entity, lane_entity, lane.belts
-                );
+                ));
             }
         } else {
-            panic!(
-                "INVARIANT VIOLATION: Belt {:?} has InLane pointing to non-existent lane {:?}",
+            broken_invariants.add(format!(
+                "Belt {:?} has InLane pointing to non-existent lane {:?}",
                 belt_entity, lane_entity
-            );
+            ));
         }
     }
 }
@@ -220,6 +239,7 @@ fn check_inlane_bidirectional(
 fn check_adjacent_belts_in_lane_are_connected(
     lanes: Query<(Entity, &BeltLane)>,
     belts: Query<&BeltShape, With<Belt>>,
+    mut broken_invariants: ResMut<BrokenInvariants>,
 ) {
     for (lane_entity, lane) in lanes.iter() {
         if lane.belts.len() <= 1 {
@@ -231,27 +251,29 @@ fn check_adjacent_belts_in_lane_are_connected(
             let next = &lane.belts[i + 1];
 
             let Ok(current_belt) = belts.get(current.entity) else {
-                panic!(
-                    "INVARIANT VIOLATION: Lane {:?} contains belt {:?} which doesn't have BeltShape component",
+                broken_invariants.add(format!(
+                    "Lane {:?} contains belt {:?} which doesn't have BeltShape component",
                     lane_entity, current.entity
-                );
+                ));
+                continue;
             };
 
             let Ok(next_belt) = belts.get(next.entity) else {
-                panic!(
-                    "INVARIANT VIOLATION: Lane {:?} contains belt {:?} which doesn't have BeltShape component",
+                broken_invariants.add(format!(
+                    "Lane {:?} contains belt {:?} which doesn't have BeltShape component",
                     lane_entity, next.entity
-                );
+                ));
+                continue;
             };
 
             if current_belt.input() != next_belt.output() {
-                panic!(
-                    "INVARIANT VIOLATION: Lane {lane_entity:?} has misconnected belts: belt {:?} outputs {:?} but belt {:?} (earlier in vec) inputs {:?}",
+                broken_invariants.add(format!(
+                    "Lane {lane_entity:?} has misconnected belts: belt {:?} outputs {:?} but belt {:?} (earlier in vec) inputs {:?}",
                     next.entity,
                     next_belt.output(),
                     current.entity,
                     current_belt.input()
-                );
+                ));
             }
         }
     }
@@ -264,6 +286,7 @@ fn check_item_movement(
     loop_lanes: Query<Entity, With<super::LaneLoopConnection>>,
     items_with_prev: Query<(Entity, &Transform, &PreviousTransform), With<Item>>,
     belts: Query<&WorldCoords, With<Belt>>,
+    mut broken_invariants: ResMut<BrokenInvariants>,
 ) {
     let changed_belts: Vec<Entity> = belt_changes
         .0
@@ -322,10 +345,10 @@ fn check_item_movement(
         const MAX_MOVEMENT: f32 =
             5.0 * BASE_BELT_SPEED as f32 / POSITIONS_PER_BELT as f32 / BLOCK_SIZE;
         if distance > MAX_MOVEMENT {
-            panic!(
-                "INVARIANT VIOLATION: Item {:?} moved {:.2} pixels in one frame (max {:.2}). Previous: {:?}, Current: {:?}",
+            broken_invariants.add(format!(
+                "Item {:?} moved {:.2} pixels in one frame (max {:.2}). Previous: {:?}, Current: {:?}",
                 item_entity, distance, MAX_MOVEMENT, prev_pos, current_pos
-            );
+            ));
         }
     }
 }
@@ -333,5 +356,30 @@ fn check_item_movement(
 fn update_previous_transforms(mut cmd: Commands, items: Query<(Entity, &Transform), With<Item>>) {
     for (entity, transform) in items.iter() {
         cmd.entity(entity).insert(PreviousTransform(*transform));
+    }
+}
+
+#[derive(Resource, Default)]
+struct BrokenInvariants {
+    failures: Vec<String>,
+}
+
+impl BrokenInvariants {
+    #[track_caller]
+    fn add(&mut self, message: impl AsRef<str>) {
+        let loc = Location::caller();
+        self.failures.push(format!("{} at {loc}", message.as_ref()));
+    }
+    fn check(&self) {
+        if !self.failures.is_empty() {
+            eprintln!("Broken Invariants:");
+            for f in self.failures.iter() {
+                eprintln!("{f}");
+            }
+            panic!("Found {} failures", self.failures.len());
+        }
+    }
+    fn clear(&mut self) {
+        self.failures.clear();
     }
 }
