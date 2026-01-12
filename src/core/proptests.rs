@@ -121,7 +121,7 @@ fn circular_loop() {
             dir: HDir::East,
         },
         Action::PlaceBelt {
-            coords: WorldCoords { x: 1, y: 0, z: 0 },
+            coords: WorldCoords { x: 0, y: 0, z: 1 },
             dir: HDir::North,
         },
         Action::PlaceBelt {
@@ -129,7 +129,7 @@ fn circular_loop() {
             dir: HDir::West,
         },
         Action::PlaceBelt {
-            coords: WorldCoords { x: 0, y: 0, z: 1 },
+            coords: WorldCoords { x: 1, y: 0, z: 0 },
             dir: HDir::South,
         },
         Action::Update,
@@ -195,11 +195,11 @@ fn multiple_belts_multiple_items() {
             dir: HDir::East,
         },
         Action::PlaceBelt {
-            coords: WorldCoords { x: 1, y: 0, z: 0 },
+            coords: WorldCoords { x: 0, y: 0, z: 1 },
             dir: HDir::East,
         },
         Action::PlaceBelt {
-            coords: WorldCoords { x: 2, y: 0, z: 0 },
+            coords: WorldCoords { x: 0, y: 0, z: 2 },
             dir: HDir::East,
         },
         Action::Update,
@@ -209,12 +209,12 @@ fn multiple_belts_multiple_items() {
             lane: LaneSide::Left,
         },
         Action::PlaceItem {
-            belt_coords: WorldCoords { x: 1, y: 0, z: 0 },
+            belt_coords: WorldCoords { x: 0, y: 0, z: 1 },
             pos: 50,
             lane: LaneSide::Right,
         },
         Action::PlaceItem {
-            belt_coords: WorldCoords { x: 2, y: 0, z: 0 },
+            belt_coords: WorldCoords { x: 0, y: 0, z: 2 },
             pos: 100,
             lane: LaneSide::Left,
         },

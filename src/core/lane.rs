@@ -26,11 +26,18 @@ pub struct Ranges {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
+pub struct LaneOffsets {
+    pub left: i32,
+    pub right: i32,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct BeltEntry {
     pub belt: BeltShape,
     pub coords: WorldCoords,
     pub entity: Entity,
     pub ranges: Ranges,
+    pub lane_offsets: LaneOffsets,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord)]
@@ -63,6 +70,7 @@ impl BeltLane {
                     left: 0..(belt.left_num_pos() - ITEM_SPACING / 2),
                     right: 0..belt.right_num_pos() - ITEM_SPACING / 2,
                 },
+                lane_offsets: LaneOffsets { left: 0, right: 0 },
             }],
             lanes: default(),
             is_blocked: false,
@@ -81,12 +89,19 @@ impl BeltLane {
                 left: left_end..left_end + shape.left_num_pos(),
                 right: right_end..right_end + shape.right_num_pos(),
             },
+            lane_offsets: LaneOffsets {
+                left: left_end + ITEM_SPACING / 2,
+                right: right_end + ITEM_SPACING / 2,
+            },
         });
     }
 
     pub fn add_to_head(&mut self, belt: BeltShape, coords: WorldCoords, entity: Entity) {
         let left_offset = belt.left_num_pos();
         let right_offset = belt.right_num_pos();
+        let prev_head = &self.belts[0];
+        let new_left_start = prev_head.ranges.left.start - left_offset;
+        let new_right_start = prev_head.ranges.right.start - right_offset;
         for side in SIDES {
             self.belts[0].ranges[side].start -= ITEM_SPACING / 2;
         }
@@ -97,10 +112,12 @@ impl BeltLane {
                 coords,
                 entity,
                 ranges: Ranges {
-                    left: (self.belts[0].ranges.left.start - left_offset + ITEM_SPACING / 2)
-                        ..(self.belts[0].ranges.left.start),
-                    right: (self.belts[0].ranges.right.start - right_offset + ITEM_SPACING / 2)
-                        ..(self.belts[0].ranges.right.start),
+                    left: (new_left_start)..(self.belts[0].ranges.left.start),
+                    right: (new_right_start)..(self.belts[0].ranges.right.start),
+                },
+                lane_offsets: LaneOffsets {
+                    left: new_left_start,
+                    right: new_right_start,
                 },
             },
         );
@@ -144,6 +161,8 @@ impl BeltLane {
             belt.ranges.left.end += left_offset;
             belt.ranges.right.start += right_offset;
             belt.ranges.right.end += right_offset;
+            belt.lane_offsets.left += left_offset;
+            belt.lane_offsets.right += right_offset;
         }
         for items in self.lanes.left.iter_mut() {
             items.pos += left_offset;
@@ -153,10 +172,10 @@ impl BeltLane {
         }
     }
 
-    /// The pos in the `ItemEntry` is relative to the start of the belt, not the lane
+    /// The pos in the `ItemEntry` is relative to the belt, not the lane
     pub fn add_item(&mut self, item: ItemEntry, lane: LaneSide, belt: Entity) -> Result<(), ()> {
         let entry = self.belts.iter().find(|b| b.entity == belt).ok_or(())?;
-        let offset = entry.ranges[lane].start;
+        let offset = entry.lane_offsets[lane];
         self.lanes[lane].push(ItemEntry {
             pos: offset + item.pos,
             ..item
@@ -169,7 +188,7 @@ impl BeltLane {
     ) -> impl Iterator<Item = (Item, i32, BeltShape, LaneSide, WorldCoords)> + 'a {
         let left_items = self.lanes[Left].iter().map(move |entry| {
             let belt_entry = self.belt_for(entry.pos, LaneSide::Left).unwrap();
-            let relative_pos = entry.pos - belt_entry.ranges.left.start;
+            let relative_pos = entry.pos - belt_entry.lane_offsets.left;
             (
                 entry.item,
                 relative_pos,
@@ -181,7 +200,7 @@ impl BeltLane {
 
         let right_items = self.lanes[Right].iter().map(move |entry| {
             let belt_entry = self.belt_for(entry.pos, LaneSide::Right).unwrap();
-            let relative_pos = entry.pos - belt_entry.ranges.right.start;
+            let relative_pos = entry.pos - belt_entry.lane_offsets.right;
             (
                 entry.item,
                 relative_pos,
@@ -235,6 +254,10 @@ impl BeltLane {
                 ranges: Ranges {
                     left: 0..POSITIONS_PER_FRAGMENT,
                     right: 0..POSITIONS_PER_FRAGMENT,
+                },
+                lane_offsets: LaneOffsets {
+                    left: todo!(),
+                    right: todo!(),
                 },
             },
         );
@@ -381,6 +404,26 @@ impl IndexMut<LaneSide> for Ranges {
     }
 }
 
+impl Index<LaneSide> for LaneOffsets {
+    type Output = i32;
+
+    fn index(&self, index: LaneSide) -> &Self::Output {
+        match index {
+            LaneSide::Left => &self.left,
+            LaneSide::Right => &self.right,
+        }
+    }
+}
+
+impl IndexMut<LaneSide> for LaneOffsets {
+    fn index_mut(&mut self, index: LaneSide) -> &mut Self::Output {
+        match index {
+            LaneSide::Left => &mut self.left,
+            LaneSide::Right => &mut self.right,
+        }
+    }
+}
+
 // ---------
 // Functions
 // ---------
@@ -409,6 +452,7 @@ mod tests {
                         left: 0..POSITIONS_PER_BELT - ITEM_SPACING / 2,
                         right: 0..POSITIONS_PER_BELT - ITEM_SPACING / 2,
                     },
+                    lane_offsets: LaneOffsets { left: 0, right: 0 },
                 },
                 BeltEntry {
                     belt: BeltShape::Straight(HDir::North),
@@ -419,6 +463,10 @@ mod tests {
                             ..(2 * POSITIONS_PER_BELT) - ITEM_SPACING / 2,
                         right: POSITIONS_PER_BELT - ITEM_SPACING / 2
                             ..(2 * POSITIONS_PER_BELT) - ITEM_SPACING / 2,
+                    },
+                    lane_offsets: LaneOffsets {
+                        left: POSITIONS_PER_BELT,
+                        right: POSITIONS_PER_BELT,
                     },
                 },
             ],
@@ -485,6 +533,90 @@ mod tests {
         let actual = lane.lanes[Left][0];
         let expected = ItemEntry {
             pos: POSITIONS_PER_BELT,
+            item: Item(0),
+            entity: Entity::from_raw_u32(10).unwrap(),
+        };
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn tick_on_single_belt_at_head() {
+        init_tracing();
+        let belt_ent = Entity::from_raw_u32(0).unwrap();
+        let mut lane =
+            BeltLane::from_belt(BeltShape::Straight(HDir::North), (0, 0, 0).into(), belt_ent);
+        lane.add_item(
+            ItemEntry {
+                pos: 0,
+                item: Item(0),
+                entity: Entity::from_raw_u32(10).unwrap(),
+            },
+            LaneSide::Left,
+            belt_ent,
+        )
+        .unwrap();
+        lane.tick();
+        let actual = lane.lanes[Left][0];
+        let expected = ItemEntry {
+            pos: 0,
+            item: Item(0),
+            entity: Entity::from_raw_u32(10).unwrap(),
+        };
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn tick_on_single_belt_farther_back() {
+        init_tracing();
+        let belt_ent = Entity::from_raw_u32(0).unwrap();
+        let mut lane =
+            BeltLane::from_belt(BeltShape::Straight(HDir::North), (0, 0, 0).into(), belt_ent);
+        lane.add_item(
+            ItemEntry {
+                pos: BASE_BELT_SPEED * 2,
+                item: Item(0),
+                entity: Entity::from_raw_u32(10).unwrap(),
+            },
+            LaneSide::Left,
+            belt_ent,
+        )
+        .unwrap();
+        lane.tick();
+        let actual = lane.lanes[Left][0];
+        let expected = ItemEntry {
+            pos: BASE_BELT_SPEED,
+            item: Item(0),
+            entity: Entity::from_raw_u32(10).unwrap(),
+        };
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn tick_with_head_belt() {
+        init_tracing();
+        let belt_ent = Entity::from_raw_u32(0).unwrap();
+        let mut lane =
+            BeltLane::from_belt(BeltShape::Straight(HDir::North), (0, 0, 0).into(), belt_ent);
+        lane.add_item(
+            ItemEntry {
+                pos: 0,
+                item: Item(0),
+                entity: Entity::from_raw_u32(10).unwrap(),
+            },
+            LaneSide::Left,
+            belt_ent,
+        )
+        .unwrap();
+        let head_belt = Entity::from_raw_u32(1).unwrap();
+        lane.add_to_head(
+            BeltShape::Straight(HDir::North),
+            (1, 0, 0).into(),
+            head_belt,
+        );
+        lane.tick();
+        let actual = lane.lanes[Left][0];
+        let expected = ItemEntry {
+            pos: -BASE_BELT_SPEED,
             item: Item(0),
             entity: Entity::from_raw_u32(10).unwrap(),
         };

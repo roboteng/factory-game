@@ -441,13 +441,13 @@ fn angle_to_hdir(angle: f32) -> HDir {
 
     // angle is from atan2(z, x)
     // We need to map this to HDir angles where:
-    // North=0 (facing -Z), East=-PI/2 (facing +X), South=PI (facing +Z), West=PI/2 (facing -X)
+    // North=0 (facing +X), East=-PI/2 (facing +Z), South=PI (facing -X), West=PI/2 (facing -Z)
 
     // atan2(z, x) gives:
-    // +X direction: atan2(0, 1) = 0
-    // -Z direction: atan2(-1, 0) = -PI/2
-    // -X direction: atan2(0, -1) = PI
-    // +Z direction: atan2(1, 0) = PI/2
+    // +Z direction (East): atan2(1, 0) = PI/2
+    // +X direction (North): atan2(0, 1) = 0
+    // -Z direction (West): atan2(-1, 0) = -PI/2
+    // -X direction (South): atan2(0, -1) = PI
 
     // Negate to align with HDir coordinate system
     let hdir_angle = -angle;

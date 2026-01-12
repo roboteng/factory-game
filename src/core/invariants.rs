@@ -344,8 +344,10 @@ fn items_are_within_belt_bounds(
 
                             // Check if item is within belt's bounding box
                             // Each belt occupies a BLOCK_SIZE cube centered at belt_center
-                            let min_bound = belt_center - Vec3::splat(HALF_BLOCK_SIZE);
-                            let max_bound = belt_center + Vec3::splat(HALF_BLOCK_SIZE);
+                            // Add small epsilon for floating point precision
+                            const EPSILON: f32 = 0.001;
+                            let min_bound = belt_center - Vec3::splat(HALF_BLOCK_SIZE + EPSILON);
+                            let max_bound = belt_center + Vec3::splat(HALF_BLOCK_SIZE + EPSILON);
 
                             if item_pos.x < min_bound.x || item_pos.x > max_bound.x
                                 || item_pos.y < min_bound.y || item_pos.y > max_bound.y
@@ -407,8 +409,8 @@ fn items_dont_move_too_far(
         .iter()
         .filter(|i| !items_to_ignore.contains(&i.0))
     {
-        let current_pos = transform.translation.xy();
-        let prev_pos = prev_transform.0.translation.xy();
+        let current_pos = transform.translation;
+        let prev_pos = prev_transform.0.translation;
         let distance = current_pos.distance(prev_pos);
 
         // 4.0 seems to be how much an item moves on a straight belt.

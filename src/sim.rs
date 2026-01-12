@@ -30,7 +30,12 @@ fn do_moves(mut items: Query<&mut Transform, With<Item>>, lanes: Query<&BeltLane
         for side in SIDES {
             for item_entry in &lane.lanes[side] {
                 let belt_entry = lane.belt_for(item_entry.pos, side).unwrap();
-                let relative_pos = item_entry.pos - belt_entry.ranges[side].start;
+
+                let relative_pos = item_entry.pos - belt_entry.lane_offsets[side];
+                debug!(
+                    "relative position: {:?}, lane offset: {:?}",
+                    relative_pos, belt_entry.lane_offsets[side]
+                );
                 let transform =
                     item_position(belt_entry.belt, belt_entry.coords, side, relative_pos);
 
@@ -44,84 +49,24 @@ fn do_moves(mut items: Query<&mut Transform, With<Item>>, lanes: Query<&BeltLane
 fn transfers(
     conns: Query<(Entity, &LaneConnection)>,
     loop_conns: Query<(Entity, &LaneLoopConnection)>,
-    double_conns: Query<(Entity, &DoubleBeltConnection)>,
     mut lanes: Query<&mut BeltLane>,
 ) {
-    // Process DoubleBeltConnections FIRST (handles both sideloading lanes)
-    for (first_lane_ent, conn) in double_conns.iter() {
-        debug!("processing double connection");
-
-        // Try to transfer from the first lane (the one with DoubleBeltConnection)
-        let first_lane = lanes.get(first_lane_ent).unwrap();
-        if !first_lane.is_blocked {
-            // Check both sides of the first lane
-            for side in SIDES {
-                if let Some(item_entry) = first_lane.lanes[side].first().copied() {
-                    if item_entry.pos < BASE_BELT_SPEED {
-                        debug!(
-                            "double conn transferring from first lane {:?}, pos: {}",
-                            side, item_entry.pos
-                        );
-                        let mut source_lane = lanes.get_mut(first_lane_ent).unwrap();
-                        source_lane.lanes[side].remove(0);
-                        let mut target_lane = lanes.get_mut(conn.target).unwrap();
-                        target_lane.insert_items_at(
-                            &[ItemEntry {
-                                pos: conn.offset,
-                                ..item_entry
-                            }],
-                            side,
-                        );
-                        break; // Only transfer one item per frame
-                    }
-                }
-            }
-        }
-
-        // Try to transfer from the second lane (other_lane, has no connection component)
-        let second_lane_ent = conn.other_lane;
-        let second_lane = lanes.get(second_lane_ent).unwrap();
-        if !second_lane.is_blocked {
-            for side in SIDES {
-                if let Some(item_entry) = second_lane.lanes[side].first().copied() {
-                    if item_entry.pos < BASE_BELT_SPEED {
-                        debug!(
-                            "double conn transferring from second lane {:?}, pos: {}",
-                            side, item_entry.pos
-                        );
-                        let mut source_lane = lanes.get_mut(second_lane_ent).unwrap();
-                        source_lane.lanes[side].remove(0);
-                        let mut target_lane = lanes.get_mut(conn.target).unwrap();
-                        target_lane.insert_items_at(
-                            &[ItemEntry {
-                                pos: conn.offset,
-                                ..item_entry
-                            }],
-                            side,
-                        );
-                        break; // Only transfer one item per frame
-                    }
-                }
-            }
-        }
-    }
-
     // Process loop connections
     for (lane_ent, loop_conn) in loop_conns.iter() {
         debug!("processing loop connection");
         let mut lane = lanes.get_mut(lane_ent).unwrap();
 
-        // Process left lane
+        let start = lane.belts[0].ranges.left.start;
         if let Some(item) = lane.lanes[LaneSide::Left].first_mut() {
-            if item.pos < BASE_BELT_SPEED {
+            if item.pos - start < BASE_BELT_SPEED {
                 item.pos += loop_conn.left_offset;
                 lane.lanes[LaneSide::Left].sort();
             }
         }
 
-        // Process right lane
+        let start = lane.belts[0].ranges.right.start;
         if let Some(item) = lane.lanes[LaneSide::Right].first_mut() {
-            if item.pos < BASE_BELT_SPEED {
+            if item.pos - start < BASE_BELT_SPEED {
                 item.pos += loop_conn.right_offset;
                 lane.lanes[LaneSide::Right].sort();
             }
@@ -176,6 +121,8 @@ fn transfers(
 mod tests {
     use super::*;
     use crate::core::{AppExtension, LaneSide, test_app};
+    #[allow(unused_imports)]
+    use pretty_assertions::{assert_eq, assert_ne};
 
     #[test]
     fn item_moves_on_belt() {
@@ -247,9 +194,9 @@ mod tests {
         // Item transfers to next belt and moves BASE_BELT_SPEED positions on it
         let expected_transform = item_position(
             BeltShape::Straight(HDir::East),
-            WorldCoords { x: 0, y: 0, z: 1 },
+            WorldCoords { x: 0, y: 0, z: 0 },
             LaneSide::Left,
-            POSITIONS_PER_BELT - BASE_BELT_SPEED,
+            -BASE_BELT_SPEED,
         );
         assert_eq!(actual, expected_transform);
     }
@@ -289,9 +236,9 @@ mod tests {
         // Item transfers to next belt and moves BASE_BELT_SPEED positions on it
         let expected_transform = item_position(
             BeltShape::Straight(HDir::East),
-            WorldCoords { x: 0, y: 0, z: 1 },
+            WorldCoords { x: 0, y: 0, z: 0 },
             LaneSide::Left,
-            POSITIONS_PER_BELT - BASE_BELT_SPEED,
+            -BASE_BELT_SPEED,
         );
         assert_eq!(actual, expected_transform);
     }
@@ -299,20 +246,21 @@ mod tests {
     #[test]
     fn item_moves_on_merged_lanes() {
         let mut app = test_app();
-        let belt1 = app.add_belt((0, 0, 0), HDir::East);
-        let _belt2 = app.add_belt((0, 0, 2), HDir::East);
+        let tail_belt = app.add_belt((0, 0, 0), HDir::East);
+        let _head_belt = app.add_belt((0, 0, 2), HDir::East);
         app.update();
-        let _belt3 = app.add_belt((0, 0, 1), HDir::East);
-        let item = app.add_item(belt1, 0, LaneSide::Left);
+        debug!("head and tail placed");
+        let _middle_belt = app.add_belt((0, 0, 1), HDir::East);
+        let item = app.add_item(tail_belt, 0, LaneSide::Left);
         app.update();
         let (_, actual) = app.find_item(item).unwrap();
 
         // Item should transfer to belt3 (middle belt) and move
         let expected_transform = item_position(
             BeltShape::Straight(HDir::East),
-            WorldCoords { x: 0, y: 0, z: 1 },
+            WorldCoords { x: 0, y: 0, z: 0 },
             LaneSide::Left,
-            POSITIONS_PER_BELT - BASE_BELT_SPEED,
+            -BASE_BELT_SPEED,
         );
         assert_eq!(actual, expected_transform);
     }

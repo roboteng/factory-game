@@ -145,13 +145,6 @@ pub struct LaneLoopConnection {
     pub right_offset: i32,
 }
 
-#[derive(Component, Debug, Clone, PartialEq, Eq)]
-pub struct DoubleBeltConnection {
-    pub target: Entity,
-    pub offset: i32,
-    pub other_lane: Entity,
-}
-
 #[derive(Component)]
 pub struct InLane {
     pub lane: Entity,
@@ -880,10 +873,6 @@ fn new_belt(
             lane.insert_items_at(&existing_items.0, LaneSide::Left);
             lane.insert_items_at(&existing_items.1, LaneSide::Right);
             debug!("Lane is {:?}", lane);
-            for side in SIDES {
-                let len = new.belt.num_pos(side);
-                update_connection_offsets_for_lane(world, lane_ent, side, len);
-            }
             world.entity_mut(new.entity).insert(InLane::new(lane_ent));
         }
         (Some((ahead_ent, _, ConnectionType::Direct)), None) => {
@@ -906,10 +895,6 @@ fn new_belt(
             behind_lane.add_to_head(new.belt, new.coords, new.entity);
             behind_lane.insert_items_at(&existing_items.0, LaneSide::Left);
             behind_lane.insert_items_at(&existing_items.1, LaneSide::Right);
-            for side in SIDES {
-                let len = new.belt.num_pos(side);
-                update_connection_offsets_for_lane(world, behind_lane_ent, side, len);
-            }
 
             if behind_lane_ent == ahead_lane_ent {
                 debug!("Belt loop");
@@ -935,11 +920,10 @@ fn new_belt(
                     world
                         .entity_mut(belt_ent)
                         .insert(InLane::new(ahead_lane_ent));
-                    debug!("loop lane is {:?}", behind_lane);
                 }
                 let mut lane = get_lane_mut(world, ahead_lane_ent);
                 lane.merge(behind_lane.clone());
-                debug!("Lane is {:?}", lane);
+                debug!("Lane is {:#?}", lane);
                 world.entity_mut(behind_lane_ent).despawn();
                 world
                     .entity_mut(new.entity)
@@ -1517,6 +1501,7 @@ mod tests {
                     left: 0..POSITIONS_PER_BELT - ITEM_SPACING / 2,
                     right: 0..POSITIONS_PER_BELT - ITEM_SPACING / 2,
                 },
+                lane_offsets: LaneOffsets { left: 0, right: 0 },
             }],
             lanes: Lanes {
                 left: vec![ItemEntry {
