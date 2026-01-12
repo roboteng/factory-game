@@ -916,13 +916,16 @@ fn new_belt(
                 world
                     .entity_mut(new.entity)
                     .insert(InLane::new(behind_lane_ent));
-                let (left_offset, right_offset) = get_lane(world, behind_lane_ent).lengths();
+                let mut lane = get_lane_mut(world, behind_lane_ent);
+                lane.belts[0].ranges.left.start -= ITEM_SPACING / 2;
+                lane.belts[0].ranges.right.start -= ITEM_SPACING / 2;
+                let ranges = lane.ranges();
                 world
                     .entity_mut(behind_lane_ent)
                     .insert(LaneLoopConnection {
                         target: behind_lane_ent,
-                        left_offset,
-                        right_offset,
+                        left_offset: ranges.left.end - ranges.left.start,
+                        right_offset: ranges.right.end - ranges.right.start,
                     });
                 debug!("spawned loop connection");
             } else {
@@ -1148,7 +1151,10 @@ fn determine_sideload_target_side(source_dir: HDir, target_input: HDir) -> LaneS
         (West, South) => Right, // Coming from South (x-) is on the right
         (West, North) => Left,  // Coming from North (x+) is on the left
 
-        _ => unreachable!("Invalid sideload: source {:?}, target {:?}", source_dir, target_input),
+        _ => unreachable!(
+            "Invalid sideload: source {:?}, target {:?}",
+            source_dir, target_input
+        ),
     }
 }
 
@@ -1508,8 +1514,8 @@ mod tests {
                 coords: (0, 0, 0).into(),
                 entity,
                 ranges: Ranges {
-                    left: 0..POSITIONS_PER_BELT,
-                    right: 0..POSITIONS_PER_BELT,
+                    left: 0..POSITIONS_PER_BELT - ITEM_SPACING / 2,
+                    right: 0..POSITIONS_PER_BELT - ITEM_SPACING / 2,
                 },
             }],
             lanes: Lanes {

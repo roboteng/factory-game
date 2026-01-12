@@ -60,8 +60,8 @@ impl BeltLane {
                 coords,
                 entity,
                 ranges: Ranges {
-                    left: 0..belt.left_num_pos(),
-                    right: 0..belt.right_num_pos(),
+                    left: 0..(belt.left_num_pos() - ITEM_SPACING / 2),
+                    right: 0..belt.right_num_pos() - ITEM_SPACING / 2,
                 },
             }],
             lanes: default(),
@@ -87,7 +87,9 @@ impl BeltLane {
     pub fn add_to_head(&mut self, belt: BeltShape, coords: WorldCoords, entity: Entity) {
         let left_offset = belt.left_num_pos();
         let right_offset = belt.right_num_pos();
-        self.add_offsets_to_head(left_offset, right_offset);
+        for side in SIDES {
+            self.belts[0].ranges[side].start -= ITEM_SPACING / 2;
+        }
         self.belts.insert(
             0,
             BeltEntry {
@@ -95,16 +97,24 @@ impl BeltLane {
                 coords,
                 entity,
                 ranges: Ranges {
-                    left: 0..left_offset,
-                    right: 0..right_offset,
+                    left: (self.belts[0].ranges.left.start - left_offset + ITEM_SPACING / 2)
+                        ..(self.belts[0].ranges.left.start),
+                    right: (self.belts[0].ranges.right.start - right_offset + ITEM_SPACING / 2)
+                        ..(self.belts[0].ranges.right.start),
                 },
             },
         );
     }
 
     pub fn merge(&mut self, mut other: BeltLane) {
-        let (left, right) = self.lengths();
-        other.add_offsets_to_head(left, right);
+        other.belts[0].ranges[Left].start -= ITEM_SPACING / 2;
+        other.belts[0].ranges[Right].start -= ITEM_SPACING / 2;
+        let ranges = self.ranges();
+
+        other.add_offsets_to_head(
+            ranges[Left].end - other.belts[0].ranges[Left].start,
+            ranges[Right].end - other.belts[0].ranges[Right].start,
+        );
         self.belts.extend(other.belts);
         self.lanes.left.extend(other.lanes.left);
         self.lanes.right.extend(other.lanes.right);
@@ -117,10 +127,15 @@ impl BeltLane {
     }
 
     /// Returns (left, right)
-    pub fn lengths(&self) -> (i32, i32) {
-        let left = self.belts.last().unwrap().ranges.left.end;
-        let right = self.belts.last().unwrap().ranges.right.end;
-        (left, right)
+    pub fn ranges(&self) -> Ranges {
+        let left_start = self.belts.first().unwrap().ranges.left.start;
+        let left_end = self.belts.last().unwrap().ranges.left.end;
+        let right_start = self.belts.first().unwrap().ranges.right.start;
+        let right_end = self.belts.last().unwrap().ranges.right.end;
+        Ranges {
+            left: left_start..left_end,
+            right: right_start..right_end,
+        }
     }
 
     fn add_offsets_to_head(&mut self, left_offset: i32, right_offset: i32) {
@@ -194,9 +209,7 @@ impl BeltLane {
     }
 
     pub fn belt_for(&self, pos: i32, lane: LaneSide) -> Option<&BeltEntry> {
-        self.belts
-            .iter()
-            .find(|b| b.ranges[lane].contains(&pos))
+        self.belts.iter().find(|b| b.ranges[lane].contains(&pos))
     }
 
     pub fn num_positions(&self, lane: LaneSide) -> i32 {
@@ -299,21 +312,16 @@ impl BeltLane {
     /// Update item positions for one simulation tick
     pub fn tick(&mut self) {
         for side in SIDES {
-            let is_blocked = self.is_blocked_for_side(side);
-            let base_offset = if is_blocked { ITEM_SPACING } else { 0 };
+            let head = self.belts[0].ranges[side].start;
+            let Some(mut lead_item) = self.lanes[side].get_mut(0) else {
+                continue;
+            };
+            lead_item.pos = head.max(lead_item.pos - BASE_BELT_SPEED);
+            for i in 1..self.lanes[side].len() {
+                let first = self.lanes[side][i - 1];
+                let second = &mut self.lanes[side][i];
 
-            for (i, item_entry) in self.lanes[side].iter_mut().enumerate() {
-                // If item is ready to transfer (pos < BASE_BELT_SPEED) and blocked,
-                // don't apply base_offset to avoid large jump
-                let effective_base_offset = if item_entry.pos < BASE_BELT_SPEED && is_blocked {
-                    0
-                } else {
-                    base_offset
-                };
-                let furthest = effective_base_offset + i as i32 * ITEM_SPACING;
-                let k = (item_entry.pos - furthest).max(0);
-                item_entry.pos = (k - BASE_BELT_SPEED).max(0) + furthest;
-                debug!("Setting item at pos {}", item_entry.pos);
+                second.pos = (first.pos + ITEM_SPACING).max(second.pos - BASE_BELT_SPEED);
             }
         }
     }
@@ -398,8 +406,8 @@ mod tests {
                     coords: (0, 0, 0).into(),
                     entity,
                     ranges: Ranges {
-                        left: 0..POSITIONS_PER_BELT,
-                        right: 0..POSITIONS_PER_BELT,
+                        left: 0..POSITIONS_PER_BELT - ITEM_SPACING / 2,
+                        right: 0..POSITIONS_PER_BELT - ITEM_SPACING / 2,
                     },
                 },
                 BeltEntry {
@@ -407,8 +415,10 @@ mod tests {
                     coords: (-1, 0, 0).into(),
                     entity: tail,
                     ranges: Ranges {
-                        left: POSITIONS_PER_BELT..(2 * POSITIONS_PER_BELT),
-                        right: POSITIONS_PER_BELT..(2 * POSITIONS_PER_BELT),
+                        left: POSITIONS_PER_BELT - ITEM_SPACING / 2
+                            ..(2 * POSITIONS_PER_BELT) - ITEM_SPACING / 2,
+                        right: POSITIONS_PER_BELT - ITEM_SPACING / 2
+                            ..(2 * POSITIONS_PER_BELT) - ITEM_SPACING / 2,
                     },
                 },
             ],

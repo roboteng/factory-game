@@ -420,8 +420,8 @@ mod tests {
     #[test]
     fn items_move_together() {
         let mut app = test_app();
-        let belt1 = app.add_belt((0, 0, 0), HDir::East);
-        let belt2 = app.add_belt((1, 0, 0), HDir::East);
+        let belt1 = app.add_belt((0, 0, 0), HDir::North);
+        let belt2 = app.add_belt((1, 0, 0), HDir::North);
         app.update();
 
         let first_item = app.add_item(belt2, 0, LaneSide::Left);
@@ -436,7 +436,7 @@ mod tests {
             lead_pos.distance(follow_pos)
         }
         let expected = dist(&mut app, first_item, last_item);
-        app.add_belt((2, 0, 0), HDir::East);
+        app.add_belt((2, 0, 0), HDir::North);
 
         app.update();
         let actual = dist(&mut app, first_item, last_item);
