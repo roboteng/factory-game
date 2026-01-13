@@ -10,7 +10,8 @@ use super::*;
 pub struct BeltLane {
     pub belts: Vec<BeltEntry>,
     pub lanes: Lanes,
-    pub is_blocked: bool,
+    pub is_blocked_left: bool,
+    pub is_blocked_right: bool,
 }
 
 #[derive(Debug, PartialEq, Eq, Default, Clone)]
@@ -86,7 +87,8 @@ impl BeltLane {
                 lane_offsets: LaneOffsets { left: 0, right: 0 },
             }],
             lanes: default(),
-            is_blocked: false,
+            is_blocked_left: false,
+            is_blocked_right: false,
         }
     }
 
@@ -308,7 +310,13 @@ impl BeltLane {
     }
 
     pub fn prepend_fragment(&mut self, output: HDir, coords: WorldCoords, entity: Entity) {
-        self.add_offsets_to_head(POSITIONS_PER_FRAGMENT, POSITIONS_PER_FRAGMENT);
+        for side in SIDES {
+            self.belts[0].ranges[side].start -= ITEM_SPACING / 2;
+        }
+
+        let head = &self.belts[0];
+        let left_start = head.ranges.left.start;
+        let right_start = head.ranges.right.start;
         self.belts.insert(
             0,
             BeltEntry {
@@ -316,12 +324,12 @@ impl BeltLane {
                 coords,
                 entity,
                 ranges: Ranges {
-                    left: 0..POSITIONS_PER_FRAGMENT,
-                    right: 0..POSITIONS_PER_FRAGMENT,
+                    left: (left_start - POSITIONS_PER_FRAGMENT)..left_start,
+                    right: (right_start - POSITIONS_PER_FRAGMENT)..right_start,
                 },
                 lane_offsets: LaneOffsets {
-                    left: todo!(),
-                    right: todo!(),
+                    left: left_start - POSITIONS_PER_FRAGMENT + ITEM_SPACING / 2,
+                    right: right_start - POSITIONS_PER_FRAGMENT + ITEM_SPACING / 2,
                 },
             },
         );
@@ -384,16 +392,17 @@ impl BeltLane {
     }
 
     pub fn is_blocking_at(&self, offset: i32, lane: LaneSide) -> bool {
-        debug!("Checking if {:?} blocked at {}", self, offset);
+        debug!("Checking if lane blocked at {}", offset);
         self.lanes[lane]
             .iter()
             .any(|item| item.pos >= offset - ITEM_SPACING && item.pos < offset)
     }
 
-    pub fn is_blocked_for_side(&self, _side: LaneSide) -> bool {
-        // For now, use the same blocking for both sides
-        // This could be made more sophisticated in the future
-        self.is_blocked
+    pub fn is_blocked_for_side(&self, side: LaneSide) -> bool {
+        match side {
+            LaneSide::Left => self.is_blocked_left,
+            LaneSide::Right => self.is_blocked_right,
+        }
     }
 
     /// Update item positions for one simulation tick
@@ -558,7 +567,8 @@ mod tests {
                 left: vec![],
                 right: vec![],
             },
-            is_blocked: false,
+            is_blocked_left: false,
+            is_blocked_right: false,
         };
         assert_eq!(lane, expected);
     }

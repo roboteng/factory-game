@@ -7,10 +7,7 @@ impl Plugin for SimPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
             Update,
-            (
-                // determine_sideload_blocks,
-                transfers, plan_moves, do_moves,
-            )
+            (determine_sideload_blocks, transfers, plan_moves, do_moves)
                 .chain()
                 .after(link_belts),
         );
@@ -27,7 +24,8 @@ fn do_moves(mut items: Query<&mut Transform, With<Item>>, lanes: Query<&BeltLane
     for lane in lanes.iter() {
         for side in SIDES {
             for item_entry in &lane.lanes[side] {
-                let belt_entry = lane.belt_for(item_entry.pos, side)
+                let belt_entry = lane
+                    .belt_for(item_entry.pos, side)
                     .expect("Invariant broken: items_are_within_belt_bounds");
 
                 let relative_pos = item_entry.pos - belt_entry.lane_offsets[side];
@@ -38,11 +36,40 @@ fn do_moves(mut items: Query<&mut Transform, With<Item>>, lanes: Query<&BeltLane
                 let transform =
                     item_position(belt_entry.belt, belt_entry.coords, side, relative_pos);
 
-                let mut t = items.get_mut(item_entry.entity)
+                let mut t = items
+                    .get_mut(item_entry.entity)
                     .expect("Invariant broken: all_items_have_transform_component");
                 *t = transform;
             }
         }
+    }
+}
+
+fn determine_sideload_blocks(
+    conns: Query<(Entity, &LaneConnection)>,
+    mut lanes: Query<&mut BeltLane>,
+) {
+    for (source_ent, conn) in conns.iter() {
+        // Skip loop connections (source == target)
+        if source_ent == conn.target {
+            continue;
+        }
+
+        let target_lane = lanes
+            .get(conn.target)
+            .expect("Invariant broken: lane_connection_target_is_valid_lane");
+
+        // Check blocking for LEFT and RIGHT lanes INDEPENDENTLY
+        // Each lane transfers to the same target_side but at different offsets
+        let left_blocked = target_lane.is_blocking_at(conn.offset.left, conn.target_side);
+        let right_blocked = target_lane.is_blocking_at(conn.offset.right, conn.target_side);
+
+        // Set source lane per-side blocking state
+        let mut source_lane = lanes
+            .get_mut(source_ent)
+            .expect("Invariant broken: lane_connection_source_is_valid_lane");
+        source_lane.is_blocked_left = left_blocked;
+        source_lane.is_blocked_right = right_blocked;
     }
 }
 
@@ -54,7 +81,8 @@ fn transfers(
     // Process loop connections
     for (lane_ent, loop_conn) in loop_conns.iter() {
         debug!("processing loop connection");
-        let mut lane = lanes.get_mut(lane_ent)
+        let mut lane = lanes
+            .get_mut(lane_ent)
             .expect("Invariant broken: lane_loop_connection_points_to_existing_lane");
 
         for side in SIDES {
@@ -71,19 +99,25 @@ fn transfers(
     // Process regular connections
     for (source_ent, conn) in conns.iter().filter(|(ent, c)| *ent != c.target) {
         debug!("processing connection");
-        let mut source_lane = lanes.get_mut(source_ent)
-            .expect("Invariant broken: lane_connection_source_is_valid_lane");
-        if source_lane.is_blocked {
-            debug!("connection blocked, skipping transfer");
-            continue;
-        }
 
         for side in SIDES {
+            let mut source_lane = lanes
+                .get_mut(source_ent)
+                .expect("Invariant broken: lane_connection_source_is_valid_lane");
+
+            // Check per-side blocking
+            if source_lane.is_blocked_for_side(side) {
+                debug!("connection blocked for {:?}, skipping transfer", side);
+                continue;
+            }
+
+            let start = source_lane.belts[0].ranges[side].start;
             if let Some(item_entry) = source_lane.lanes[side].first().copied() {
                 debug!("item at pos: {}", item_entry.pos);
-                if item_entry.pos < BASE_BELT_SPEED {
+                if item_entry.pos - start < BASE_BELT_SPEED {
                     source_lane.lanes[side].remove(0);
-                    let mut target_lane = lanes.get_mut(conn.target)
+                    let mut target_lane = lanes
+                        .get_mut(conn.target)
                         .expect("Invariant broken: lane_connection_target_is_valid_lane");
                     target_lane.insert_items_at(
                         &[ItemEntry {
@@ -94,8 +128,6 @@ fn transfers(
                     );
                 }
             }
-            source_lane = lanes.get_mut(source_ent)
-                .expect("Invariant broken: lane_connection_source_is_valid_lane");
         }
     }
 }
@@ -418,5 +450,201 @@ mod tests {
 
         app.add_item(belt, 232, LaneSide::Left);
         app.update();
+    }
+
+    #[test]
+    fn item_moves_towards_side_loading_belt_left_lane() {
+        let mut app = test_app();
+        let belt1 = app.add_belt((0, 0, 0), HDir::East);
+        app.add_belt((0, 0, 1), HDir::North);
+        app.add_belt((-1, 0, 1), HDir::North);
+        app.update();
+
+        let item = app.add_item(belt1, POSITIONS_PER_BELT / 2, LaneSide::Left);
+        app.update();
+        let init_pos = app.find_item(item).unwrap().1.translation;
+        app.update();
+        let next_pos = app.find_item(item).unwrap().1.translation;
+
+        // Item should have moved (not stuck)
+        assert_ne!(init_pos, next_pos);
+    }
+
+    #[test]
+    fn item_moves_towards_side_loading_belt_right_lane() {
+        let mut app = test_app();
+        let belt1 = app.add_belt((0, 0, 0), HDir::East);
+        app.add_belt((0, 0, 1), HDir::North);
+        app.add_belt((-1, 0, 1), HDir::North);
+        app.update();
+
+        let item = app.add_item(belt1, POSITIONS_PER_BELT / 2, LaneSide::Right);
+        app.update();
+        let init_pos = app.find_item(item).unwrap().1.translation;
+        app.update();
+        let next_pos = app.find_item(item).unwrap().1.translation;
+
+        // Item should have moved (not stuck)
+        assert_ne!(init_pos, next_pos);
+    }
+
+    #[test]
+    fn item_moves_towards_side_loading_belt_other_order_left_lane() {
+        let mut app = test_app();
+        app.add_belt((0, 0, 1), HDir::North);
+        app.add_belt((-1, 0, 1), HDir::North);
+        app.update();
+        let belt1 = app.add_belt((0, 0, 0), HDir::East);
+        app.update();
+
+        let item = app.add_item(belt1, POSITIONS_PER_BELT / 2, LaneSide::Left);
+        app.update();
+        let init_pos = app.find_item(item).unwrap().1.translation;
+        app.update();
+        let next_pos = app.find_item(item).unwrap().1.translation;
+
+        // Item should have moved (not stuck)
+        assert_ne!(init_pos, next_pos);
+    }
+
+    #[test]
+    fn item_moves_towards_side_loading_belt_other_order_right_lane() {
+        let mut app = test_app();
+        app.add_belt((0, 0, 1), HDir::North);
+        app.add_belt((-1, 0, 1), HDir::North);
+        app.update();
+        let belt1 = app.add_belt((0, 0, 0), HDir::East);
+        app.update();
+
+        let item = app.add_item(belt1, POSITIONS_PER_BELT / 2, LaneSide::Right);
+        app.update();
+        let init_pos = app.find_item(item).unwrap().1.translation;
+        app.update();
+        let next_pos = app.find_item(item).unwrap().1.translation;
+
+        // Item should have moved (not stuck)
+        assert_ne!(init_pos, next_pos);
+    }
+
+    #[test]
+    fn item_moves_onto_side_loaded_belt_left_lane() {
+        let mut app = test_app();
+        let belt1 = app.add_belt((0, 0, 0), HDir::East);
+        app.add_belt((0, 0, 1), HDir::North);
+        app.add_belt((-1, 0, 1), HDir::North);
+        app.update();
+
+        let item = app.add_item(belt1, POSITIONS_PER_BELT / 2, LaneSide::Left);
+        app.update();
+        let init_pos = app.find_item(item).unwrap().1.translation;
+
+        // Run enough updates for item to traverse and transfer
+        for _ in 0..((POSITIONS_PER_BELT / 2 + POSITIONS_PER_FRAGMENT) / BASE_BELT_SPEED + 2) {
+            app.update();
+        }
+
+        let final_pos = app.find_item(item).unwrap().1.translation;
+
+        // Item should have transferred to the North belt (z coordinate should change from 0 to 1.5)
+        assert_ne!(init_pos.z, final_pos.z);
+        assert!(
+            (final_pos.z - 1.5).abs() < 0.1,
+            "Item should be on North belt around z=1.5, got z={}",
+            final_pos.z
+        );
+    }
+
+    #[test]
+    fn item_moves_onto_side_loaded_belt_right_lane() {
+        let mut app = test_app();
+        let belt1 = app.add_belt((0, 0, 0), HDir::East);
+        app.add_belt((0, 0, 1), HDir::North);
+        app.add_belt((-1, 0, 1), HDir::North);
+        app.update();
+
+        let item = app.add_item(belt1, POSITIONS_PER_BELT / 2, LaneSide::Right);
+        app.update();
+        let init_pos = app.find_item(item).unwrap().1.translation;
+
+        // Run enough updates for item to traverse and transfer
+        for _ in 0..((POSITIONS_PER_BELT / 2 + POSITIONS_PER_FRAGMENT) / BASE_BELT_SPEED + 2) {
+            app.update();
+        }
+
+        let final_pos = app.find_item(item).unwrap().1.translation;
+
+        // Item should have transferred to the North belt (z coordinate should change from 0 to 1.5)
+        assert_ne!(init_pos.z, final_pos.z);
+        assert!(
+            (final_pos.z - 1.5).abs() < 0.1,
+            "Item should be on North belt around z=1.5, got z={}",
+            final_pos.z
+        );
+    }
+
+    #[test]
+    fn item_moves_onto_side_loaded_belt_unless_full_left_lane() {
+        let mut app = test_app();
+        let belt1 = app.add_belt((0, 0, 0), HDir::East);
+        let belt2 = app.add_belt((0, 0, 1), HDir::North);
+        app.add_belt((-1, 0, 1), HDir::North);
+        app.update();
+
+        // Place item on source belt
+        let item = app.add_item(belt1, POSITIONS_PER_BELT / 2, LaneSide::Left);
+
+        // Block the target belt by placing items close together
+        app.add_item(belt2, POSITIONS_PER_BELT - ITEM_SPACING - 1, LaneSide::Left);
+        app.add_item(belt2, POSITIONS_PER_BELT - 1, LaneSide::Left);
+
+        app.update();
+        let init_pos = app.find_item(item).unwrap().1.translation;
+
+        // Run enough updates to attempt transfer
+        for _ in 0..((POSITIONS_PER_BELT / 2 + POSITIONS_PER_FRAGMENT) / BASE_BELT_SPEED + 5) {
+            app.update();
+        }
+
+        let final_pos = app.find_item(item).unwrap().1.translation;
+
+        // Item should NOT have transferred (z coordinate should stay the same)
+        assert_eq!(
+            init_pos.z, final_pos.z,
+            "Item should still be on East belt at z={}, got z={}",
+            init_pos.z, final_pos.z
+        );
+    }
+
+    #[test]
+    fn item_moves_onto_side_loaded_belt_unless_full_right_lane() {
+        let mut app = test_app();
+        let belt1 = app.add_belt((0, 0, 0), HDir::East);
+        let belt2 = app.add_belt((0, 0, 1), HDir::North);
+        app.add_belt((-1, 0, 1), HDir::North);
+        app.update();
+
+        // Place item on source belt
+        let item = app.add_item(belt1, POSITIONS_PER_BELT / 2, LaneSide::Right);
+
+        // Block the target belt by placing items close together
+        app.add_item(belt2, POSITIONS_PER_BELT - ITEM_SPACING - 1, LaneSide::Left);
+        app.add_item(belt2, POSITIONS_PER_BELT - 1, LaneSide::Left);
+
+        app.update();
+        let init_pos = app.find_item(item).unwrap().1.translation;
+
+        // Run enough updates to attempt transfer
+        for _ in 0..((POSITIONS_PER_BELT / 2 + POSITIONS_PER_FRAGMENT) / BASE_BELT_SPEED + 5) {
+            app.update();
+        }
+
+        let final_pos = app.find_item(item).unwrap().1.translation;
+
+        // Item should NOT have transferred (z coordinate should stay the same)
+        assert_eq!(
+            init_pos.z, final_pos.z,
+            "Item should still be on East belt at z={}, got z={}",
+            init_pos.z, final_pos.z
+        );
     }
 }

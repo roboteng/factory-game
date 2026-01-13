@@ -1,4 +1,8 @@
 [alias]
+# Run the tests, with no UI
 ts = "test --no-default-features --features=invariant-check"
+# Run the property based tests, with no UI
 tsp = "test --no-default-features --features=invariant-check,proptests"
 release = "build --release --no-default-features --features=ui"
+# Run the UI with no invariant checking
+rni = "run --no-default-features --features=ui"

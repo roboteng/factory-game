@@ -274,9 +274,12 @@ fn on_place_item(
     mut lanes: Query<&mut BeltLane>,
     mut commands: Commands,
 ) {
-    let lane_ent = belts.get(event.belt)
-        .expect("Invariant broken: all_belts_and_frags_claim_to_be_in_a_lane").lane;
-    let mut lane = lanes.get_mut(lane_ent)
+    let lane_ent = belts
+        .get(event.belt)
+        .expect("Invariant broken: all_belts_and_frags_claim_to_be_in_a_lane")
+        .lane;
+    let mut lane = lanes
+        .get_mut(lane_ent)
         .expect("Invariant broken: lane_belts_and_inlane_match");
 
     match lane.add_item(
@@ -805,7 +808,12 @@ pub fn item_position(
             )
             .with_rotation(Quat::from_rotation_y(angle + PI / 2.0))
         }
-        BeltShape::Fragment(dir) => todo!(),
+        BeltShape::Fragment(dir) => item_position(
+            BeltShape::Straight(dir),
+            coords,
+            lane,
+            pos + POSITIONS_PER_BELT - POSITIONS_PER_FRAGMENT,
+        ),
     }
 }
 
@@ -882,7 +890,7 @@ fn new_belt(
             lane.add_to_head(new.belt, new.coords, new.entity);
             lane.insert_items_at(&existing_items.0, LaneSide::Left);
             lane.insert_items_at(&existing_items.1, LaneSide::Right);
-            debug!("Lane is {:?}", lane);
+            debug!("Lane is {:#?}", lane);
             world.entity_mut(new.entity).insert(InLane::new(lane_ent));
         }
         (Some((ahead_ent, _, ConnectionType::Direct)), None) => {
@@ -1174,11 +1182,22 @@ fn create_sideload_connection(
     intersection_coords: WorldCoords,
     target_side: LaneSide,
 ) {
+    let frag_ent = world
+        .spawn((
+            BeltShape::Fragment(source_dir),
+            intersection_coords,
+            InLane::new(source_lane_ent),
+        ))
+        .id();
+    let mut source_lane = get_lane_mut(world, source_lane_ent);
+    source_lane.prepend_fragment(source_dir, intersection_coords, frag_ent);
+
     let target_lane_ent = get_lane_entity(world, target_belt_ent);
     let target_lane = get_lane(world, target_lane_ent);
 
     // Get the ranges for the target belt
-    let ranges = target_lane.range_for(target_belt_ent)
+    let ranges = target_lane
+        .range_for(target_belt_ent)
         .expect("Invariant broken: lane_belt_data_matches_world");
 
     // Find the centerpoint of the target belt range
@@ -1188,6 +1207,7 @@ fn create_sideload_connection(
     let lane_offset = (LANE_OFFSET_FACTOR * POSITIONS_PER_BELT as f32) as i32;
 
     // Items from the "earlier" lane go ahead, "later" lane goes behind
+    // TODO: THis assumption is wrong. Need to change
     let left_offset = center + lane_offset;
     let right_offset = center - lane_offset;
 
@@ -1200,9 +1220,6 @@ fn create_sideload_connection(
         },
         target_side,
     });
-
-    // TODO: Add fragment for visual representation
-    // For now, skip fragment creation as it's mainly cosmetic
 }
 
 fn get_lane_entity(world: &mut World, belt_ent: Entity) -> Entity {
@@ -1214,7 +1231,9 @@ fn get_lane_entity(world: &mut World, belt_ent: Entity) -> Entity {
 }
 
 fn get_lane(world: &mut World, lane_ent: Entity) -> &BeltLane {
-    world.query::<&BeltLane>().get(world, lane_ent)
+    world
+        .query::<&BeltLane>()
+        .get(world, lane_ent)
         .expect("Invariant broken: lane_entity_has_belt_lane_component")
 }
 
@@ -1559,7 +1578,8 @@ mod tests {
                 }],
                 right: vec![],
             },
-            is_blocked: false,
+            is_blocked_left: false,
+            is_blocked_right: false,
         };
         assert_eq!(*actual, expected);
     }
