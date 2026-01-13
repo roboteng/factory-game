@@ -3,7 +3,7 @@ use crate::core::*;
 use bevy::prelude::*;
 use proptest::prelude::*;
 
-fn execute_action_sequence(actions: Vec<Action>) {
+fn execute_action_sequence(actions: Vec<Action>) -> Result<(), TestCaseError> {
     let mut app = test_app_with_invariants();
     let mut state = TestState::default();
 
@@ -26,6 +26,16 @@ fn execute_action_sequence(actions: Vec<Action>) {
                 state.capture_item_positions(&mut app);
                 app.update();
 
+                // Check for invalid placements and reject test case if found
+                if app.has_placement_errors() {
+                    let errors = app.take_placement_errors();
+                    prop_assume!(
+                        false,
+                        "Invalid placement occurred (rejecting test case): {:?}",
+                        errors
+                    );
+                }
+
                 if let Err(msg) = state.check_movement_bounds(&mut app) {
                     panic!(
                         "Movement bound violation after action {}/{}: {}",
@@ -42,9 +52,22 @@ fn execute_action_sequence(actions: Vec<Action>) {
 
     state.capture_item_positions(&mut app);
     app.update();
+
+    // Final check for placement errors
+    if app.has_placement_errors() {
+        let errors = app.take_placement_errors();
+        prop_assume!(
+            false,
+            "Invalid placement occurred at end (rejecting test case): {:?}",
+            errors
+        );
+    }
+
     if let Err(msg) = state.check_movement_bounds(&mut app) {
         panic!("Movement bound violation at final update: {}", msg);
     }
+
+    Ok(())
 }
 
 fn test_app_with_invariants() -> App {

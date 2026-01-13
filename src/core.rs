@@ -1,5 +1,6 @@
 pub use crate::core::lane::*;
 use bevy::{math::ops::sin_cos, prelude::*};
+use derivative::Derivative;
 use std::{collections::HashMap, f32::consts::PI, ops::Range};
 
 mod lane;
@@ -71,13 +72,16 @@ pub struct PlaceBelt {
     pub dir: HDir,
 }
 
-#[derive(EntityEvent, Debug)]
+#[derive(EntityEvent, Derivative)]
+#[derivative(Debug)]
 pub struct PlaceItem {
     pub entity: Entity,
     pub item: Item,
     pub belt: Entity,
     pub lane: LaneSide,
     pub position: i32,
+    #[derivative(Debug = "ignore")]
+    pub on_error: Box<dyn Fn(Commands, ItemPlacementError) + Send + Sync + 'static>,
 }
 
 #[derive(EntityEvent)]
@@ -272,7 +276,8 @@ fn on_place_item(
 ) {
     let lane_ent = belts.get(event.belt).unwrap().lane;
     let mut lane = lanes.get_mut(lane_ent).unwrap();
-    lane.add_item(
+
+    match lane.add_item(
         ItemEntry {
             pos: event.position,
             item: event.item,
@@ -280,13 +285,18 @@ fn on_place_item(
         },
         event.lane,
         event.belt,
-    )
-    .expect("Invarient broken");
-
-    // Add Item and Transform components to the entity
-    commands
-        .entity(event.entity)
-        .insert((event.item, Transform::default()));
+    ) {
+        Ok(()) => {
+            // Add Item and Transform components to the entity
+            commands
+                .entity(event.entity)
+                .insert((event.item, Transform::default()));
+        }
+        Err(error) => {
+            // Call the error handler provided by the caller
+            (event.on_error)(commands, error);
+        }
+    }
 }
 
 fn on_remove_belt(
@@ -1269,7 +1279,14 @@ pub fn test_app() -> App {
     app.add_plugins(MinimalPlugins);
     app.add_plugins(CorePlugin);
     app.add_plugins(crate::sim::SimPlugin);
+    app.init_resource::<PlacementErrors>();
     app
+}
+
+#[cfg(test)]
+#[derive(Resource, Default)]
+pub struct PlacementErrors {
+    pub errors: Vec<ItemPlacementError>,
 }
 
 #[cfg(test)]
@@ -1278,6 +1295,8 @@ pub trait AppExtension {
     fn add_item(&mut self, belt: Entity, pos: i32, lane: LaneSide) -> Entity;
     fn find_item(&mut self, item: Entity) -> Option<(Item, Transform)>;
     fn remove_belt_at(&mut self, coords: impl Into<WorldCoords>) -> bool;
+    fn has_placement_errors(&self) -> bool;
+    fn take_placement_errors(&mut self) -> Vec<ItemPlacementError>;
 }
 
 #[cfg(test)]
@@ -1300,6 +1319,14 @@ impl AppExtension for App {
             belt,
             lane,
             position: pos,
+            on_error: Box::new(|mut commands, error| {
+                // Record the error in the PlacementErrors resource
+                commands.queue(move |world: &mut World| {
+                    if let Some(mut errors) = world.get_resource_mut::<PlacementErrors>() {
+                        errors.errors.push(error);
+                    }
+                });
+            }),
         });
         entity
     }
@@ -1320,6 +1347,20 @@ impl AppExtension for App {
         };
         self.world_mut().trigger(RemoveBelt { entity });
         true
+    }
+
+    fn has_placement_errors(&self) -> bool {
+        self.world()
+            .get_resource::<PlacementErrors>()
+            .map(|e| !e.errors.is_empty())
+            .unwrap_or(false)
+    }
+
+    fn take_placement_errors(&mut self) -> Vec<ItemPlacementError> {
+        self.world_mut()
+            .get_resource_mut::<PlacementErrors>()
+            .map(|mut e| std::mem::take(&mut e.errors))
+            .unwrap_or_default()
     }
 }
 

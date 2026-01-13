@@ -9,8 +9,6 @@ impl Plugin for SimPlugin {
             Update,
             (
                 // determine_sideload_blocks,
-                // determine_double_sideload_blocks,
-                // determine_double_sideload_contention,
                 transfers, plan_moves, do_moves,
             )
                 .chain()
@@ -400,5 +398,19 @@ mod tests {
         app.update();
         let next_pos = app.find_item(item).unwrap().1.translation;
         assert_ne!(init_pos, next_pos);
+    }
+
+    #[test]
+    fn place_item_outside_of_bounds() {
+        let mut app = test_app();
+        let belt = app.add_belt((3, 1, 0), HDir::North);
+        app.update();
+
+        let mut world = app.world_mut();
+        let lane = world.query::<&BeltLane>().single(world).unwrap();
+        info!("{lane:#?}");
+
+        app.add_item(belt, 232, LaneSide::Left);
+        app.update();
     }
 }

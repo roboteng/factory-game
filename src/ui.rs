@@ -549,6 +549,9 @@ fn handle_place_item_on_belt(
             belt: belt_entity,
             lane,
             position,
+            on_error: Box::new(|mut commands, error| {
+                warn!("Failed to place item: {:?}", error);
+            }),
         };
         debug!("triggering: {event:?}");
         cmd.trigger(event);

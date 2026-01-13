@@ -37,6 +37,13 @@ pub struct Offset {
     pub right: i32,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ItemPlacementError {
+    BeltNotFound,
+    PositionOutOfBounds,
+    PositionOccupied,
+}
+
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct BeltEntry {
     pub belt: BeltShape,
@@ -179,11 +186,18 @@ impl BeltLane {
     }
 
     /// The pos in the `ItemEntry` is relative to the belt, not the lane
-    pub fn add_item(&mut self, item: ItemEntry, lane: LaneSide, belt: Entity) -> Result<(), ()> {
-        let entry = self.belts.iter().find(|b| b.entity == belt).ok_or(())?;
+    pub fn add_item(&mut self, item: ItemEntry, lane: LaneSide, belt: Entity) -> Result<(), ItemPlacementError> {
+        let entry = self.belts.iter().find(|b| b.entity == belt).ok_or(ItemPlacementError::BeltNotFound)?;
         let offset = entry.lane_offsets[lane];
+        let new_pos = (offset + item.pos).clamp(entry.ranges[lane].start, entry.ranges[lane].end);
+
+        // Check if position is already occupied
+        if self.lanes[lane].iter().any(|existing| existing.pos == new_pos) {
+            return Err(ItemPlacementError::PositionOccupied);
+        }
+
         self.lanes[lane].push(ItemEntry {
-            pos: offset + item.pos,
+            pos: new_pos,
             ..item
         });
         Ok(())
