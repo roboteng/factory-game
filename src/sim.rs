@@ -27,7 +27,8 @@ fn do_moves(mut items: Query<&mut Transform, With<Item>>, lanes: Query<&BeltLane
     for lane in lanes.iter() {
         for side in SIDES {
             for item_entry in &lane.lanes[side] {
-                let belt_entry = lane.belt_for(item_entry.pos, side).unwrap();
+                let belt_entry = lane.belt_for(item_entry.pos, side)
+                    .expect("Invariant broken: items_are_within_belt_bounds");
 
                 let relative_pos = item_entry.pos - belt_entry.lane_offsets[side];
                 debug!(
@@ -37,7 +38,8 @@ fn do_moves(mut items: Query<&mut Transform, With<Item>>, lanes: Query<&BeltLane
                 let transform =
                     item_position(belt_entry.belt, belt_entry.coords, side, relative_pos);
 
-                let mut t = items.get_mut(item_entry.entity).unwrap();
+                let mut t = items.get_mut(item_entry.entity)
+                    .expect("Invariant broken: all_items_have_transform_component");
                 *t = transform;
             }
         }
@@ -52,7 +54,8 @@ fn transfers(
     // Process loop connections
     for (lane_ent, loop_conn) in loop_conns.iter() {
         debug!("processing loop connection");
-        let mut lane = lanes.get_mut(lane_ent).unwrap();
+        let mut lane = lanes.get_mut(lane_ent)
+            .expect("Invariant broken: lane_loop_connection_points_to_existing_lane");
 
         for side in SIDES {
             let start = lane.belts[0].ranges[side].start;
@@ -68,7 +71,8 @@ fn transfers(
     // Process regular connections
     for (source_ent, conn) in conns.iter().filter(|(ent, c)| *ent != c.target) {
         debug!("processing connection");
-        let mut source_lane = lanes.get_mut(source_ent).unwrap();
+        let mut source_lane = lanes.get_mut(source_ent)
+            .expect("Invariant broken: lane_connection_source_is_valid_lane");
         if source_lane.is_blocked {
             debug!("connection blocked, skipping transfer");
             continue;
@@ -79,7 +83,8 @@ fn transfers(
                 debug!("item at pos: {}", item_entry.pos);
                 if item_entry.pos < BASE_BELT_SPEED {
                     source_lane.lanes[side].remove(0);
-                    let mut target_lane = lanes.get_mut(conn.target).unwrap();
+                    let mut target_lane = lanes.get_mut(conn.target)
+                        .expect("Invariant broken: lane_connection_target_is_valid_lane");
                     target_lane.insert_items_at(
                         &[ItemEntry {
                             pos: conn.offset[side],
@@ -89,7 +94,8 @@ fn transfers(
                     );
                 }
             }
-            source_lane = lanes.get_mut(source_ent).unwrap();
+            source_lane = lanes.get_mut(source_ent)
+                .expect("Invariant broken: lane_connection_source_is_valid_lane");
         }
     }
 }

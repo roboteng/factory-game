@@ -274,8 +274,10 @@ fn on_place_item(
     mut lanes: Query<&mut BeltLane>,
     mut commands: Commands,
 ) {
-    let lane_ent = belts.get(event.belt).unwrap().lane;
-    let mut lane = lanes.get_mut(lane_ent).unwrap();
+    let lane_ent = belts.get(event.belt)
+        .expect("Invariant broken: all_belts_and_frags_claim_to_be_in_a_lane").lane;
+    let mut lane = lanes.get_mut(lane_ent)
+        .expect("Invariant broken: lane_belts_and_inlane_match");
 
     match lane.add_item(
         ItemEntry {
@@ -1176,7 +1178,8 @@ fn create_sideload_connection(
     let target_lane = get_lane(world, target_lane_ent);
 
     // Get the ranges for the target belt
-    let ranges = target_lane.range_for(target_belt_ent).unwrap();
+    let ranges = target_lane.range_for(target_belt_ent)
+        .expect("Invariant broken: lane_belt_data_matches_world");
 
     // Find the centerpoint of the target belt range
     let center = (ranges[target_side].start + ranges[target_side].end) / 2;
@@ -1207,18 +1210,19 @@ fn get_lane_entity(world: &mut World, belt_ent: Entity) -> Entity {
         .query::<&InLane>()
         .get(world, belt_ent)
         .map(|l| l.lane)
-        .unwrap()
+        .expect("Invariant broken: all_belts_and_frags_claim_to_be_in_a_lane")
 }
 
 fn get_lane(world: &mut World, lane_ent: Entity) -> &BeltLane {
-    world.query::<&BeltLane>().get(world, lane_ent).unwrap()
+    world.query::<&BeltLane>().get(world, lane_ent)
+        .expect("Invariant broken: lane_entity_has_belt_lane_component")
 }
 
 fn get_lane_mut(world: &mut World, lane_ent: Entity) -> bevy::ecs::world::Mut<'_, BeltLane> {
     world
         .query::<&mut BeltLane>()
         .get_mut(world, lane_ent)
-        .unwrap()
+        .expect("Invariant broken: lane_entity_has_belt_lane_component")
 }
 
 fn update_connection_offsets_for_lane(

@@ -91,7 +91,10 @@ impl BeltLane {
     }
 
     pub fn add_to_tail(&mut self, shape: BeltShape, coords: WorldCoords, entity: Entity) {
-        let last = self.belts.last().unwrap();
+        let last = self
+            .belts
+            .last()
+            .expect("Invariant broken: all_lanes_have_belts");
         let left_end = last.ranges.left.end;
         let right_end = last.ranges.right.end;
         self.belts.push(BeltEntry {
@@ -158,10 +161,34 @@ impl BeltLane {
 
     /// Returns (left, right)
     pub fn ranges(&self) -> Ranges {
-        let left_start = self.belts.first().unwrap().ranges.left.start;
-        let left_end = self.belts.last().unwrap().ranges.left.end;
-        let right_start = self.belts.first().unwrap().ranges.right.start;
-        let right_end = self.belts.last().unwrap().ranges.right.end;
+        let left_start = self
+            .belts
+            .first()
+            .expect("Invariant broken: all_lanes_have_belts")
+            .ranges
+            .left
+            .start;
+        let left_end = self
+            .belts
+            .last()
+            .expect("Invariant broken: all_lanes_have_belts")
+            .ranges
+            .left
+            .end;
+        let right_start = self
+            .belts
+            .first()
+            .expect("Invariant broken: all_lanes_have_belts")
+            .ranges
+            .right
+            .start;
+        let right_end = self
+            .belts
+            .last()
+            .expect("Invariant broken: all_lanes_have_belts")
+            .ranges
+            .right
+            .end;
         Ranges {
             left: left_start..left_end,
             right: right_start..right_end,
@@ -186,13 +213,26 @@ impl BeltLane {
     }
 
     /// The pos in the `ItemEntry` is relative to the belt, not the lane
-    pub fn add_item(&mut self, item: ItemEntry, lane: LaneSide, belt: Entity) -> Result<(), ItemPlacementError> {
-        let entry = self.belts.iter().find(|b| b.entity == belt).ok_or(ItemPlacementError::BeltNotFound)?;
+    pub fn add_item(
+        &mut self,
+        item: ItemEntry,
+        lane: LaneSide,
+        belt: Entity,
+    ) -> Result<(), ItemPlacementError> {
+        let entry = self
+            .belts
+            .iter()
+            .find(|b| b.entity == belt)
+            .ok_or(ItemPlacementError::BeltNotFound)?;
         let offset = entry.lane_offsets[lane];
-        let new_pos = (offset + item.pos).clamp(entry.ranges[lane].start, entry.ranges[lane].end);
+        let new_pos =
+            (offset + item.pos).clamp(entry.ranges[lane].start, entry.ranges[lane].end - 1);
 
         // Check if position is already occupied
-        if self.lanes[lane].iter().any(|existing| existing.pos == new_pos) {
+        if self.lanes[lane]
+            .iter()
+            .any(|existing| existing.pos == new_pos)
+        {
             return Err(ItemPlacementError::PositionOccupied);
         }
 
@@ -207,7 +247,9 @@ impl BeltLane {
         &'a self,
     ) -> impl Iterator<Item = (Item, i32, BeltShape, LaneSide, WorldCoords)> + 'a {
         let left_items = self.lanes[Left].iter().map(move |entry| {
-            let belt_entry = self.belt_for(entry.pos, LaneSide::Left).unwrap();
+            let belt_entry = self
+                .belt_for(entry.pos, LaneSide::Left)
+                .expect("Invariant broken: items_are_within_belt_bounds");
             let relative_pos = entry.pos - belt_entry.lane_offsets.left;
             (
                 entry.item,
@@ -219,7 +261,9 @@ impl BeltLane {
         });
 
         let right_items = self.lanes[Right].iter().map(move |entry| {
-            let belt_entry = self.belt_for(entry.pos, LaneSide::Right).unwrap();
+            let belt_entry = self
+                .belt_for(entry.pos, LaneSide::Right)
+                .expect("Invariant broken: items_are_within_belt_bounds");
             let relative_pos = entry.pos - belt_entry.lane_offsets.right;
             (
                 entry.item,
@@ -260,7 +304,7 @@ impl BeltLane {
             .iter()
             .find(|b| b.ranges[lane].contains(&pos))
             .map(|b| pos - b.ranges[lane].start)
-            .unwrap()
+            .expect("Invariant broken: items_are_within_belt_bounds")
     }
 
     pub fn prepend_fragment(&mut self, output: HDir, coords: WorldCoords, entity: Entity) {
