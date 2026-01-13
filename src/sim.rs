@@ -56,19 +56,13 @@ fn transfers(
         debug!("processing loop connection");
         let mut lane = lanes.get_mut(lane_ent).unwrap();
 
-        let start = lane.belts[0].ranges.left.start;
-        if let Some(item) = lane.lanes[LaneSide::Left].first_mut() {
-            if item.pos - start < BASE_BELT_SPEED {
-                item.pos += loop_conn.left_offset;
-                lane.lanes[LaneSide::Left].sort();
-            }
-        }
-
-        let start = lane.belts[0].ranges.right.start;
-        if let Some(item) = lane.lanes[LaneSide::Right].first_mut() {
-            if item.pos - start < BASE_BELT_SPEED {
-                item.pos += loop_conn.right_offset;
-                lane.lanes[LaneSide::Right].sort();
+        for side in SIDES {
+            let start = lane.belts[0].ranges[side].start;
+            if let Some(item) = lane.lanes[side].first_mut() {
+                if item.pos - start < BASE_BELT_SPEED {
+                    item.pos += loop_conn.offset[side];
+                    lane.lanes[side].sort();
+                }
             }
         }
     }
@@ -82,37 +76,22 @@ fn transfers(
             continue;
         }
 
-        // Check left lane for items to transfer
-        if let Some(item_entry) = source_lane.lanes[LaneSide::Left].first().copied() {
-            debug!("item at pos: {}", item_entry.pos);
-            if item_entry.pos < BASE_BELT_SPEED {
-                source_lane.lanes[LaneSide::Left].remove(0);
-                let mut target_lane = lanes.get_mut(conn.target).unwrap();
-                target_lane.insert_items_at(
-                    &[ItemEntry {
-                        pos: conn.left_offset,
-                        ..item_entry
-                    }],
-                    conn.target_side,
-                );
+        for side in SIDES {
+            if let Some(item_entry) = source_lane.lanes[side].first().copied() {
+                debug!("item at pos: {}", item_entry.pos);
+                if item_entry.pos < BASE_BELT_SPEED {
+                    source_lane.lanes[side].remove(0);
+                    let mut target_lane = lanes.get_mut(conn.target).unwrap();
+                    target_lane.insert_items_at(
+                        &[ItemEntry {
+                            pos: conn.offset[side],
+                            ..item_entry
+                        }],
+                        conn.target_side,
+                    );
+                }
             }
-        }
-
-        // Check right lane for items to transfer
-        let mut source_lane = lanes.get_mut(source_ent).unwrap();
-        if let Some(item_entry) = source_lane.lanes[LaneSide::Right].first().copied() {
-            debug!("item at pos: {}", item_entry.pos);
-            if item_entry.pos < BASE_BELT_SPEED {
-                source_lane.lanes[LaneSide::Right].remove(0);
-                let mut target_lane = lanes.get_mut(conn.target).unwrap();
-                target_lane.insert_items_at(
-                    &[ItemEntry {
-                        pos: conn.right_offset,
-                        ..item_entry
-                    }],
-                    conn.target_side,
-                );
-            }
+            source_lane = lanes.get_mut(source_ent).unwrap();
         }
     }
 }

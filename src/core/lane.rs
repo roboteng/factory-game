@@ -31,6 +31,12 @@ pub struct LaneOffsets {
     pub right: i32,
 }
 
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub struct Offset {
+    pub left: i32,
+    pub right: i32,
+}
+
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct BeltEntry {
     pub belt: BeltShape,
@@ -416,6 +422,26 @@ impl Index<LaneSide> for LaneOffsets {
 }
 
 impl IndexMut<LaneSide> for LaneOffsets {
+    fn index_mut(&mut self, index: LaneSide) -> &mut Self::Output {
+        match index {
+            LaneSide::Left => &mut self.left,
+            LaneSide::Right => &mut self.right,
+        }
+    }
+}
+
+impl Index<LaneSide> for Offset {
+    type Output = i32;
+
+    fn index(&self, index: LaneSide) -> &Self::Output {
+        match index {
+            LaneSide::Left => &self.left,
+            LaneSide::Right => &self.right,
+        }
+    }
+}
+
+impl IndexMut<LaneSide> for Offset {
     fn index_mut(&mut self, index: LaneSide) -> &mut Self::Output {
         match index {
             LaneSide::Left => &mut self.left,

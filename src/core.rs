@@ -134,15 +134,13 @@ pub struct Item(pub u32);
 #[derive(Debug, Component)]
 pub struct LaneConnection {
     pub target: Entity,
-    pub left_offset: i32,
-    pub right_offset: i32,
+    pub offset: Offset,
     pub target_side: LaneSide,
 }
 #[derive(Debug, Component)]
 pub struct LaneLoopConnection {
     pub target: Entity,
-    pub left_offset: i32,
-    pub right_offset: i32,
+    pub offset: Offset,
 }
 
 #[derive(Component)]
@@ -909,8 +907,10 @@ fn new_belt(
                     .entity_mut(behind_lane_ent)
                     .insert(LaneLoopConnection {
                         target: behind_lane_ent,
-                        left_offset: ranges.left.end - ranges.left.start,
-                        right_offset: ranges.right.end - ranges.right.start,
+                        offset: Offset {
+                            left: ranges.left.end - ranges.left.start,
+                            right: ranges.right.end - ranges.right.start,
+                        },
                     });
                 debug!("spawned loop connection");
             } else {
@@ -1181,8 +1181,10 @@ fn create_sideload_connection(
     // Create the connection
     world.entity_mut(source_lane_ent).insert(LaneConnection {
         target: target_lane_ent,
-        left_offset,
-        right_offset,
+        offset: Offset {
+            left: left_offset,
+            right: right_offset,
+        },
         target_side,
     });
 
@@ -1230,8 +1232,9 @@ fn update_connection_offsets_for_lane(
     for source_ent in conns_to_update {
         if let Some(mut conn) = world.entity_mut(source_ent).get_mut::<LaneConnection>() {
             if side == conn.target_side {
-                conn.left_offset += offset;
-                conn.right_offset += offset
+                for side in SIDES {
+                    conn.offset[side] += offset;
+                }
             }
         }
     }
