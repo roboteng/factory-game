@@ -1,7 +1,9 @@
 #![allow(unused)]
-use bevy::prelude::*;
-
 use crate::core::*;
+
+use bevy::prelude::*;
+#[cfg(feature = "ui")]
+use bevy::window::PrimaryWindow;
 
 mod core;
 mod sim;
@@ -13,15 +15,32 @@ fn main() {
 
     app.add_plugins((DefaultPlugins, core::CorePlugin, sim::SimPlugin));
 
+    #[cfg(feature = "dev")]
+    app.add_plugins((
+        bevy::diagnostic::FrameTimeDiagnosticsPlugin::default(),
+        bevy::diagnostic::SystemInformationDiagnosticsPlugin,
+        bevy::diagnostic::LogDiagnosticsPlugin::default(),
+    ));
+
     #[cfg(feature = "ui")]
     app.add_plugins(ui::UiPlugin);
 
     app.add_systems(Startup, setup);
     app.add_systems(Update, update);
 
+    #[cfg(all(feature = "ui", feature = "dev"))]
+    app.add_systems(Startup, max_framerate);
+
     app.init_resource::<ShouldRun>();
 
     app.run();
+}
+
+#[cfg(all(feature = "ui", feature = "dev"))]
+fn max_framerate(mut windows: Query<&mut Window, With<PrimaryWindow>>) {
+    for mut window in windows.iter_mut() {
+        window.present_mode = bevy::window::PresentMode::AutoNoVsync
+    }
 }
 
 fn setup(mut cmd: Commands) {
