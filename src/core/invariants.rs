@@ -1,5 +1,6 @@
 use bevy::app::MainScheduleOrder;
 use bevy::ecs::schedule::{ExecutorKind, Schedule, ScheduleLabel};
+use bevy::log::warn;
 
 use crate::core::*;
 use std::collections::HashSet;
@@ -39,6 +40,8 @@ impl Plugin for InvariantsPlugin {
                 check_adjacent_belts_in_lane_are_connected,
                 no_fragments_marked_as_belt,
                 all_fragments_at_head_of_lane,
+                items_in_lane_sorted_by_pos,
+                warn_items_too_close,
                 items_are_within_belt_bounds,
                 (items_dont_move_too_far, update_previous_transforms).chain(),
                 super::clear_changed_belts,
@@ -319,6 +322,46 @@ fn all_fragments_at_head_of_lane(
                         "Fragment belt {:?} is at index {} in lane {:?}, but should be at head (index 0)",
                         belt_entry.entity, index, lane_entity
                     ));
+                }
+            }
+        }
+    }
+}
+
+fn items_in_lane_sorted_by_pos(
+    lanes: Query<(Entity, &BeltLane)>,
+    mut b: ResMut<BrokenInvariants>,
+) {
+    for (lane_entity, lane) in lanes.iter() {
+        for side in SIDES {
+            let items = &lane.lanes[side];
+            for window in items.windows(2) {
+                let first = &window[0];
+                let second = &window[1];
+                if first.pos >= second.pos {
+                    b.add(format!(
+                        "Lane {:?} {:?} side has items not sorted by pos: item {:?} at pos {} followed by item {:?} at pos {}",
+                        lane_entity, side, first.entity, first.pos, second.entity, second.pos
+                    ));
+                }
+            }
+        }
+    }
+}
+
+fn warn_items_too_close(lanes: Query<(Entity, &BeltLane)>) {
+    for (lane_entity, lane) in lanes.iter() {
+        for side in SIDES {
+            let items = &lane.lanes[side];
+            for window in items.windows(2) {
+                let first = &window[0];
+                let second = &window[1];
+                let distance = second.pos - first.pos;
+                if distance < ITEM_SPACING {
+                    warn!(
+                        "Lane {:?} {:?} side has items too close: item {:?} at pos {} and item {:?} at pos {} (distance: {}, min: {})",
+                        lane_entity, side, first.entity, first.pos, second.entity, second.pos, distance, ITEM_SPACING
+                    );
                 }
             }
         }
