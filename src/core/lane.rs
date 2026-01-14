@@ -282,10 +282,14 @@ impl BeltLane {
     }
 
     pub fn range_for(&self, belt: Entity) -> Option<Ranges> {
+        self.find_belt(belt).map(|b| b.1.ranges.clone())
+    }
+
+    fn find_belt(&self, belt: Entity) -> Option<(usize, &BeltEntry)> {
         self.belts
             .iter()
-            .find(|b| b.entity == belt)
-            .map(|b| b.ranges.clone())
+            .enumerate()
+            .find(|(_, b)| b.entity == belt)
     }
 
     pub fn insert_items_at(&mut self, items: &[ItemEntry], side: LaneSide) {
@@ -356,6 +360,7 @@ impl BeltLane {
         let head = self.belts.remove(0);
 
         // Process left lane
+        // TODO: include items that are close to the boundary
         let part = self.lanes[Left].partition_point(|item| head.ranges[Left].contains(&item.pos));
         let (head_items, keep_items) = self.lanes[Left].split_at_mut(part);
         let keep = Vec::from(keep_items);
@@ -422,6 +427,39 @@ impl BeltLane {
                 second.pos = (first.pos + ITEM_SPACING).max(second.pos - BASE_BELT_SPEED);
             }
         }
+    }
+
+    pub fn split_at(&mut self, next_head: Entity) -> Option<Self> {
+        let (index, belt) = self.find_belt(next_head)?;
+        let belt = belt.clone();
+        let Self { belts, .. } = self;
+        let new_belts = belts.split_off(index);
+
+        let mut b = belts.last_mut().unwrap();
+        b.ranges.left.end -= ITEM_SPACING / 2;
+        b.ranges.right.end -= ITEM_SPACING / 2;
+
+        let left_split = self
+            .lanes
+            .left
+            .partition_point(|i| i.pos < belt.ranges.left.start - ITEM_SPACING / 2);
+        let left_items = self.lanes.left.split_off(left_split);
+
+        let right_split = self
+            .lanes
+            .right
+            .partition_point(|i| i.pos < belt.ranges.right.start - ITEM_SPACING / 2);
+        let right_items = self.lanes.right.split_off(right_split);
+
+        Some(Self {
+            belts: new_belts,
+            lanes: Lanes {
+                left: left_items,
+                right: right_items,
+            },
+            is_blocked_left: false,
+            is_blocked_right: false,
+        })
     }
 }
 

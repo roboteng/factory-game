@@ -1079,8 +1079,16 @@ fn remove_belt(
             items
         }
         (Some((_, _, ConnectionType::Direct)), Some(_)) => {
-            // Removing from middle of lane - would need to split lane
-            todo!("remove belt from middle of lane")
+            let mut lane = get_lane_mut(world, lane_ent);
+            let mut tail_lane = lane.split_at(removed.entity).unwrap();
+            let leftover_items = tail_lane.remove_head();
+            let belts = tail_lane.belts.iter().map(|b| b.entity).collect::<Vec<_>>();
+
+            let tail_lane_ent = world.spawn(tail_lane).id();
+            for belt in belts.iter() {
+                world.entity_mut(*belt).insert(InLane::new(tail_lane_ent));
+            }
+            leftover_items
         }
         (Some((_, _, ConnectionType::SideLoad(_))), None) => todo!(),
         (Some((_, _, ConnectionType::SideLoad(_))), Some(_)) => todo!(),
@@ -1319,6 +1327,7 @@ pub trait AppExtension {
     fn add_belt(&mut self, coords: impl Into<WorldCoords>, dir: HDir) -> Entity;
     fn add_item(&mut self, belt: Entity, pos: i32, lane: LaneSide) -> Entity;
     fn find_item(&mut self, item: Entity) -> Option<(Item, Transform)>;
+    fn find_belt(&mut self, belt: Entity) -> Option<(BeltShape, Transform)>;
     fn remove_belt_at(&mut self, coords: impl Into<WorldCoords>) -> bool;
     fn has_placement_errors(&self) -> bool;
     fn take_placement_errors(&mut self) -> Vec<ItemPlacementError>;
@@ -1363,6 +1372,15 @@ impl AppExtension for App {
             .get(world, item)
             .ok()
             .map(|(item, transform)| (*item, *transform))
+    }
+
+    fn find_belt(&mut self, belt: Entity) -> Option<(BeltShape, Transform)> {
+        let world = self.world_mut();
+        world
+            .query::<(&BeltShape, &Transform)>()
+            .get(world, belt)
+            .ok()
+            .map(|(shape, transform)| (*shape, *transform))
     }
 
     fn remove_belt_at(&mut self, coords: impl Into<WorldCoords>) -> bool {
@@ -1600,5 +1618,59 @@ mod tests {
 
         let mut world = app.world_mut();
         world.query::<&InLane>().single(world).unwrap();
+    }
+
+    #[test]
+    fn remove_single_belt() {
+        let mut app = test_app();
+        let entity = app.add_belt((0, 0, 0), HDir::North);
+        app.update();
+
+        let mut world = app.world_mut();
+        world.query::<&InLane>().single(world).unwrap();
+
+        app.remove_belt_at((0, 0, 0));
+        app.update();
+        assert!(app.find_belt(entity).is_none());
+    }
+
+    #[test]
+    fn remove_belt_at_head() {
+        let mut app = test_app();
+        let entity = app.add_belt((0, 0, 0), HDir::North);
+        app.add_belt((-1, 0, 0), HDir::North);
+        app.update();
+
+        app.remove_belt_at((0, 0, 0));
+        app.update();
+
+        assert!(app.find_belt(entity).is_none());
+    }
+
+    #[test]
+    fn remove_belt_at_tail() {
+        let mut app = test_app();
+        let entity = app.add_belt((0, 0, 0), HDir::North);
+        app.add_belt((1, 0, 0), HDir::North);
+        app.update();
+
+        app.remove_belt_at((0, 0, 0));
+        app.update();
+
+        assert!(app.find_belt(entity).is_none());
+    }
+
+    #[test]
+    fn remove_belt_in_middle() {
+        let mut app = test_app();
+        let entity = app.add_belt((0, 0, 0), HDir::North);
+        app.add_belt((1, 0, 0), HDir::North);
+        app.add_belt((-1, 0, 0), HDir::North);
+        app.update();
+
+        app.remove_belt_at((0, 0, 0));
+        app.update();
+
+        assert!(app.find_belt(entity).is_none());
     }
 }
