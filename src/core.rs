@@ -1673,4 +1673,25 @@ mod tests {
 
         assert!(app.find_belt(entity).is_none());
     }
+
+    #[test]
+    fn remove_belt_in_middle_with_items() {
+        let mut app = test_app();
+        let middle = app.add_belt((0, 0, 0), HDir::North);
+        let head = app.add_belt((1, 0, 0), HDir::North);
+        let tail = app.add_belt((-1, 0, 0), HDir::North);
+        app.update();
+
+        for i in 0..ITEMS_PER_BELT {
+            app.add_item(head, i * ITEM_SPACING, LaneSide::Left);
+            app.add_item(middle, i * ITEM_SPACING, LaneSide::Left);
+        }
+        app.add_item(tail, 0, LaneSide::Left);
+        app.update();
+
+        app.remove_belt_at((0, 0, 0));
+        app.update();
+
+        assert!(app.find_belt(middle).is_none());
+    }
 }

@@ -242,6 +242,7 @@ impl BeltLane {
             pos: new_pos,
             ..item
         });
+        self.lanes[lane].sort();
         Ok(())
     }
 
@@ -374,7 +375,6 @@ impl BeltLane {
         let right = Vec::from_iter(head_items.iter().cloned());
         self.lanes[Right] = keep;
 
-        self.shorten_by(head.ranges.left.end, head.ranges.right.end);
         (left, right)
     }
 
