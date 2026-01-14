@@ -331,13 +331,15 @@ fn on_remove_belt(
 }
 
 fn replace_items(lanes: Query<&BeltLane>, mut items: Query<(&mut Item, &mut Transform)>) {
-    for ((item, pos, belt, lane, coords), mut b) in Iterator::zip(
-        lanes.iter().map(|l| l.item_iter()).flatten(),
-        items.iter_mut(),
-    ) {
-        let transform = item_position(belt, coords, lane, pos);
-        *b.0 = item;
-        *b.1 = transform;
+    for lane in lanes {
+        for side in SIDES {
+            for things in lane.item_iter() {
+                let mut item = items.get_mut(things.5).unwrap();
+                let transform = item_position(things.2, things.4, things.3, things.1);
+
+                *item.1 = transform;
+            }
+        }
     }
 }
 

@@ -2,6 +2,7 @@ use crate::core::proptest_actions::*;
 use crate::core::*;
 use bevy::prelude::*;
 use proptest::prelude::*;
+use proptest::test_runner::Reason;
 
 fn execute_action_sequence(actions: Vec<Action>) -> Result<(), TestCaseError> {
     let mut app = test_app_with_invariants();
@@ -56,11 +57,7 @@ fn execute_action_sequence(actions: Vec<Action>) -> Result<(), TestCaseError> {
     // Final check for placement errors
     if app.has_placement_errors() {
         let errors = app.take_placement_errors();
-        prop_assume!(
-            false,
-            "Invalid placement occurred at end (rejecting test case): {:?}",
-            errors
-        );
+        return Err(TestCaseError::Reject(format!("{errors:?}").into()));
     }
 
     if let Err(msg) = state.check_movement_bounds(&mut app) {

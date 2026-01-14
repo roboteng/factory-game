@@ -233,7 +233,7 @@ impl BeltLane {
         // Check if position is already occupied
         if self.lanes[lane]
             .iter()
-            .any(|existing| existing.pos == new_pos)
+            .any(|existing| (existing.pos - new_pos).abs() < ITEM_SPACING)
         {
             return Err(ItemPlacementError::PositionOccupied);
         }
@@ -247,7 +247,7 @@ impl BeltLane {
 
     pub fn item_iter<'a>(
         &'a self,
-    ) -> impl Iterator<Item = (Item, i32, BeltShape, LaneSide, WorldCoords)> + 'a {
+    ) -> impl Iterator<Item = (Item, i32, BeltShape, LaneSide, WorldCoords, Entity)> + 'a {
         let left_items = self.lanes[Left].iter().map(move |entry| {
             let belt_entry = self
                 .belt_for(entry.pos, LaneSide::Left)
@@ -259,6 +259,7 @@ impl BeltLane {
                 belt_entry.belt,
                 LaneSide::Left,
                 belt_entry.coords,
+                entry.entity,
             )
         });
 
@@ -273,6 +274,7 @@ impl BeltLane {
                 belt_entry.belt,
                 LaneSide::Right,
                 belt_entry.coords,
+                entry.entity,
             )
         });
 
