@@ -670,7 +670,7 @@ impl BeltChanges {
                 }
                 .into();
             }
-            _ => {}
+            _ => todo!(),
         }
     }
 
@@ -740,12 +740,15 @@ impl BeltChanges {
                     second_replaced_belt.old_entity
                 );
 
+                debug!("Some case");
                 self.0.remove(existing_idx);
                 cmd.entity(first_replaced_belt.entity).insert(Delete);
 
                 self.0.push(BeltChange::Replaced(ReplacedBelt {
                     entity: second_replaced_belt.entity,
-                    old_entity: first_replaced_belt.old_entity,
+                    old_entity: first_replaced_belt
+                        .old_entity
+                        .or(second_replaced_belt.old_entity),
                     old_belt: first_replaced_belt.old_belt,
                     new_belt: second_replaced_belt.new_belt,
                     coords: first_replaced_belt.coords,
@@ -1437,6 +1440,7 @@ fn create_sideload_connection(
     });
 }
 
+#[track_caller]
 fn get_lane_entity(world: &mut World, belt_ent: Entity) -> Entity {
     world
         .query::<&InLane>()
@@ -1998,5 +2002,21 @@ mod tests {
         // Both replacements should exist
         assert!(app.find_belt(replaced_a).is_some());
         assert!(app.find_belt(replaced_b).is_some());
+    }
+
+    #[test]
+    fn replace_with_two_neighbors_after_update() {
+        let mut app = test_app();
+
+        let first = app.add_belt((0, 0, 0), HDir::West);
+        app.add_belt((-1, 0, 0), HDir::North);
+        app.update();
+
+        app.add_belt((1, 0, 0), HDir::South);
+        let replaced = app.add_belt((0, 0, 0), HDir::North);
+        app.update();
+
+        assert!(app.find_belt(first).is_none());
+        assert!(app.find_belt(replaced).is_some());
     }
 }
