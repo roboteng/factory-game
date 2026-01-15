@@ -362,6 +362,7 @@ impl BeltLane {
 
         // Process left lane
         // TODO: include items that are close to the boundary
+        // TODO: change item's pos to be zero based
         let part = self.lanes[Left].partition_point(|item| head.ranges[Left].contains(&item.pos));
         let (head_items, keep_items) = self.lanes[Left].split_at_mut(part);
         let keep = Vec::from(keep_items);

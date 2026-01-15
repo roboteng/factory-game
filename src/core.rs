@@ -224,6 +224,7 @@ fn on_place_belt(
     belt_coords.insert(event.coords, event.entity, belt);
 
     if let Some((old_entity, old_belt)) = old_entity_and_belt {
+        debug!("Found existing belt: {old_entity:?}. Replacing it");
         changes.push(ReplacedBelt {
             entity: event.entity,
             old_entity: Some(old_entity),
@@ -250,6 +251,10 @@ fn on_place_belt(
         };
         let new_belt = plan_belt_placement(&place, &belt_coords);
         if ahead_belt != new_belt {
+            debug!(
+                "Placing belt {:?} affected {entity:?}, updating that belt",
+                event.entity
+            );
             let angle = new_belt.output().angle();
             cmd.entity(place.entity).insert((
                 new_belt,
@@ -394,7 +399,7 @@ impl InLane {
 }
 
 impl WorldCoords {
-    pub fn step(&self, dir: HDir) -> Self {
+    pub const fn step(&self, dir: HDir) -> Self {
         match dir {
             HDir::North => Self {
                 x: self.x + 1,
@@ -439,7 +444,7 @@ impl BeltCoords {
 }
 
 impl HDir {
-    pub fn angle(&self) -> f32 {
+    pub const fn angle(&self) -> f32 {
         match self {
             Self::North => 0.0,
             Self::East => -PI / 2.0,
@@ -448,7 +453,7 @@ impl HDir {
         }
     }
 
-    pub fn opposite(&self) -> Self {
+    pub const fn opposite(&self) -> Self {
         match self {
             Self::North => Self::South,
             Self::East => Self::West,
@@ -457,7 +462,7 @@ impl HDir {
         }
     }
 
-    pub fn left(&self) -> Self {
+    pub const fn left(&self) -> Self {
         match self {
             Self::North => Self::West,
             Self::East => Self::North,
@@ -466,7 +471,7 @@ impl HDir {
         }
     }
 
-    pub fn right(&self) -> Self {
+    pub const fn right(&self) -> Self {
         match self {
             Self::North => Self::East,
             Self::East => Self::South,
@@ -477,14 +482,14 @@ impl HDir {
 }
 
 impl BeltShape {
-    pub fn output(&self) -> HDir {
+    pub const fn output(&self) -> HDir {
         match self {
             Self::Straight(dir) => *dir,
             Self::Curve(curve) => curve.output(),
             Self::Fragment(dir) => *dir,
         }
     }
-    pub fn input(&self) -> HDir {
+    pub const fn input(&self) -> HDir {
         match self {
             Self::Straight(dir) => *dir,
             Self::Curve(curve) => curve.input(),
@@ -492,14 +497,14 @@ impl BeltShape {
         }
     }
 
-    pub fn num_pos(&self, side: LaneSide) -> i32 {
+    pub const fn num_pos(&self, side: LaneSide) -> i32 {
         match side {
             LaneSide::Left => self.left_num_pos(),
             LaneSide::Right => self.right_num_pos(),
         }
     }
 
-    pub fn left_num_pos(&self) -> i32 {
+    pub const fn left_num_pos(&self) -> i32 {
         match self {
             Self::Straight(_) => POSITIONS_PER_BELT,
             Self::Curve(curve) => {
@@ -512,7 +517,7 @@ impl BeltShape {
             Self::Fragment(_) => POSITIONS_PER_FRAGMENT,
         }
     }
-    pub fn right_num_pos(&self) -> i32 {
+    pub const fn right_num_pos(&self) -> i32 {
         match self {
             Self::Straight(_) => POSITIONS_PER_BELT,
             Self::Curve(curve) => {
@@ -528,7 +533,7 @@ impl BeltShape {
 }
 
 impl Curve {
-    pub fn input(&self) -> HDir {
+    pub const fn input(&self) -> HDir {
         match self {
             Self::NorthToEast => HDir::North,
             Self::EastToSouth => HDir::East,
@@ -541,7 +546,7 @@ impl Curve {
         }
     }
 
-    pub fn output(&self) -> HDir {
+    pub const fn output(&self) -> HDir {
         match self {
             Self::NorthToEast => HDir::East,
             Self::EastToSouth => HDir::South,
@@ -554,7 +559,7 @@ impl Curve {
         }
     }
 
-    pub fn is_clockwise(&self) -> bool {
+    pub const fn is_clockwise(&self) -> bool {
         match self {
             Self::NorthToEast => true,
             Self::EastToSouth => true,
@@ -567,7 +572,7 @@ impl Curve {
         }
     }
 
-    pub fn inner_lane(&self) -> LaneSide {
+    pub const fn inner_lane(&self) -> LaneSide {
         if self.is_clockwise() {
             LaneSide::Right
         } else {
@@ -575,7 +580,7 @@ impl Curve {
         }
     }
     #[expect(unused)]
-    pub fn outet_lane(&self) -> LaneSide {
+    pub const fn outet_lane(&self) -> LaneSide {
         if self.is_clockwise() {
             LaneSide::Left
         } else {
@@ -648,7 +653,7 @@ impl BeltChanges {
 }
 
 impl BeltChange {
-    pub fn entity(&self) -> Entity {
+    pub const fn entity(&self) -> Entity {
         match self {
             BeltChange::New(NewBelt { entity, .. }) => *entity,
             BeltChange::Removed(RemovedBelt { entity, .. }) => *entity,
@@ -656,7 +661,7 @@ impl BeltChange {
         }
     }
 
-    pub fn coords(&self) -> WorldCoords {
+    pub const fn coords(&self) -> WorldCoords {
         match self {
             BeltChange::New(NewBelt { coords, .. }) => *coords,
             BeltChange::Removed(RemovedBelt { coords, .. }) => *coords,
@@ -1038,6 +1043,7 @@ fn remove_belt(
     remaining_entities: &[Entity],
     removed: &RemovedBelt,
 ) -> (Vec<ItemEntry>, Vec<ItemEntry>) {
+    debug!("Removing {:?}", removed.entity);
     let belt_coords = world.resource::<BeltCoords>();
     let ahead_belt = ahead_connected_belt(
         &belt_coords,
@@ -1053,9 +1059,41 @@ fn remove_belt(
     );
     debug!("Behind belt: {:?}", behind_belt);
     debug!("ahead belt: {:?}", ahead_belt);
+
+    if let BeltShape::Straight(dir) = removed.old_belt {
+        debug!("Removing straigt belt, checking for sideloading");
+        for side_dir in [dir.left(), dir.right()] {
+            let side_coords = removed.coords.step(side_dir);
+
+            let belt_coords = world.resource::<BeltCoords>();
+            let Some(side_belt) = belt_coords
+                .get(side_coords)
+                .filter(|(_, belt)| belt.output() == side_dir.opposite())
+            else {
+                continue;
+            };
+            debug!("Found sideloading from {side_dir:?}");
+            let side_lane_ent = get_lane_entity(world, side_belt.0);
+            let side_lane = get_lane(world, side_lane_ent);
+
+            if let BeltShape::Fragment(dir) = side_lane.belts[0].belt {
+                let side_frag = side_lane.belts[0].clone();
+                assert_eq!(dir, side_dir.opposite());
+
+                world.entity_mut(side_lane_ent).remove::<LaneConnection>();
+                let mut side_lane = get_lane_mut(world, side_lane_ent);
+                let items = side_lane.remove_head();
+                world.entity_mut(side_frag.entity).despawn();
+            } else {
+                debug!("Sideloading connection not created yet, skipping");
+            };
+        }
+    }
+
     let lane_ent = get_lane_entity(world, removed.entity);
     match (ahead_belt, behind_belt) {
         (None, None) => {
+            debug!("Removing with nothing around it.");
             let lane = get_lane(world, lane_ent);
             let left = lane.lanes[LaneSide::Left].clone();
             let right = lane.lanes[LaneSide::Right].clone();
@@ -1063,6 +1101,7 @@ fn remove_belt(
             (left, right)
         }
         (None, Some(_)) => {
+            debug!("Removing from the head");
             let mut lane = get_lane_mut(world, lane_ent);
             let items = lane.remove_head();
             if lane.belts.is_empty() {
@@ -1071,6 +1110,7 @@ fn remove_belt(
             items
         }
         (Some((_, _, ConnectionType::Direct)), None) => {
+            debug!("Removing from the tail");
             let mut lane = get_lane_mut(world, lane_ent);
             let items = lane.remove_tail();
             if lane.belts.is_empty() {
@@ -1079,6 +1119,7 @@ fn remove_belt(
             items
         }
         (Some((_, _, ConnectionType::Direct)), Some(_)) => {
+            debug!("Removing from the middle");
             let mut lane = get_lane_mut(world, lane_ent);
             let mut tail_lane = lane.split_at(removed.entity).unwrap();
             let leftover_items = tail_lane.remove_head();
@@ -1099,6 +1140,7 @@ fn replace_belt(world: &mut World, remaining_entities: &[Entity], replaced: &Rep
     info!("Replacing Belt");
     match replaced.old_entity {
         Some(old) => {
+            debug!("Replacing belt {:?} with {:?}", old, replaced.entity);
             let removed = RemovedBelt {
                 entity: old,
                 old_belt: replaced.old_belt,
@@ -1109,6 +1151,7 @@ fn replace_belt(world: &mut World, remaining_entities: &[Entity], replaced: &Rep
             new_belt(world, remaining_entities, &new, remaining_items);
         }
         None => {
+            debug!("Updating {:?} in place", replaced.entity);
             let removed = RemovedBelt::from(*replaced);
             let remaining_items = remove_belt(world, remaining_entities, &removed);
             let new = NewBelt::from(*replaced);
@@ -1707,6 +1750,37 @@ mod tests {
         let replaced = app.add_belt((0, 0, 0), HDir::West);
         app.update();
 
+        assert!(app.find_belt(first).is_none());
+        assert!(app.find_belt(replaced).is_some());
+    }
+
+    #[test]
+    fn replace_belt_with_two_neighbors_immediate() {
+        let mut app = test_app();
+
+        let first = app.add_belt((0, 0, 0), HDir::West);
+        app.add_belt((-1, 0, 0), HDir::North);
+        app.add_belt((1, 0, 0), HDir::South);
+        let replaced = app.add_belt((0, 0, 0), HDir::North);
+        app.update();
+
+        // Verify the belt was replaced
+        assert!(app.find_belt(first).is_none());
+        assert!(app.find_belt(replaced).is_some());
+    }
+
+    #[test]
+    fn replace_belt_with_two_neighbors_with_update() {
+        let mut app = test_app();
+
+        let first = app.add_belt((0, 0, 0), HDir::West);
+        app.add_belt((-1, 0, 0), HDir::North);
+        app.add_belt((1, 0, 0), HDir::South);
+        app.update();
+        let replaced = app.add_belt((0, 0, 0), HDir::North);
+        app.update();
+
+        // Verify the belt was replaced
         assert!(app.find_belt(first).is_none());
         assert!(app.find_belt(replaced).is_some());
     }
