@@ -379,7 +379,7 @@ pub fn link_belts(world: &mut World) {
         let change = &changed_belts.0[i];
         let remaining_entities = changed_belts.0[(i + 1)..]
             .iter()
-            .map(|change| change.entity())
+            .flat_map(|change| change.all_entities())
             .collect::<Vec<_>>();
         debug!("Remaining entities: {:?}", remaining_entities);
         match change {
@@ -726,8 +726,35 @@ impl BeltChanges {
             (BeltChange::Replaced(replaced_belt), BeltChange::Removed(removed_belt)) => {
                 todo!()
             }
-            (BeltChange::Replaced(replaced_belt), BeltChange::Replaced(_)) => {
-                todo!()
+            (
+                BeltChange::Replaced(first_replaced_belt),
+                BeltChange::Replaced(second_replaced_belt),
+            ) => {
+                debug!(
+                    "Replacing a belt that was already replaced this frame, dropping {:?}, keeping {:?}",
+                    first_replaced_belt.entity, second_replaced_belt.entity
+                );
+
+                assert_eq!(
+                    Some(first_replaced_belt.entity),
+                    second_replaced_belt.old_entity
+                );
+
+                self.0.remove(existing_idx);
+                cmd.entity(first_replaced_belt.entity).insert(Delete);
+
+                self.0.push(BeltChange::Replaced(ReplacedBelt {
+                    entity: second_replaced_belt.entity,
+                    old_entity: first_replaced_belt.old_entity,
+                    old_belt: first_replaced_belt.old_belt,
+                    new_belt: second_replaced_belt.new_belt,
+                    coords: first_replaced_belt.coords,
+                }));
+                belt_coords.insert(
+                    second_replaced_belt.coords,
+                    second_replaced_belt.entity,
+                    second_replaced_belt.new_belt,
+                );
             }
         }
     }
@@ -752,6 +779,19 @@ impl BeltChange {
             BeltChange::Removed(RemovedBelt { coords, .. }) => *coords,
             BeltChange::Replaced(ReplacedBelt { coords, .. }) => *coords,
         }
+    }
+
+    /// Returns all entities involved in this change.
+    /// For Replaced, this includes both the new entity and the old entity being replaced.
+    pub fn all_entities(&self) -> impl Iterator<Item = Entity> {
+        let (first, second) = match self {
+            BeltChange::New(NewBelt { entity, .. }) => (Some(*entity), None),
+            BeltChange::Removed(RemovedBelt { entity, .. }) => (Some(*entity), None),
+            BeltChange::Replaced(ReplacedBelt {
+                entity, old_entity, ..
+            }) => (Some(*entity), *old_entity),
+        };
+        first.into_iter().chain(second)
     }
 }
 
@@ -1180,10 +1220,46 @@ fn remove_belt(
         (None, None) => {
             debug!("Removing with nothing around it.");
             let lane = get_lane(world, lane_ent);
-            let left = lane.lanes[LaneSide::Left].clone();
-            let right = lane.lanes[LaneSide::Right].clone();
-            world.despawn(lane_ent);
-            (left, right)
+
+            // Check if there are other belts in the lane that will be processed later
+            // (they're in remaining_entities and won't show up as neighbors)
+            if lane.belts.len() == 1 {
+                // This is truly the only belt in the lane, safe to despawn
+                let left = lane.lanes[LaneSide::Left].clone();
+                let right = lane.lanes[LaneSide::Right].clone();
+                world.despawn(lane_ent);
+                (left, right)
+            } else {
+                // Other belts exist in the lane (must be in remaining_entities)
+                // Determine our position and remove appropriately
+                let belt_idx = lane
+                    .belts
+                    .iter()
+                    .position(|b| b.entity == removed.entity)
+                    .expect("Belt should be in its lane");
+
+                if belt_idx == 0 {
+                    // At the head
+                    let mut lane = get_lane_mut(world, lane_ent);
+                    lane.remove_head()
+                } else if belt_idx == lane.belts.len() - 1 {
+                    // At the tail
+                    let mut lane = get_lane_mut(world, lane_ent);
+                    lane.remove_tail()
+                } else {
+                    // In the middle - split the lane
+                    let mut lane = get_lane_mut(world, lane_ent);
+                    let mut tail_lane = lane.split_at(removed.entity).unwrap();
+                    let leftover_items = tail_lane.remove_head();
+                    let belts = tail_lane.belts.iter().map(|b| b.entity).collect::<Vec<_>>();
+
+                    let tail_lane_ent = world.spawn(tail_lane).id();
+                    for belt in belts.iter() {
+                        world.entity_mut(*belt).insert(InLane::new(tail_lane_ent));
+                    }
+                    leftover_items
+                }
+            }
         }
         (None, Some(_)) => {
             debug!("Removing from the head");
@@ -1881,5 +1957,46 @@ mod tests {
 
         assert!(app.find_belt(first).is_none());
         assert!(app.find_belt(replaced).is_some());
+    }
+
+    #[test]
+    fn replace_same_belt_twice() {
+        let mut app = test_app();
+
+        let first = app.add_belt((0, 0, 0), HDir::West);
+        app.add_belt((-1, 0, 0), HDir::North);
+        app.update();
+
+        let replaced1 = app.add_belt((0, 0, 0), HDir::North);
+        let replaced2 = app.add_belt((0, 0, 0), HDir::North);
+        app.update();
+
+        // Verify the first belt was replaced
+        assert!(app.find_belt(first).is_none());
+        // The first replacement should be gone, kept the second one
+        assert!(app.find_belt(replaced1).is_none());
+        assert!(app.find_belt(replaced2).is_some());
+    }
+
+    #[test]
+    fn replace_both_belts_in_connected_pair() {
+        let mut app = test_app();
+
+        // Place two connected belts
+        let belt_a = app.add_belt((0, 0, 0), HDir::West);
+        let belt_b = app.add_belt((-1, 0, 0), HDir::North);
+        app.update();
+
+        // Replace both belts in the same frame
+        let replaced_a = app.add_belt((0, 0, 0), HDir::North);
+        let replaced_b = app.add_belt((-1, 0, 0), HDir::North);
+        app.update();
+
+        // Both original belts should be gone
+        assert!(app.find_belt(belt_a).is_none());
+        assert!(app.find_belt(belt_b).is_none());
+        // Both replacements should exist
+        assert!(app.find_belt(replaced_a).is_some());
+        assert!(app.find_belt(replaced_b).is_some());
     }
 }
