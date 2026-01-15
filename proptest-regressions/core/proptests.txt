@@ -5,3 +5,5 @@
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
 cc ed7cdeabc3c4cece699e484e6f8f2c2824a6c681463981339e1710c2b07de342 # shrinks to actions = [PlaceBelt { coords: WorldCoords { x: 2, y: -1, z: 0 }, dir: North }, PlaceBelt { coords: WorldCoords { x: 2, y: -1, z: 0 }, dir: North }]
+cc effc08ef0ed67198ba080e32e349884416aaa705250e0d80b072ccb7a7b24cba # shrinks to actions = [PlaceBelt { coords: WorldCoords { x: -2, y: -2, z: 0 }, dir: East }, PlaceBelt { coords: WorldCoords { x: -3, y: -2, z: 0 }, dir: North }, PlaceBelt { coords: WorldCoords { x: -2, y: -2, z: 0 }, dir: West }, Update]
+cc e572ffe0e4bee1dd983ff5d378de5e0faf0785c8fbc701786a6151e0d8deb521 # shrinks to actions = [PlaceBelt { coords: WorldCoords { x: 0, y: -3, z: 0 }, dir: West }, PlaceBelt { coords: WorldCoords { x: -1, y: -3, z: 0 }, dir: North }, PlaceBelt { coords: WorldCoords { x: 1, y: -3, z: 0 }, dir: South }, PlaceBelt { coords: WorldCoords { x: 0, y: -3, z: 0 }, dir: North }]

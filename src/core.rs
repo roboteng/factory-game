@@ -1096,6 +1096,7 @@ fn remove_belt(
 }
 
 fn replace_belt(world: &mut World, remaining_entities: &[Entity], replaced: &ReplacedBelt) {
+    info!("Replacing Belt");
     match replaced.old_entity {
         Some(old) => {
             let removed = RemovedBelt {
@@ -1693,5 +1694,20 @@ mod tests {
         app.update();
 
         assert!(app.find_belt(middle).is_none());
+    }
+
+    #[test]
+    fn replace_belt_at_head_flipped() {
+        let mut app = test_app();
+
+        let first = app.add_belt((0, 0, 0), HDir::East);
+        app.update();
+        app.add_belt((-1, 0, 0), HDir::North);
+        app.update();
+        let replaced = app.add_belt((0, 0, 0), HDir::West);
+        app.update();
+
+        assert!(app.find_belt(first).is_none());
+        assert!(app.find_belt(replaced).is_some());
     }
 }

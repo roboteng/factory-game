@@ -375,6 +375,10 @@ impl BeltLane {
         let right = Vec::from_iter(head_items.iter().cloned());
         self.lanes[Right] = keep;
 
+        for side in SIDES {
+            self.belts[0].ranges[side].start += ITEM_SPACING / 2;
+        }
+
         (left, right)
     }
 
