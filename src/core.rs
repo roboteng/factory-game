@@ -1,5 +1,5 @@
 pub use crate::core::lane::*;
-use bevy::{math::ops::sin_cos, prelude::*};
+use bevy::{math::ops::sin_cos, platform::collections::HashSet, prelude::*};
 use derivative::Derivative;
 use std::{collections::HashMap, f32::consts::PI, ops::Range};
 
@@ -50,8 +50,13 @@ impl Plugin for CorePlugin {
 
         app.init_resource::<BeltCoords>();
         app.init_resource::<BeltChanges>();
+        app.init_resource::<ChangedCoords>();
+        app.init_resource::<PrevBeltCoords>();
 
-        app.add_systems(Update, (link_belts, replace_items).chain());
+        app.add_systems(
+            Update,
+            (generate_belt_changes, link_belts, replace_items).chain(),
+        );
         app.add_systems(PostUpdate, despawn_old_entities);
 
         // Only clear belt changes in PostUpdate if invariant checking is disabled
@@ -155,6 +160,12 @@ pub struct InLane {
 #[derive(Resource, Default)]
 pub struct BeltCoords(HashMap<WorldCoords, (Entity, BeltShape)>);
 
+#[derive(Resource, Default)]
+pub struct PrevBeltCoords(HashMap<WorldCoords, (Entity, BeltShape)>);
+
+#[derive(Resource, Default)]
+pub struct ChangedCoords(HashSet<WorldCoords>);
+
 #[derive(Resource, Default, Debug, PartialEq, Eq, Clone)]
 pub struct BeltChanges(pub Vec<BeltChange>);
 
@@ -203,6 +214,7 @@ fn on_place_belt(
     mut cmd: Commands,
     mut belt_coords: ResMut<BeltCoords>,
     mut changes: ResMut<BeltChanges>,
+    mut changed_coords: ResMut<ChangedCoords>,
 ) {
     debug!(
         "Placing belt {:?} at {:?} facing {:?}",
@@ -213,6 +225,9 @@ fn on_place_belt(
     let angle = belt.output().angle();
 
     let old_entity_and_belt = belt_coords.get(event.coords);
+    if let Some((e, b)) = old_entity_and_belt {
+        cmd.entity(e).insert(Delete);
+    }
 
     cmd.entity(event.entity).insert((
         Transform::from_translation(Vec3::from(event.coords))
@@ -222,31 +237,7 @@ fn on_place_belt(
         event.coords,
     ));
     belt_coords.insert(event.coords, event.entity, belt);
-
-    if let Some((old_entity, old_belt)) = old_entity_and_belt {
-        debug!("Found existing belt: {old_entity:?}. Replacing it");
-        changes.push(
-            ReplacedBelt {
-                entity: event.entity,
-                old_entity: Some(old_entity),
-                old_belt,
-                new_belt: belt,
-                coords: event.coords,
-            },
-            cmd.reborrow(),
-            &mut belt_coords,
-        );
-    } else {
-        changes.push(
-            NewBelt {
-                entity: event.entity,
-                coords: event.coords,
-                belt,
-            },
-            cmd.reborrow(),
-            &mut belt_coords,
-        );
-    }
+    changed_coords.insert(event.coords);
 
     // Check if placing this belt should curve the belt ahead
     let ahead = event.coords.step(belt.output());
@@ -269,17 +260,6 @@ fn on_place_belt(
                     .with_rotation(Quat::from_rotation_y(angle)),
             ));
             belt_coords.insert(place.coords, place.entity, new_belt);
-            changes.push(
-                ReplacedBelt {
-                    entity: place.entity,
-                    old_entity: None, // Same entity, just changed belt type
-                    new_belt,
-                    old_belt: ahead_belt,
-                    coords: place.coords,
-                },
-                cmd.reborrow(),
-                &mut belt_coords,
-            );
         }
     }
 }
@@ -326,6 +306,7 @@ fn on_remove_belt(
     belts: Query<(&BeltShape, &WorldCoords), With<Belt>>,
     mut changes: ResMut<BeltChanges>,
     mut belt_coords: ResMut<BeltCoords>,
+    mut changed_coords: ResMut<ChangedCoords>,
 ) {
     let Ok((belt, coords)) = belts.get(event.entity) else {
         warn!(
@@ -336,18 +317,35 @@ fn on_remove_belt(
     };
 
     debug!("Removing belt at {:?}", coords);
-
+    let (prev_belt, prev_coords) = belts.get(event.entity).unwrap();
     belt_coords.remove(*coords);
-    changes.push(
-        RemovedBelt {
-            entity: event.entity,
-            old_belt: *belt,
-            coords: *coords,
-        },
-        cmd.reborrow(),
-        &mut belt_coords,
-    );
+    changed_coords.insert(*coords);
+
     cmd.entity(event.entity).insert(Delete);
+
+    // Check if placing this belt should curve the belt ahead
+    let ahead = prev_coords.step(belt.output());
+    if let Some((entity, ahead_belt)) = belt_coords.get(ahead) {
+        let place = PlaceBelt {
+            entity,
+            dir: ahead_belt.output(),
+            coords: ahead,
+        };
+        let new_belt = plan_belt_placement(&place, &belt_coords);
+        if ahead_belt != new_belt {
+            debug!(
+                "Placing belt {:?} affected {entity:?}, updating that belt",
+                event.entity
+            );
+            let angle = new_belt.output().angle();
+            cmd.entity(place.entity).insert((
+                new_belt,
+                Transform::from_translation(Vec3::from(place.coords))
+                    .with_rotation(Quat::from_rotation_y(angle)),
+            ));
+            belt_coords.insert(place.coords, place.entity, new_belt);
+        }
+    }
 }
 
 fn replace_items(lanes: Query<&BeltLane>, mut items: Query<(&mut Item, &mut Transform)>) {
@@ -367,6 +365,47 @@ pub(crate) fn clear_changed_belts(mut changes: ResMut<BeltChanges>) {
     changes.clear();
 }
 
+fn generate_belt_changes(
+    mut prev_belts: ResMut<PrevBeltCoords>,
+    belt_coords: Res<BeltCoords>,
+    changed_coords: ResMut<ChangedCoords>,
+    mut belt_changes: ResMut<BeltChanges>,
+) {
+    belt_changes.clear();
+
+    for coords in changed_coords.0.iter().cloned() {
+        let prev = prev_belts.0.get(&coords);
+        let curr = belt_coords.get(coords);
+        match (prev, curr) {
+            (None, None) => {}
+            (None, Some((entity, belt))) => belt_changes.push(NewBelt {
+                entity,
+                belt,
+                coords,
+            }),
+            (Some((entity, belt)), None) => belt_changes.push(RemovedBelt {
+                entity: *entity,
+                old_belt: *belt,
+                coords,
+            }),
+            (Some((ent_p, belt_p)), Some((ent_c, belt_c))) => {
+                match (*ent_p == ent_c, *belt_p == belt_c) {
+                    (true, true) => {}
+                    _ => belt_changes.push(ReplacedBelt {
+                        entity: ent_c,
+                        old_entity: Some(*ent_p),
+                        old_belt: *belt_p,
+                        new_belt: belt_c,
+                        coords,
+                    }),
+                }
+            }
+        }
+    }
+
+    *prev_belts = PrevBeltCoords(belt_coords.0.clone());
+}
+
 pub fn link_belts(world: &mut World) {
     let changed_belts = world.resource::<BeltChanges>().clone();
     if changed_belts.0.is_empty() {
@@ -379,7 +418,7 @@ pub fn link_belts(world: &mut World) {
         let change = &changed_belts.0[i];
         let remaining_entities = changed_belts.0[(i + 1)..]
             .iter()
-            .flat_map(|change| change.all_entities())
+            .map(|change| change.entity())
             .collect::<Vec<_>>();
         debug!("Remaining entities: {:?}", remaining_entities);
         match change {
@@ -455,6 +494,20 @@ impl BeltCoords {
 
     pub fn iter(&self) -> impl Iterator<Item = (&WorldCoords, &(Entity, BeltShape))> {
         self.0.iter()
+    }
+}
+
+impl ChangedCoords {
+    pub fn insert(&mut self, coords: WorldCoords) {
+        for c in [
+            coords.step(HDir::North),
+            coords.step(HDir::East),
+            coords.step(HDir::South),
+            coords.step(HDir::West),
+            coords,
+        ] {
+            self.0.insert(c);
+        }
     }
 }
 
@@ -605,29 +658,9 @@ impl Curve {
 }
 
 impl BeltChanges {
-    pub fn push(
-        &mut self,
-        change: impl Into<BeltChange>,
-        mut cmd: Commands,
-        belt_coords: &mut BeltCoords,
-    ) {
+    pub fn push(&mut self, change: impl Into<BeltChange>) {
         let change = change.into();
-        // Check if we can collapse this change with an existing one for the same entity
-        let entity = change.entity();
-
-        if let Some(existing_idx) = self.0.iter().position(|c| c.entity() == entity) {
-            self.combine_same_entity(change, entity, existing_idx);
-        } else if let Some(existing_idx) = self.0.iter().position(|c| c.coords() == change.coords())
-        {
-            self.combine_different_entities(&mut cmd, belt_coords, change, existing_idx);
-        } else {
-            if let BeltChange::Replaced(replaced) = &change {
-                if let Some(old_entity) = replaced.old_entity {
-                    cmd.entity(old_entity).insert(Delete);
-                }
-            }
-            self.0.push(change);
-        }
+        self.0.push(change);
     }
 
     fn combine_same_entity(&mut self, change: BeltChange, entity: Entity, existing_idx: usize) {
@@ -782,19 +815,6 @@ impl BeltChange {
             BeltChange::Removed(RemovedBelt { coords, .. }) => *coords,
             BeltChange::Replaced(ReplacedBelt { coords, .. }) => *coords,
         }
-    }
-
-    /// Returns all entities involved in this change.
-    /// For Replaced, this includes both the new entity and the old entity being replaced.
-    pub fn all_entities(&self) -> impl Iterator<Item = Entity> {
-        let (first, second) = match self {
-            BeltChange::New(NewBelt { entity, .. }) => (Some(*entity), None),
-            BeltChange::Removed(RemovedBelt { entity, .. }) => (Some(*entity), None),
-            BeltChange::Replaced(ReplacedBelt {
-                entity, old_entity, ..
-            }) => (Some(*entity), *old_entity),
-        };
-        first.into_iter().chain(second)
     }
 }
 
@@ -1267,19 +1287,26 @@ fn remove_belt(
         (None, Some(_)) => {
             debug!("Removing from the head");
             let mut lane = get_lane_mut(world, lane_ent);
-            let items = lane.remove_head();
-            if lane.belts.is_empty() {
-                world.despawn(lane_ent);
-            }
+            let items = if lane.belts.len() > 1 {
+                lane.remove_head()
+            } else {
+                let items = (lane.lanes.left.clone(), lane.lanes.right.clone());
+                world.entity_mut(lane_ent).despawn();
+                items
+            };
             items
         }
         (Some((_, _, ConnectionType::Direct)), None) => {
             debug!("Removing from the tail");
             let mut lane = get_lane_mut(world, lane_ent);
-            let items = lane.remove_tail();
-            if lane.belts.is_empty() {
-                world.despawn(lane_ent);
-            }
+
+            let items = if lane.belts.len() > 1 {
+                lane.remove_tail()
+            } else {
+                let items = (lane.lanes.left.clone(), lane.lanes.right.clone());
+                world.entity_mut(lane_ent).despawn();
+                items
+            };
             items
         }
         (Some((_, _, ConnectionType::Direct)), Some(_)) => {

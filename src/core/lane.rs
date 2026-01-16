@@ -359,6 +359,10 @@ impl BeltLane {
     }
 
     pub fn remove_head(&mut self) -> (Vec<ItemEntry>, Vec<ItemEntry>) {
+        assert!(
+            self.belts.len() >= 2,
+            "We should check if we need to remove the entier lane"
+        );
         let head = self.belts.remove(0);
 
         // Process left lane
@@ -385,6 +389,11 @@ impl BeltLane {
     }
 
     pub fn remove_tail(&mut self) -> (Vec<ItemEntry>, Vec<ItemEntry>) {
+        assert!(
+            self.belts.len() >= 2,
+            "We should check if we need to remove the entier lane"
+        );
+
         let last = self.belts.len();
         let tail = self.belts.remove(last - 1);
 
