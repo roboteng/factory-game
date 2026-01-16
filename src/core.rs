@@ -1073,6 +1073,7 @@ fn remove_belt(
             let belt_coords = world.resource::<BeltCoords>();
             let Some(side_belt) = belt_coords
                 .get(side_coords)
+                .filter(|(ent, _)| !remaining_entities.contains(ent))
                 .filter(|(_, belt)| belt.output() == side_dir.opposite())
             else {
                 continue;
@@ -1903,6 +1904,115 @@ mod tests {
         app.update();
 
         assert!(app.find_belt(first).is_none());
+        assert!(app.find_belt(replaced).is_some());
+    }
+
+    #[test]
+    #[ignore = "todo"]
+    fn replace_belt_with_multiple_neighbors_complex() {
+        let mut app = test_app();
+
+        // First frame: place 4 belts
+        app.add_belt((0, -3, 0), HDir::West);
+        let original = app.add_belt((0, 0, 0), HDir::North);
+        app.add_belt((0, -1, 0), HDir::North);
+        app.add_belt((0, 1, 0), HDir::North);
+        app.update();
+
+        // Second frame: place 2 new belts and replace the one at (0,0,0)
+        app.add_belt((1, -3, 0), HDir::South);
+        app.add_belt((-1, -2, 0), HDir::North);
+        let replaced = app.add_belt((0, 0, 0), HDir::North);
+        app.update();
+
+        assert!(app.find_belt(original).is_none());
+        assert!(app.find_belt(replaced).is_some());
+    }
+
+    #[test]
+    #[ignore = "todo"]
+    fn replace_connected_belt_with_new_neighbor() {
+        let mut app = test_app();
+
+        // First frame: place 5 belts, including a connected pair at (-1,-3) and (0,-3)
+        app.add_belt((0, -3, 0), HDir::West);
+        let original = app.add_belt((-1, -3, 0), HDir::North);
+        app.add_belt((0, 0, 0), HDir::North);
+        app.add_belt((0, -1, 0), HDir::North);
+        app.add_belt((0, 1, 0), HDir::North);
+        app.update();
+
+        // Second frame: add new belt, replace (-1,-3), add another new belt
+        app.add_belt((1, -3, 0), HDir::South);
+        let replaced = app.add_belt((-1, -3, 0), HDir::North);
+        app.add_belt((-1, 0, 0), HDir::North);
+        app.update();
+
+        assert!(app.find_belt(original).is_none());
+        assert!(app.find_belt(replaced).is_some());
+    }
+
+    #[test]
+    #[ignore = "todo"]
+    fn replace_connected_belt_with_new_neighbor_minimal_v4() {
+        // Same as original but third belt at different location
+        let mut app = test_app();
+
+        app.add_belt((0, -3, 0), HDir::West);
+        let original = app.add_belt((-1, -3, 0), HDir::North);
+        app.add_belt((0, 0, 0), HDir::North);
+        app.add_belt((0, -1, 0), HDir::North);
+        app.add_belt((0, 1, 0), HDir::North);
+        app.update();
+
+        app.add_belt((1, -3, 0), HDir::South);
+        let replaced = app.add_belt((-1, -3, 0), HDir::North);
+        app.add_belt((5, 5, 0), HDir::North); // Different location
+        app.update();
+
+        assert!(app.find_belt(original).is_none());
+        assert!(app.find_belt(replaced).is_some());
+    }
+
+    #[test]
+    fn replace_connected_belt_with_new_neighbor_minimal_v5() {
+        // What if third belt is at (-1, -1, 0) instead?
+        let mut app = test_app();
+
+        app.add_belt((0, -3, 0), HDir::West);
+        let original = app.add_belt((-1, -3, 0), HDir::North);
+        app.add_belt((0, 0, 0), HDir::North);
+        app.add_belt((0, -1, 0), HDir::North);
+        app.add_belt((0, 1, 0), HDir::North);
+        app.update();
+
+        app.add_belt((1, -3, 0), HDir::South);
+        let replaced = app.add_belt((-1, -3, 0), HDir::North);
+        app.add_belt((-1, -1, 0), HDir::North); // Adjacent to replaced
+        app.update();
+
+        assert!(app.find_belt(original).is_none());
+        assert!(app.find_belt(replaced).is_some());
+    }
+
+    #[test]
+    fn replace_connected_belt_no_third_belt() {
+        // Same setup but NO third new belt - this should pass
+        let mut app = test_app();
+
+        app.add_belt((0, -3, 0), HDir::West);
+        let original = app.add_belt((-1, -3, 0), HDir::North);
+        app.add_belt((0, 0, 0), HDir::North);
+        app.add_belt((0, -1, 0), HDir::North);
+        app.add_belt((0, 1, 0), HDir::North);
+        app.update();
+
+        app.add_belt((1, -3, 0), HDir::South);
+        let replaced = app.add_belt((-1, -3, 0), HDir::North);
+        // NO third belt
+        app.update();
+
+        assert!(app.find_belt(original).is_none());
         assert!(app.find_belt(replaced).is_some());
     }
 }
