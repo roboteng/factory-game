@@ -41,6 +41,7 @@ pub struct Offset {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ItemPlacementError {
     BeltNotFound,
+    #[expect(unused)]
     PositionOutOfBounds,
     PositionOccupied,
 }
@@ -92,28 +93,6 @@ impl BeltLane {
         }
     }
 
-    pub fn add_to_tail(&mut self, shape: BeltShape, coords: WorldCoords, entity: Entity) {
-        let last = self
-            .belts
-            .last()
-            .expect("Invariant broken: all_lanes_have_belts");
-        let left_end = last.ranges.left.end;
-        let right_end = last.ranges.right.end;
-        self.belts.push(BeltEntry {
-            belt: shape,
-            coords,
-            entity,
-            ranges: Ranges {
-                left: left_end..left_end + shape.left_num_pos(),
-                right: right_end..right_end + shape.right_num_pos(),
-            },
-            lane_offsets: LaneOffsets {
-                left: left_end + ITEM_SPACING / 2,
-                right: right_end + ITEM_SPACING / 2,
-            },
-        });
-    }
-
     pub fn add_to_head(&mut self, belt: BeltShape, coords: WorldCoords, entity: Entity) {
         let left_offset = belt.left_num_pos();
         let right_offset = belt.right_num_pos();
@@ -153,12 +132,6 @@ impl BeltLane {
         self.belts.extend(other.belts);
         self.lanes.left.extend(other.lanes.left);
         self.lanes.right.extend(other.lanes.right);
-    }
-
-    pub fn replace_belt(&mut self, old: Entity, new: Entity) -> Result<(), ()> {
-        let b = self.belts.iter_mut().find(|b| b.entity == old).ok_or(())?;
-        b.entity = new;
-        Ok(())
     }
 
     /// Returns (left, right)
@@ -304,18 +277,6 @@ impl BeltLane {
         self.belts.iter().find(|b| b.ranges[lane].contains(&pos))
     }
 
-    pub fn num_positions(&self, lane: LaneSide) -> i32 {
-        self.belts.last().map(|b| b.ranges[lane].end).unwrap_or(0)
-    }
-
-    pub fn relative_pos(&self, pos: i32, lane: LaneSide) -> i32 {
-        self.belts
-            .iter()
-            .find(|b| b.ranges[lane].contains(&pos))
-            .map(|b| pos - b.ranges[lane].start)
-            .expect("Invariant broken: items_are_within_belt_bounds")
-    }
-
     pub fn prepend_fragment(&mut self, output: HDir, coords: WorldCoords, entity: Entity) {
         debug!("adding fragment {entity:?} to a lane");
         for side in SIDES {
@@ -341,21 +302,6 @@ impl BeltLane {
                 },
             },
         );
-    }
-
-    fn shorten_by(&mut self, left_len: i32, right_len: i32) {
-        self.lanes[Left]
-            .iter_mut()
-            .for_each(|item| item.pos -= left_len);
-        self.lanes[Right]
-            .iter_mut()
-            .for_each(|item| item.pos -= right_len);
-        self.belts.iter_mut().for_each(|belt| {
-            belt.ranges.left.start -= left_len;
-            belt.ranges.left.end -= left_len;
-            belt.ranges.right.start -= right_len;
-            belt.ranges.right.end -= right_len;
-        });
     }
 
     pub fn remove_head(&mut self) -> (Vec<ItemEntry>, Vec<ItemEntry>) {
@@ -431,7 +377,7 @@ impl BeltLane {
     pub fn tick(&mut self) {
         for side in SIDES {
             let head = self.belts[0].ranges[side].start;
-            let Some(mut lead_item) = self.lanes[side].get_mut(0) else {
+            let Some(lead_item) = self.lanes[side].get_mut(0) else {
                 continue;
             };
             lead_item.pos = head.max(lead_item.pos - BASE_BELT_SPEED);
@@ -450,7 +396,7 @@ impl BeltLane {
         let Self { belts, .. } = self;
         let new_belts = belts.split_off(index);
 
-        let mut b = belts.last_mut().unwrap();
+        let b = belts.last_mut().unwrap();
         b.ranges.left.end -= ITEM_SPACING / 2;
         b.ranges.right.end -= ITEM_SPACING / 2;
 
@@ -589,7 +535,11 @@ mod tests {
         let mut lane =
             BeltLane::from_belt(BeltShape::Straight(HDir::North), (0, 0, 0).into(), entity);
         let tail = Entity::from_raw_u32(0).unwrap();
-        lane.add_to_tail(BeltShape::Straight(HDir::North), (-1, 0, 0).into(), tail);
+        lane.merge(BeltLane::from_belt(
+            BeltShape::Straight(HDir::North),
+            (-1, 0, 0).into(),
+            tail,
+        ));
         let expected = BeltLane {
             belts: vec![
                 BeltEntry {
@@ -663,11 +613,11 @@ mod tests {
             (0, 0, 0).into(),
             belt_ent_1,
         );
-        lane.add_to_tail(
+        lane.merge(BeltLane::from_belt(
             BeltShape::Straight(HDir::North),
             (-1, 0, 0).into(),
             belt_ent_2,
-        );
+        ));
 
         lane.add_item(
             ItemEntry {

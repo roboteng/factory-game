@@ -1,4 +1,3 @@
-#![allow(unused)]
 use crate::core::*;
 
 use bevy::prelude::*;
@@ -116,7 +115,7 @@ fn update(mut should_run: ResMut<ShouldRun>, belts: Query<(Entity, &InLane)>, mu
                 belt: entity,
                 lane: LaneSide::Left,
                 position: 0,
-                on_error: Box::new(|mut commands, error| {
+                on_error: Box::new(|_, error| {
                     warn!("Failed to place item in main: {:?}", error);
                 }),
             });

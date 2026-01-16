@@ -188,7 +188,7 @@ fn all_belts_and_frags_claim_to_be_in_a_lane(
     belts: Query<(Entity, &BeltShape), Without<InLane>>,
     mut b: ResMut<BrokenInvariants>,
 ) {
-    for (belt_entity, belt_shape) in belts.iter() {
+    for (belt_entity, _) in belts.iter() {
         b.add(format!("Belt {:?} is not in a lane", belt_entity));
     }
 }
@@ -276,7 +276,7 @@ fn check_adjacent_belts_in_lane_are_connected(
     lanes: Query<(Entity, &BeltLane)>,
     mut b: ResMut<BrokenInvariants>,
 ) {
-    for (lane_entity, lane) in lanes.iter() {
+    for (_, lane) in lanes.iter() {
         for pair in lane.belts.windows(2) {
             let first = &pair[0];
             let second = &pair[1];
@@ -328,10 +328,7 @@ fn all_fragments_at_head_of_lane(
     }
 }
 
-fn items_in_lane_sorted_by_pos(
-    lanes: Query<(Entity, &BeltLane)>,
-    mut b: ResMut<BrokenInvariants>,
-) {
+fn items_in_lane_sorted_by_pos(lanes: Query<(Entity, &BeltLane)>, mut b: ResMut<BrokenInvariants>) {
     for (lane_entity, lane) in lanes.iter() {
         for side in SIDES {
             let items = &lane.lanes[side];
@@ -360,7 +357,14 @@ fn warn_items_too_close(lanes: Query<(Entity, &BeltLane)>) {
                 if distance < ITEM_SPACING {
                     warn!(
                         "Lane {:?} {:?} side has items too close: item {:?} at pos {} and item {:?} at pos {} (distance: {}, min: {})",
-                        lane_entity, side, first.entity, first.pos, second.entity, second.pos, distance, ITEM_SPACING
+                        lane_entity,
+                        side,
+                        first.entity,
+                        first.pos,
+                        second.entity,
+                        second.pos,
+                        distance,
+                        ITEM_SPACING
                     );
                 }
             }
@@ -392,9 +396,12 @@ fn items_are_within_belt_bounds(
                             let min_bound = belt_center - Vec3::splat(HALF_BLOCK_SIZE + EPSILON);
                             let max_bound = belt_center + Vec3::splat(HALF_BLOCK_SIZE + EPSILON);
 
-                            if item_pos.x < min_bound.x || item_pos.x > max_bound.x
-                                || item_pos.y < min_bound.y || item_pos.y > max_bound.y
-                                || item_pos.z < min_bound.z || item_pos.z > max_bound.z
+                            if item_pos.x < min_bound.x
+                                || item_pos.x > max_bound.x
+                                || item_pos.y < min_bound.y
+                                || item_pos.y > max_bound.y
+                                || item_pos.z < min_bound.z
+                                || item_pos.z > max_bound.z
                             {
                                 b.add(format!(
                                     "Item {:?} at position {:?} is outside belt {:?} bounds (min: {:?}, max: {:?})",
@@ -413,7 +420,6 @@ fn items_dont_move_too_far(
     belt_changes: Res<BeltChanges>,
     lanes: Query<(Entity, &BeltLane)>,
     items_with_prev: Query<(Entity, &Transform, &PreviousTransform), With<Item>>,
-    belts: Query<&WorldCoords, With<Belt>>,
     mut broken_invariants: ResMut<BrokenInvariants>,
 ) {
     let changed_belts: Vec<Entity> = belt_changes
@@ -433,7 +439,7 @@ fn items_dont_move_too_far(
 
     let mut items_to_ignore = HashSet::new();
 
-    for (lane_entity, lane) in lanes.iter() {
+    for (_, lane) in lanes.iter() {
         for belt_entry in &lane.belts {
             if changed_belts.contains(&belt_entry.entity) {
                 for side in SIDES {

@@ -424,7 +424,7 @@ mod tests {
         let belt = app.add_belt((3, 1, 0), HDir::North);
         app.update();
 
-        let mut world = app.world_mut();
+        let world = app.world_mut();
         let lane = world.query::<&BeltLane>().single(world).unwrap();
         info!("{lane:#?}");
 
@@ -641,20 +641,35 @@ mod tests {
             let world = app.world_mut();
             let lane = world.query::<&BeltLane>().single(world).unwrap();
             info!("Lane state BEFORE adding items:");
-            info!("  Belts: {:?}", lane.belts.iter().map(|b| (b.ranges.clone(), b.lane_offsets.clone())).collect::<Vec<_>>());
+            info!(
+                "  Belts: {:?}",
+                lane.belts
+                    .iter()
+                    .map(|b| (b.ranges.clone(), b.lane_offsets.clone()))
+                    .collect::<Vec<_>>()
+            );
             info!("  Items left: {:?}", lane.lanes.left);
         }
 
         let item1 = app.add_item(belt, 0, LaneSide::Left);
         app.update();
-        info!("After first update, item1 position: {:?}", app.find_item(item1).unwrap().1.translation);
+        info!(
+            "After first update, item1 position: {:?}",
+            app.find_item(item1).unwrap().1.translation
+        );
 
         // Check lane state after adding item1
         {
             let world = app.world_mut();
             let lane = world.query::<&BeltLane>().single(world).unwrap();
             info!("Lane state AFTER adding item1:");
-            info!("  Belts: {:?}", lane.belts.iter().map(|b| (b.ranges.clone(), b.lane_offsets.clone())).collect::<Vec<_>>());
+            info!(
+                "  Belts: {:?}",
+                lane.belts
+                    .iter()
+                    .map(|b| (b.ranges.clone(), b.lane_offsets.clone()))
+                    .collect::<Vec<_>>()
+            );
             info!("  Items left: {:?}", lane.lanes.left);
         }
 
@@ -665,20 +680,34 @@ mod tests {
             let world = app.world_mut();
             let lane = world.query::<&BeltLane>().single(world).unwrap();
             info!("Lane state AFTER adding item2 (before update):");
-            info!("  Belts: {:?}", lane.belts.iter().map(|b| (b.ranges.clone(), b.lane_offsets.clone())).collect::<Vec<_>>());
+            info!(
+                "  Belts: {:?}",
+                lane.belts
+                    .iter()
+                    .map(|b| (b.ranges.clone(), b.lane_offsets.clone()))
+                    .collect::<Vec<_>>()
+            );
             info!("  Items left: {:?}", lane.lanes.left);
         }
 
         app.update();
-        info!("After second update, item1: {:?}, item2: {:?}",
+        info!(
+            "After second update, item1: {:?}, item2: {:?}",
             app.find_item(item1).unwrap().1.translation,
-            app.find_item(item2).unwrap().1.translation);
+            app.find_item(item2).unwrap().1.translation
+        );
 
         // Check the lane state
         let world = app.world_mut();
         let lane = world.query::<&BeltLane>().single(world).unwrap();
         info!("Lane state AFTER second update:");
-        info!("  Belts: {:?}", lane.belts.iter().map(|b| (b.ranges.clone(), b.lane_offsets.clone())).collect::<Vec<_>>());
+        info!(
+            "  Belts: {:?}",
+            lane.belts
+                .iter()
+                .map(|b| (b.ranges.clone(), b.lane_offsets.clone()))
+                .collect::<Vec<_>>()
+        );
         info!("  Items left: {:?}", lane.lanes.left);
 
         let (_, actual) = app.find_item(item2).unwrap();
