@@ -278,7 +278,6 @@ impl BeltLane {
     }
 
     pub fn prepend_fragment(&mut self, output: HDir, coords: WorldCoords, entity: Entity) {
-        debug!("adding fragment {entity:?} to a lane");
         for side in SIDES {
             self.belts[0].ranges[side].start -= ITEM_SPACING / 2;
         }
