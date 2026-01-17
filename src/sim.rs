@@ -9,7 +9,7 @@ impl Plugin for SimPlugin {
             Update,
             (determine_sideload_blocks, transfers, plan_moves, do_moves)
                 .chain()
-                .after(link_belts),
+                .after(do_stuff),
         );
     }
 }

@@ -51,9 +51,10 @@ impl Plugin for CorePlugin {
         app.add_observer(on_remove_belt);
 
         app.init_resource::<BeltCoords>();
+        app.init_resource::<BeltEvents>();
         app.init_resource::<BeltChanges>();
 
-        app.add_systems(Update, (link_belts, replace_items).chain());
+        app.add_systems(Update, (do_stuff, replace_items).chain());
         app.add_systems(PostUpdate, despawn_old_entities);
 
         // Only clear belt changes in PostUpdate if invariant checking is disabled
@@ -67,7 +68,7 @@ impl Plugin for CorePlugin {
 // Models
 // ------
 
-#[derive(EntityEvent, Debug)]
+#[derive(EntityEvent, Debug, Clone)]
 pub struct PlaceBelt {
     pub entity: Entity,
     pub coords: WorldCoords,
@@ -86,7 +87,7 @@ pub struct PlaceItem {
     pub on_error: Box<dyn Fn(Commands, ItemPlacementError) + Send + Sync + 'static>,
 }
 
-#[derive(EntityEvent)]
+#[derive(EntityEvent, Debug, Clone)]
 pub struct RemoveBelt {
     pub entity: Entity,
 }
@@ -156,12 +157,6 @@ pub struct InLane {
 #[derive(Resource, Default)]
 pub struct BeltCoords(HashMap<WorldCoords, (Entity, BeltShape)>);
 
-#[derive(Resource, Default)]
-pub struct PrevBeltCoords(HashMap<WorldCoords, (Entity, BeltShape)>);
-
-#[derive(Resource, Default)]
-pub struct ChangedCoords(HashSet<WorldCoords>);
-
 #[derive(Resource, Default, Debug, PartialEq, Eq, Clone)]
 pub struct BeltChanges(pub Vec<BeltChange>);
 
@@ -199,39 +194,66 @@ pub struct ReplacedBelt {
 // Systems
 // -------
 
-fn despawn_old_entities(mut cmd: Commands, q: Query<Entity, With<Delete>>) {
-    for entity in q {
-        cmd.entity(entity).despawn();
+#[derive(Resource, Default, Debug)]
+pub struct BeltEvents(pub Vec<BeltEvent>);
+
+#[derive(Debug, Clone)]
+pub enum BeltEvent {
+    Place(PlaceBelt),
+    Remove(RemoveBelt),
+}
+
+pub fn do_stuff(world: &mut World) {
+    let events = world
+        .get_resource_mut::<BeltEvents>()
+        .unwrap()
+        .0
+        .split_off(0);
+    debug!("Finished collecting events: {events:?}");
+
+    for event in events {
+        match event {
+            BeltEvent::Place(event) => event_place_belt(world, event),
+            BeltEvent::Remove(event) => event_remove_belt(world, event),
+        }
     }
 }
 
-fn on_place_belt(
-    event: On<PlaceBelt>,
-    mut cmd: Commands,
-    mut belt_coords: ResMut<BeltCoords>,
-    mut changes: ResMut<BeltChanges>,
-) {
+fn event_place_belt(world: &mut World, event: PlaceBelt) {
     debug!(
         "Placing belt {:?} at {:?} facing {:?}",
         event.entity, event.coords, event.dir
     );
+    let mut changes = BeltChanges::default();
 
-    let belt = plan_belt_placement(&event, &belt_coords);
+    let belt_coords = world.resource();
+    let belt = plan_belt_placement(&event, belt_coords);
     let angle = belt.output().angle();
 
     let old_entity_and_belt = belt_coords.get(event.coords);
     if let Some((e, _)) = old_entity_and_belt {
-        cmd.entity(e).insert(Delete);
+        debug!("Marking entity {e:?} for deletion (replaced by new belt)");
+        world.entity_mut(e).insert(Delete);
     }
 
-    cmd.entity(event.entity).insert((
+    debug!(
+        "Adding components to entity {:?}: Transform, Belt, BeltShape, WorldCoords",
+        event.entity
+    );
+    world.entity_mut(event.entity).insert((
         Transform::from_translation(Vec3::from(event.coords))
             .with_rotation(Quat::from_rotation_y(angle)),
         Belt,
         belt,
         event.coords,
     ));
-    belt_coords.insert(event.coords, event.entity, belt);
+    debug!(
+        "Updating BeltCoords resource: inserting {:?} at {:?}",
+        event.entity, event.coords
+    );
+    world
+        .resource_mut::<BeltCoords>()
+        .insert(event.coords, event.entity, belt);
 
     if let Some((old_entity, old_belt)) = old_entity_and_belt {
         debug!("Found existing belt: {old_entity:?}. Replacing it");
@@ -242,7 +264,8 @@ fn on_place_belt(
             new_belt: belt,
             coords: event.coords,
         });
-        cmd.entity(old_entity).insert(Delete);
+        debug!("Marking entity {old_entity:?} for deletion (replaced)");
+        world.entity_mut(old_entity).insert(Delete);
     } else {
         changes.push(NewBelt {
             entity: event.entity,
@@ -253,25 +276,35 @@ fn on_place_belt(
 
     // Check if placing this belt should curve the belt ahead
     let ahead = event.coords.step(belt.output());
-    if let Some((entity, ahead_belt)) = belt_coords.get(ahead) {
+    if let Some((entity, ahead_belt)) = world.resource::<BeltCoords>().get(ahead) {
         let place = PlaceBelt {
             entity,
             dir: ahead_belt.output(),
             coords: ahead,
         };
-        let new_belt = plan_belt_placement(&place, &belt_coords);
+        let new_belt = plan_belt_placement(&place, world.resource::<BeltCoords>());
         if ahead_belt != new_belt {
             debug!(
                 "Placing belt {:?} affected {entity:?}, updating that belt",
                 event.entity
             );
             let angle = new_belt.output().angle();
-            cmd.entity(place.entity).insert((
+            debug!(
+                "Adding components to entity {:?}: BeltShape, Transform",
+                place.entity
+            );
+            world.entity_mut(place.entity).insert((
                 new_belt,
                 Transform::from_translation(Vec3::from(place.coords))
                     .with_rotation(Quat::from_rotation_y(angle)),
             ));
-            belt_coords.insert(place.coords, place.entity, new_belt);
+            debug!(
+                "Updating BeltCoords resource: inserting {:?} at {:?}",
+                place.entity, place.coords
+            );
+            world
+                .resource_mut::<BeltCoords>()
+                .insert(place.coords, place.entity, new_belt);
             changes.push(ReplacedBelt {
                 entity: place.entity,
                 old_entity: None, // Same entity, just changed belt type
@@ -281,6 +314,87 @@ fn on_place_belt(
             });
         }
     }
+    link_belts(world, changes);
+}
+
+fn event_remove_belt(world: &mut World, event: RemoveBelt) {
+    let Ok((belt, prev_coords)) = world
+        .query::<(&BeltShape, &WorldCoords)>()
+        .get(world, event.entity)
+    else {
+        warn!(
+            "Attempted to remove belt entity {:?} but it doesn't exist",
+            event.entity
+        );
+        return;
+    };
+    let belt = belt.clone();
+    let prev_coords = prev_coords.clone();
+
+    let mut changes = BeltChanges::default();
+
+    debug!("Removing belt at {:?}", prev_coords);
+    debug!(
+        "Updating BeltCoords resource: removing entry at {:?}",
+        prev_coords
+    );
+    world.resource_mut::<BeltCoords>().remove(prev_coords);
+    changes.push(RemovedBelt {
+        entity: event.entity,
+        old_belt: belt,
+        coords: prev_coords,
+    });
+    debug!("Marking entity {:?} for deletion", event.entity);
+    world.entity_mut(event.entity).insert(Delete);
+
+    // Check if placing this belt should curve the belt ahead
+    let ahead = prev_coords.step(belt.output());
+    if let Some((entity, ahead_belt)) = world.resource::<BeltCoords>().get(ahead) {
+        let place = PlaceBelt {
+            entity,
+            dir: ahead_belt.output(),
+            coords: ahead,
+        };
+        let new_belt = plan_belt_placement(&place, world.resource::<BeltCoords>());
+        if ahead_belt != new_belt {
+            debug!(
+                "Placing belt {:?} affected {entity:?}, updating that belt",
+                event.entity
+            );
+            let angle = new_belt.output().angle();
+            debug!(
+                "Adding components to entity {:?}: BeltShape, Transform",
+                place.entity
+            );
+            world.entity_mut(place.entity).insert((
+                new_belt,
+                Transform::from_translation(Vec3::from(place.coords))
+                    .with_rotation(Quat::from_rotation_y(angle)),
+            ));
+            debug!(
+                "Updating BeltCoords resource: inserting {:?} at {:?}",
+                place.entity, place.coords
+            );
+            world
+                .resource_mut::<BeltCoords>()
+                .insert(place.coords, place.entity, new_belt);
+        }
+    }
+    link_belts(world, changes);
+}
+
+fn despawn_old_entities(mut cmd: Commands, q: Query<Entity, With<Delete>>) {
+    for entity in q {
+        cmd.entity(entity).despawn();
+    }
+}
+
+fn on_place_belt(event: On<PlaceBelt>, mut events: ResMut<BeltEvents>) {
+    debug!(
+        "Placing belt {:?} at {:?} facing {:?}",
+        event.entity, event.coords, event.dir
+    );
+    events.0.push(BeltEvent::Place(event.clone()));
 }
 
 fn on_place_item(
@@ -319,54 +433,8 @@ fn on_place_item(
     }
 }
 
-fn on_remove_belt(
-    event: On<RemoveBelt>,
-    mut cmd: Commands,
-    belts: Query<(&BeltShape, &WorldCoords), With<Belt>>,
-    mut changes: ResMut<BeltChanges>,
-    mut belt_coords: ResMut<BeltCoords>,
-) {
-    let Ok((belt, coords)) = belts.get(event.entity) else {
-        warn!(
-            "Attempted to remove belt entity {:?} but it doesn't exist",
-            event.entity
-        );
-        return;
-    };
-
-    debug!("Removing belt at {:?}", coords);
-    let (_, prev_coords) = belts.get(event.entity).unwrap();
-    belt_coords.remove(*coords);
-    changes.push(RemovedBelt {
-        entity: event.entity,
-        old_belt: *belt,
-        coords: *coords,
-    });
-    cmd.entity(event.entity).insert(Delete);
-
-    // Check if placing this belt should curve the belt ahead
-    let ahead = prev_coords.step(belt.output());
-    if let Some((entity, ahead_belt)) = belt_coords.get(ahead) {
-        let place = PlaceBelt {
-            entity,
-            dir: ahead_belt.output(),
-            coords: ahead,
-        };
-        let new_belt = plan_belt_placement(&place, &belt_coords);
-        if ahead_belt != new_belt {
-            debug!(
-                "Placing belt {:?} affected {entity:?}, updating that belt",
-                event.entity
-            );
-            let angle = new_belt.output().angle();
-            cmd.entity(place.entity).insert((
-                new_belt,
-                Transform::from_translation(Vec3::from(place.coords))
-                    .with_rotation(Quat::from_rotation_y(angle)),
-            ));
-            belt_coords.insert(place.coords, place.entity, new_belt);
-        }
-    }
+fn on_remove_belt(event: On<RemoveBelt>, mut events: ResMut<BeltEvents>) {
+    events.0.push(BeltEvent::Remove(event.clone()));
 }
 
 fn replace_items(lanes: Query<&BeltLane>, mut items: Query<(&mut Item, &mut Transform)>) {
@@ -384,11 +452,7 @@ pub(crate) fn clear_changed_belts(mut changes: ResMut<BeltChanges>) {
     changes.clear();
 }
 
-pub fn link_belts(world: &mut World) {
-    let changed_belts = world.resource::<BeltChanges>().clone();
-    if changed_belts.0.is_empty() {
-        return;
-    }
+pub fn link_belts(world: &mut World, changed_belts: BeltChanges) {
     debug!("Updating belts: {:?}", changed_belts.0);
 
     let num_changes = changed_belts.0.len();
@@ -404,8 +468,9 @@ pub fn link_belts(world: &mut World) {
                 new_belt(world, &remaining_entities, new, (Vec::new(), Vec::new()))
             }
             BeltChange::Removed(removed) => {
-                let items = remove_belt(world, &remaining_entities, removed);
+                let items = detach_belt(world, &remaining_entities, removed);
                 for ItemEntry { entity, .. } in items.0.iter().chain(items.1.iter()) {
+                    debug!("Despawning item entity {entity:?} from removed belt lane");
                     world.despawn(*entity);
                 }
             }
@@ -473,20 +538,6 @@ impl BeltCoords {
     #[cfg_attr(not(feature = "proptests"), expect(dead_code))]
     pub fn iter(&self) -> impl Iterator<Item = (&WorldCoords, &(Entity, BeltShape))> {
         self.0.iter()
-    }
-}
-
-impl ChangedCoords {
-    pub fn insert(&mut self, coords: WorldCoords) {
-        for c in [
-            coords.step(HDir::North),
-            coords.step(HDir::East),
-            coords.step(HDir::South),
-            coords.step(HDir::West),
-            coords,
-        ] {
-            self.0.insert(c);
-        }
     }
 }
 
@@ -639,58 +690,6 @@ impl Curve {
 impl BeltChanges {
     pub fn push(&mut self, change: impl Into<BeltChange>) {
         let change = change.into();
-        // Check if we can collapse this change with an existing one for the same entity
-        let entity = change.entity();
-
-        if let Some(existing_idx) = self.0.iter().position(|c| c.entity() == entity) {
-            let existing = self.0[existing_idx];
-            assert_eq!(existing.coords(), change.coords());
-            match (existing, &change) {
-                // New + Replaced => New (with final belt), moved to end
-                (BeltChange::New(_), BeltChange::Replaced(replaced)) => {
-                    self.0.remove(existing_idx);
-                    self.0.push(
-                        NewBelt {
-                            entity,
-                            belt: replaced.new_belt,
-                            coords: replaced.coords,
-                        }
-                        .into(),
-                    );
-                    return;
-                }
-                // New + Removed => cancel out completely (belt was never really added)
-                (BeltChange::New(_), BeltChange::Removed(_)) => {
-                    self.0.remove(existing_idx);
-                    return;
-                }
-                // Replaced + Replaced => update existing Replaced with cumulative change
-                (BeltChange::Replaced(old_replaced), BeltChange::Replaced(new_replaced)) => {
-                    self.0[existing_idx] = ReplacedBelt {
-                        entity,
-                        old_entity: old_replaced.old_entity,
-                        old_belt: old_replaced.old_belt,
-                        new_belt: new_replaced.new_belt,
-                        coords: old_replaced.coords,
-                    }
-                    .into();
-                    return;
-                }
-                // Replaced + Removed => collapse to Removed (using original old_belt)
-                (BeltChange::Replaced(replaced), BeltChange::Removed(_)) => {
-                    self.0[existing_idx] = RemovedBelt {
-                        entity,
-                        old_belt: replaced.old_belt,
-                        coords: replaced.coords,
-                    }
-                    .into();
-                    return;
-                }
-                _ => {}
-            }
-        }
-
-        // No collapsing possible, just add the change
         self.0.push(change);
     }
 
@@ -930,21 +929,43 @@ fn new_belt(
 
     match (ahead_belt, behind_belt) {
         (None, None) => {
-            debug!("Creating new lane");
             let mut lane = BeltLane::from_belt(new.belt, new.coords, new.entity);
+            debug!(
+                "Adding {} items to left lane, {} items to right lane",
+                existing_items.0.len(),
+                existing_items.1.len()
+            );
             lane.insert_items_at(&existing_items.0, LaneSide::Left);
             lane.insert_items_at(&existing_items.1, LaneSide::Right);
             let lane_ent = world.spawn(lane).id();
+            debug!(
+                "Spawned new lane entity {lane_ent:?} for belt {:?}",
+                new.entity
+            );
+            debug!(
+                "Adding InLane component to entity {:?} pointing to lane {lane_ent:?}",
+                new.entity
+            );
             world.entity_mut(new.entity).insert(InLane::new(lane_ent));
         }
         (None, Some((behind_ent, _))) => {
             debug!("Adding to head of existing lane");
             let lane_ent = get_lane_entity(world, behind_ent);
             let mut lane = get_lane_mut(world, lane_ent);
+            debug!("Adding belt {:?} to head of lane {lane_ent:?}", new.entity);
             lane.add_to_head(new.belt, new.coords, new.entity);
+            debug!(
+                "Adding {} items to left lane, {} items to right lane",
+                existing_items.0.len(),
+                existing_items.1.len()
+            );
             lane.insert_items_at(&existing_items.0, LaneSide::Left);
             lane.insert_items_at(&existing_items.1, LaneSide::Right);
             debug!("Lane is {:#?}", lane);
+            debug!(
+                "Adding InLane component to entity {:?} pointing to lane {lane_ent:?}",
+                new.entity
+            );
             world.entity_mut(new.entity).insert(InLane::new(lane_ent));
         }
         (Some((ahead_ent, _, ConnectionType::Direct)), None) => {
@@ -953,10 +974,20 @@ fn new_belt(
             let mut lane = get_lane_mut(world, lane_ent);
 
             let mut new_lane = BeltLane::from_belt(new.belt, new.coords, new.entity);
+            debug!(
+                "Adding {} items to left lane, {} items to right lane",
+                existing_items.0.len(),
+                existing_items.1.len()
+            );
             new_lane.insert_items_at(&existing_items.0, LaneSide::Left);
             new_lane.insert_items_at(&existing_items.1, LaneSide::Right);
+            debug!("Merging new belt into lane {lane_ent:?}");
             lane.merge(new_lane);
             debug!("Lane is {:?}", lane);
+            debug!(
+                "Adding InLane component to entity {:?} pointing to lane {lane_ent:?}",
+                new.entity
+            );
             world.entity_mut(new.entity).insert(InLane::new(lane_ent));
         }
         (Some((ahead_ent, _, ConnectionType::Direct)), Some((behind_ent, _))) => {
@@ -964,12 +995,25 @@ fn new_belt(
             let behind_lane_ent = get_lane_entity(world, behind_ent);
             let ahead_lane_ent = get_lane_entity(world, ahead_ent);
             let mut behind_lane = get_lane_mut(world, behind_lane_ent);
+            debug!(
+                "Adding belt {:?} to head of lane {behind_lane_ent:?}",
+                new.entity
+            );
             behind_lane.add_to_head(new.belt, new.coords, new.entity);
+            debug!(
+                "Adding {} items to left lane, {} items to right lane",
+                existing_items.0.len(),
+                existing_items.1.len()
+            );
             behind_lane.insert_items_at(&existing_items.0, LaneSide::Left);
             behind_lane.insert_items_at(&existing_items.1, LaneSide::Right);
 
             if behind_lane_ent == ahead_lane_ent {
-                debug!("Belt loop");
+                debug!("Belt loop detected");
+                debug!(
+                    "Adding InLane component to entity {:?} pointing to lane {behind_lane_ent:?}",
+                    new.entity
+                );
                 world
                     .entity_mut(new.entity)
                     .insert(InLane::new(behind_lane_ent));
@@ -977,6 +1021,7 @@ fn new_belt(
                 lane.belts[0].ranges.left.start -= ITEM_SPACING / 2;
                 lane.belts[0].ranges.right.start -= ITEM_SPACING / 2;
                 let ranges = lane.ranges();
+                debug!("Adding LaneLoopConnection component to lane {behind_lane_ent:?}");
                 world
                     .entity_mut(behind_lane_ent)
                     .insert(LaneLoopConnection {
@@ -990,14 +1035,23 @@ fn new_belt(
                 let behind_lane = get_lane(world, behind_lane_ent).clone();
                 for belt in &behind_lane.belts {
                     let belt_ent = belt.entity;
+                    debug!(
+                        "Adding InLane component to entity {belt_ent:?} pointing to lane {ahead_lane_ent:?}"
+                    );
                     world
                         .entity_mut(belt_ent)
                         .insert(InLane::new(ahead_lane_ent));
                 }
                 let mut lane = get_lane_mut(world, ahead_lane_ent);
+                debug!("Merging behind_lane into lane {ahead_lane_ent:?}");
                 lane.merge(behind_lane.clone());
                 debug!("Lane is {:#?}", lane);
+                debug!("Despawning old lane entity {behind_lane_ent:?}");
                 world.entity_mut(behind_lane_ent).despawn();
+                debug!(
+                    "Adding InLane component to entity {:?} pointing to lane {ahead_lane_ent:?}",
+                    new.entity
+                );
                 world
                     .entity_mut(new.entity)
                     .insert(InLane::new(ahead_lane_ent));
@@ -1006,9 +1060,15 @@ fn new_belt(
         (Some((side_ent, _, ConnectionType::SideLoad(side))), None) => {
             debug!("sideloading new lane");
             let mut lane = BeltLane::from_belt(new.belt, new.coords, new.entity);
+            debug!(
+                "Adding {} items to left lane, {} items to right lane",
+                existing_items.0.len(),
+                existing_items.1.len()
+            );
             lane.insert_items_at(&existing_items.0, LaneSide::Left);
             lane.insert_items_at(&existing_items.1, LaneSide::Right);
             let lane_ent = world.spawn(lane).id();
+            debug!("Spawned new lane entity {lane_ent:?} that sideloads");
 
             create_sideload_connection(
                 world,
@@ -1019,13 +1079,23 @@ fn new_belt(
                 side,
             );
 
+            debug!(
+                "Adding InLane component to entity {:?} pointing to lane {lane_ent:?}",
+                new.entity
+            );
             world.entity_mut(new.entity).insert(InLane::new(lane_ent));
         }
         (Some((side_ent, _, ConnectionType::SideLoad(side))), Some((behind_ent, _))) => {
             let lane_ent = get_lane_entity(world, behind_ent);
 
             let mut lane = get_lane_mut(world, lane_ent);
+            debug!("Adding belt {:?} to head of lane {lane_ent:?}", new.entity);
             lane.add_to_head(new.belt, new.coords, new.entity);
+            debug!(
+                "Adding {} items to left lane, {} items to right lane",
+                existing_items.0.len(),
+                existing_items.1.len()
+            );
             lane.insert_items_at(&existing_items.0, LaneSide::Left);
             lane.insert_items_at(&existing_items.1, LaneSide::Right);
 
@@ -1042,6 +1112,10 @@ fn new_belt(
                 update_connection_offsets_for_lane(world, lane_ent, side, len);
             }
 
+            debug!(
+                "Adding InLane component to entity {:?} pointing to lane {lane_ent:?}",
+                new.entity
+            );
             world.entity_mut(new.entity).insert(InLane::new(lane_ent));
         }
     }
@@ -1084,12 +1158,13 @@ fn new_belt(
     }
 }
 
-fn remove_belt(
+fn detach_belt(
     world: &mut World,
     remaining_entities: &[Entity],
     removed: &RemovedBelt,
 ) -> (Vec<ItemEntry>, Vec<ItemEntry>) {
-    debug!("Removing {:?}", removed.entity);
+    debug!("Detaching {:?} from any lanes", removed.entity);
+
     let belt_coords = world.resource::<BeltCoords>();
     let ahead_belt = ahead_connected_belt(
         &belt_coords,
@@ -1107,7 +1182,7 @@ fn remove_belt(
     debug!("ahead belt: {:?}", ahead_belt);
 
     if let BeltShape::Straight(dir) = removed.old_belt {
-        debug!("Removing straigt belt, checking for sideloading");
+        debug!("Detaching straigt belt, checking for sideloading");
         for side_dir in [dir.left(), dir.right()] {
             let side_coords = removed.coords.step(side_dir);
 
@@ -1127,9 +1202,12 @@ fn remove_belt(
                 let side_frag = side_lane.belts[0].clone();
                 assert_eq!(dir, side_dir.opposite());
 
+                debug!("Removing LaneConnection component from lane {side_lane_ent:?}");
                 world.entity_mut(side_lane_ent).remove::<LaneConnection>();
                 let mut side_lane = get_lane_mut(world, side_lane_ent);
+                debug!("Removing head from lane {side_lane_ent:?}");
                 let items = side_lane.remove_head();
+                debug!("Despawning frag entity {:?}", side_frag.entity);
                 world.entity_mut(side_frag.entity).despawn();
             } else {
                 debug!("Sideloading connection not created yet, skipping");
@@ -1149,6 +1227,11 @@ fn remove_belt(
                 // This is truly the only belt in the lane, safe to despawn
                 let left = lane.lanes[LaneSide::Left].clone();
                 let right = lane.lanes[LaneSide::Right].clone();
+                debug!(
+                    "Despawning lane entity {lane_ent:?} (only belt in lane, returning {} left items, {} right items)",
+                    left.len(),
+                    right.len()
+                );
                 world.despawn(lane_ent);
                 (left, right)
             } else {
@@ -1163,20 +1246,28 @@ fn remove_belt(
                 if belt_idx == 0 {
                     // At the head
                     let mut lane = get_lane_mut(world, lane_ent);
+                    debug!("Removing head from lane {lane_ent:?}");
                     lane.remove_head()
                 } else if belt_idx == lane.belts.len() - 1 {
                     // At the tail
                     let mut lane = get_lane_mut(world, lane_ent);
+                    debug!("Removing tail from lane {lane_ent:?}");
                     lane.remove_tail()
                 } else {
                     // In the middle - split the lane
                     let mut lane = get_lane_mut(world, lane_ent);
+                    debug!("Splitting lane {lane_ent:?} at entity {:?}", removed.entity);
                     let mut tail_lane = lane.split_at(removed.entity).unwrap();
+                    debug!("Removing head from split tail lane");
                     let leftover_items = tail_lane.remove_head();
                     let belts = tail_lane.belts.iter().map(|b| b.entity).collect::<Vec<_>>();
 
                     let tail_lane_ent = world.spawn(tail_lane).id();
+                    debug!("Spawned new lane entity {tail_lane_ent:?} from splitting");
                     for belt in belts.iter() {
+                        debug!(
+                            "Adding InLane component to entity {belt:?} pointing to lane {tail_lane_ent:?}"
+                        );
                         world.entity_mut(*belt).insert(InLane::new(tail_lane_ent));
                     }
                     leftover_items
@@ -1186,10 +1277,31 @@ fn remove_belt(
         (None, Some(_)) => {
             debug!("Removing from the head");
             let mut lane = get_lane_mut(world, lane_ent);
-            let items = if lane.belts.len() > 1 {
+            let items = if lane
+                .belts
+                .iter()
+                .filter(|b| match b.belt {
+                    BeltShape::Straight(_) => true,
+                    BeltShape::Curve(_) => true,
+                    BeltShape::Fragment(_) => false,
+                })
+                .map(|_| ())
+                .collect::<Vec<()>>()
+                .len()
+                > 1
+            {
+                debug!(
+                    "Removing {:?} from the head of {lane_ent:?}",
+                    removed.entity
+                );
                 lane.remove_head()
             } else {
                 let items = (lane.lanes.left.clone(), lane.lanes.right.clone());
+                debug!(
+                    "Despawning lane entity {lane_ent:?} (returning {} left items, {} right items)",
+                    items.0.len(),
+                    items.1.len()
+                );
                 world.entity_mut(lane_ent).despawn();
                 items
             };
@@ -1200,9 +1312,15 @@ fn remove_belt(
             let mut lane = get_lane_mut(world, lane_ent);
 
             let items = if lane.belts.len() > 1 {
+                debug!("Removing tail from lane {lane_ent:?}");
                 lane.remove_tail()
             } else {
                 let items = (lane.lanes.left.clone(), lane.lanes.right.clone());
+                debug!(
+                    "Despawning lane entity {lane_ent:?} (returning {} left items, {} right items)",
+                    items.0.len(),
+                    items.1.len()
+                );
                 world.entity_mut(lane_ent).despawn();
                 items
             };
@@ -1211,17 +1329,35 @@ fn remove_belt(
         (Some((_, _, ConnectionType::Direct)), Some(_)) => {
             debug!("Removing from the middle");
             let mut lane = get_lane_mut(world, lane_ent);
+            debug!("Splitting lane {lane_ent:?} at entity {:?}", removed.entity);
             let mut tail_lane = lane.split_at(removed.entity).unwrap();
+            debug!("Removing head from split tail lane");
             let leftover_items = tail_lane.remove_head();
             let belts = tail_lane.belts.iter().map(|b| b.entity).collect::<Vec<_>>();
 
             let tail_lane_ent = world.spawn(tail_lane).id();
+            debug!("Spawned new lane entity {tail_lane_ent:?} from splitting");
             for belt in belts.iter() {
+                debug!(
+                    "Adding InLane component to entity {belt:?} pointing to lane {tail_lane_ent:?}"
+                );
                 world.entity_mut(*belt).insert(InLane::new(tail_lane_ent));
             }
             leftover_items
         }
-        (Some((_, _, ConnectionType::SideLoad(_))), None) => todo!(),
+        (Some((_, _, ConnectionType::SideLoad(_))), None) => {
+            debug!("Despawning sideload lane entity {lane_ent:?}");
+            let entities = get_lane(world, lane_ent)
+                .belts
+                .iter()
+                .map(|b| b.entity)
+                .collect::<Vec<_>>();
+            for b in entities {
+                world.entity_mut(b).insert(Delete);
+            }
+            world.entity_mut(lane_ent).despawn();
+            Default::default()
+        }
         (Some((_, _, ConnectionType::SideLoad(_))), Some(_)) => todo!(),
     }
 }
@@ -1236,14 +1372,14 @@ fn replace_belt(world: &mut World, remaining_entities: &[Entity], replaced: &Rep
                 old_belt: replaced.old_belt,
                 coords: replaced.coords,
             };
-            let remaining_items = remove_belt(world, remaining_entities, &removed);
+            let remaining_items = detach_belt(world, remaining_entities, &removed);
             let new = NewBelt::from(*replaced);
             new_belt(world, remaining_entities, &new, remaining_items);
         }
         None => {
             debug!("Updating {:?} in place", replaced.entity);
             let removed = RemovedBelt::from(*replaced);
-            let remaining_items = remove_belt(world, remaining_entities, &removed);
+            let remaining_items = detach_belt(world, remaining_entities, &removed);
             let new = NewBelt::from(*replaced);
             new_belt(world, remaining_entities, &new, remaining_items);
         }
@@ -1333,6 +1469,7 @@ fn create_sideload_connection(
             InLane::new(source_lane_ent),
         ))
         .id();
+    debug!("Spawning BeltFrag: {frag_ent:?} in lane {source_lane_ent:?}");
     let mut source_lane = get_lane_mut(world, source_lane_ent);
     source_lane.prepend_fragment(source_dir, intersection_coords, frag_ent);
 
@@ -2016,20 +2153,15 @@ mod tests {
     }
 
     #[test]
-    fn replace_connected_belt_with_new_neighbor_minimal_v5() {
-        // What if third belt is at (-1, -1, 0) instead?
+    fn replace_sideloading_into() {
         let mut app = test_app();
 
-        app.add_belt((0, -3, 0), HDir::West);
-        let original = app.add_belt((-1, -3, 0), HDir::North);
-        app.add_belt((0, 0, 0), HDir::North);
-        app.add_belt((0, -1, 0), HDir::North);
-        app.add_belt((0, 1, 0), HDir::North);
+        app.add_belt((0, 0, 0), HDir::West);
+        let original = app.add_belt((-1, 0, 0), HDir::North);
         app.update();
 
-        app.add_belt((1, -3, 0), HDir::South);
-        let replaced = app.add_belt((-1, -3, 0), HDir::North);
-        app.add_belt((-1, -1, 0), HDir::North); // Adjacent to replaced
+        app.add_belt((1, 0, 0), HDir::South);
+        let replaced = app.add_belt((-1, 0, 0), HDir::North);
         app.update();
 
         assert!(app.find_belt(original).is_none());
@@ -2055,5 +2187,18 @@ mod tests {
 
         assert!(app.find_belt(original).is_none());
         assert!(app.find_belt(replaced).is_some());
+    }
+
+    #[test]
+    fn remove_one_belt() {
+        let mut app = test_app();
+
+        let belt = app.add_belt((0, 0, 0), HDir::West);
+        app.update();
+
+        app.remove_belt_at((0, 0, 0));
+        app.update();
+
+        assert!(app.find_belt(belt).is_none());
     }
 }
