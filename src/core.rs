@@ -628,6 +628,13 @@ impl BeltShape {
             Self::Fragment(_) => POSITIONS_PER_FRAGMENT,
         }
     }
+
+    pub fn is_fragment(&self) -> bool {
+        match self {
+            Self::Fragment(_) => true,
+            _ => false,
+        }
+    }
 }
 
 impl Curve {
@@ -1358,7 +1365,21 @@ fn detach_belt(
             world.entity_mut(lane_ent).despawn();
             Default::default()
         }
-        (Some((_, _, ConnectionType::SideLoad(_))), Some(_)) => todo!(),
+        (Some((_, _, ConnectionType::SideLoad(_))), Some(_)) => {
+            debug!("Shortening sideload lane entity {lane_ent:?}");
+
+            let mut lane = get_lane_mut(world, lane_ent);
+            assert!(lane.belts[0].belt.is_fragment());
+            let frag_ent = lane.belts[0].entity;
+            let mut frag_items = lane.remove_head();
+            let belt_items = lane.remove_head();
+            world.entity_mut(frag_ent).insert(Delete);
+            world.entity_mut(lane_ent).remove::<LaneConnection>();
+
+            frag_items.0.extend(belt_items.0);
+            frag_items.1.extend(belt_items.1);
+            (frag_items.0, frag_items.1)
+        }
     }
 }
 
@@ -2200,5 +2221,18 @@ mod tests {
         app.update();
 
         assert!(app.find_belt(belt).is_none());
+    }
+
+    #[test]
+    fn remove_sideload_from_long_lane() {
+        let mut app = test_app();
+        app.add_belt((0, 0, 0), HDir::North);
+        app.add_belt((-1, 0, 0), HDir::North);
+        let _side_loader = app.add_belt((0, 0, 1), HDir::West);
+        app.add_belt((0, 0, 2), HDir::West);
+        app.update();
+
+        app.remove_belt_at((0, 0, 1));
+        app.update();
     }
 }
