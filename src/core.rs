@@ -799,6 +799,11 @@ impl From<ReplacedBelt> for RemovedBelt {
 // Functions
 // ---------
 
+/// For Straight and Curved Belts, a po of 0 will put the item
+/// as far as it should go, when at the head
+///
+/// For Fragments, a pos of 0 will put the item where it waits
+/// when sideloaded
 pub fn item_position(
     belt: BeltShape,
     coords: impl Into<WorldCoords>,
@@ -869,7 +874,7 @@ pub fn item_position(
             BeltShape::Straight(dir),
             coords,
             lane,
-            pos + POSITIONS_PER_BELT - POSITIONS_PER_FRAGMENT,
+            pos + POSITIONS_PER_BELT - POSITIONS_PER_FRAGMENT + ITEM_SPACING / 2,
         ),
     }
 }
@@ -1573,7 +1578,8 @@ fn update_connection_offsets_for_lane(
     }
 }
 
-fn assert_close(left: Vec3, right: Vec3) {
+#[cfg(test)]
+pub fn assert_close(left: Vec3, right: Vec3) {
     let dist = left.distance(right);
     assert!(
         dist < 0.0001,
@@ -1890,8 +1896,10 @@ mod tests {
                 }],
                 right: vec![],
             },
-            is_blocked_left: false,
-            is_blocked_right: false,
+            is_blocked: Blocked {
+                left: false,
+                right: false,
+            },
         };
         assert_eq!(*actual, expected);
     }
@@ -2116,7 +2124,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "todo"]
     fn replace_belt_with_multiple_neighbors_complex() {
         let mut app = test_app();
 
@@ -2138,7 +2145,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "todo"]
     fn replace_connected_belt_with_new_neighbor() {
         let mut app = test_app();
 
@@ -2161,7 +2167,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "todo"]
     fn replace_connected_belt_with_new_neighbor_minimal_v4() {
         // Same as original but third belt at different location
         let mut app = test_app();

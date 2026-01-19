@@ -3,6 +3,40 @@ use std::ops::{Index, IndexMut};
 use super::*;
 
 // ------
+// Macros
+// ------
+
+macro_rules! lane_pair {
+    ($(#[$attr:meta])* $name:ident, $inner:ty) => {
+        $(#[$attr])*
+        pub struct $name {
+            pub left: $inner,
+            pub right: $inner,
+        }
+
+        impl Index<LaneSide> for $name {
+            type Output = $inner;
+
+            fn index(&self, index: LaneSide) -> &Self::Output {
+                match index {
+                    LaneSide::Left => &self.left,
+                    LaneSide::Right => &self.right,
+                }
+            }
+        }
+
+        impl IndexMut<LaneSide> for $name {
+            fn index_mut(&mut self, index: LaneSide) -> &mut Self::Output {
+                match index {
+                    LaneSide::Left => &mut self.left,
+                    LaneSide::Right => &mut self.right,
+                }
+            }
+        }
+    };
+}
+
+// ------
 // Models
 // ------
 
@@ -10,33 +44,34 @@ use super::*;
 pub struct BeltLane {
     pub belts: Vec<BeltEntry>,
     pub lanes: Lanes,
-    pub is_blocked_left: bool,
-    pub is_blocked_right: bool,
+    pub is_blocked: Blocked,
 }
 
-#[derive(Debug, PartialEq, Eq, Default, Clone)]
-pub struct Lanes {
-    pub left: Vec<ItemEntry>,
-    pub right: Vec<ItemEntry>,
-}
-
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub struct Ranges {
-    pub left: Range<i32>,
-    pub right: Range<i32>,
-}
-
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub struct LaneOffsets {
-    pub left: i32,
-    pub right: i32,
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub struct Offset {
-    pub left: i32,
-    pub right: i32,
-}
+lane_pair!(
+    #[derive(Debug, PartialEq, Eq, Default, Clone)]
+    Lanes,
+    Vec<ItemEntry>
+);
+lane_pair!(
+    #[derive(Debug, PartialEq, Eq, Clone)]
+    Ranges,
+    Range<i32>
+);
+lane_pair!(
+    #[derive(Debug, PartialEq, Eq, Clone)]
+    LaneOffsets,
+    i32
+);
+lane_pair!(
+    #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+    Offset,
+    i32
+);
+lane_pair!(
+    #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+    Blocked,
+    bool
+);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ItemPlacementError {
@@ -88,8 +123,10 @@ impl BeltLane {
                 lane_offsets: LaneOffsets { left: 0, right: 0 },
             }],
             lanes: default(),
-            is_blocked_left: false,
-            is_blocked_right: false,
+            is_blocked: Blocked {
+                left: false,
+                right: false,
+            },
         }
     }
 
@@ -296,8 +333,8 @@ impl BeltLane {
                     right: (right_start - POSITIONS_PER_FRAGMENT)..right_start,
                 },
                 lane_offsets: LaneOffsets {
-                    left: left_start - POSITIONS_PER_FRAGMENT + ITEM_SPACING / 2,
-                    right: right_start - POSITIONS_PER_FRAGMENT + ITEM_SPACING / 2,
+                    left: left_start - POSITIONS_PER_FRAGMENT + ITEM_SPACING,
+                    right: right_start - POSITIONS_PER_FRAGMENT + ITEM_SPACING,
                 },
             },
         );
@@ -366,10 +403,7 @@ impl BeltLane {
     }
 
     pub fn is_blocked_for_side(&self, side: LaneSide) -> bool {
-        match side {
-            LaneSide::Left => self.is_blocked_left,
-            LaneSide::Right => self.is_blocked_right,
-        }
+        self.is_blocked[side]
     }
 
     /// Update item positions for one simulation tick
@@ -379,7 +413,12 @@ impl BeltLane {
             let Some(lead_item) = self.lanes[side].get_mut(0) else {
                 continue;
             };
-            lead_item.pos = head.max(lead_item.pos - BASE_BELT_SPEED);
+            let offset = if self.is_blocked[side] && self.belts[0].belt.is_fragment() {
+                ITEM_SPACING
+            } else {
+                0
+            };
+            lead_item.pos = (head + offset).max(lead_item.pos - BASE_BELT_SPEED);
             for i in 1..self.lanes[side].len() {
                 let first = self.lanes[side][i - 1];
                 let second = &mut self.lanes[side][i];
@@ -417,8 +456,10 @@ impl BeltLane {
                 left: left_items,
                 right: right_items,
             },
-            is_blocked_left: false,
-            is_blocked_right: false,
+            is_blocked: Blocked {
+                left: false,
+                right: false,
+            },
         })
     }
 }
@@ -433,86 +474,6 @@ impl From<PlaceItem> for ItemEntry {
             item: value.item,
             entity: value.entity,
             pos: value.position,
-        }
-    }
-}
-
-impl Index<LaneSide> for Lanes {
-    type Output = Vec<ItemEntry>;
-
-    fn index(&self, index: LaneSide) -> &Self::Output {
-        match index {
-            LaneSide::Left => &self.left,
-            LaneSide::Right => &self.right,
-        }
-    }
-}
-
-impl IndexMut<LaneSide> for Lanes {
-    fn index_mut(&mut self, index: LaneSide) -> &mut Self::Output {
-        match index {
-            LaneSide::Left => &mut self.left,
-            LaneSide::Right => &mut self.right,
-        }
-    }
-}
-
-impl Index<LaneSide> for Ranges {
-    type Output = Range<i32>;
-
-    fn index(&self, index: LaneSide) -> &Self::Output {
-        match index {
-            LaneSide::Left => &self.left,
-            LaneSide::Right => &self.right,
-        }
-    }
-}
-
-impl IndexMut<LaneSide> for Ranges {
-    fn index_mut(&mut self, index: LaneSide) -> &mut Self::Output {
-        match index {
-            LaneSide::Left => &mut self.left,
-            LaneSide::Right => &mut self.right,
-        }
-    }
-}
-
-impl Index<LaneSide> for LaneOffsets {
-    type Output = i32;
-
-    fn index(&self, index: LaneSide) -> &Self::Output {
-        match index {
-            LaneSide::Left => &self.left,
-            LaneSide::Right => &self.right,
-        }
-    }
-}
-
-impl IndexMut<LaneSide> for LaneOffsets {
-    fn index_mut(&mut self, index: LaneSide) -> &mut Self::Output {
-        match index {
-            LaneSide::Left => &mut self.left,
-            LaneSide::Right => &mut self.right,
-        }
-    }
-}
-
-impl Index<LaneSide> for Offset {
-    type Output = i32;
-
-    fn index(&self, index: LaneSide) -> &Self::Output {
-        match index {
-            LaneSide::Left => &self.left,
-            LaneSide::Right => &self.right,
-        }
-    }
-}
-
-impl IndexMut<LaneSide> for Offset {
-    fn index_mut(&mut self, index: LaneSide) -> &mut Self::Output {
-        match index {
-            LaneSide::Left => &mut self.left,
-            LaneSide::Right => &mut self.right,
         }
     }
 }
@@ -571,8 +532,10 @@ mod tests {
                 left: vec![],
                 right: vec![],
             },
-            is_blocked_left: false,
-            is_blocked_right: false,
+            is_blocked: Blocked {
+                left: false,
+                right: false,
+            },
         };
         assert_eq!(lane, expected);
     }

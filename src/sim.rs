@@ -68,8 +68,8 @@ fn determine_sideload_blocks(
         let mut source_lane = lanes
             .get_mut(source_ent)
             .expect("Invariant broken: lane_connection_source_is_valid_lane");
-        source_lane.is_blocked_left = left_blocked;
-        source_lane.is_blocked_right = right_blocked;
+        source_lane.is_blocked[LaneSide::Left] = left_blocked;
+        source_lane.is_blocked[LaneSide::Right] = right_blocked;
     }
 }
 
@@ -563,42 +563,32 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "todo"]
-    fn item_moves_onto_side_loaded_belt_unless_full_left_lane() {
+    fn item_doesnt_move_onto_side_loaded_belt_when_full_left_lane() {
         let mut app = test_app();
-        let belt1 = app.add_belt((0, 0, 0), HDir::East);
-        let belt2 = app.add_belt((0, 0, 1), HDir::North);
-        app.add_belt((-1, 0, 1), HDir::North);
+        app.add_belt((-1, 0, 0), HDir::North);
+        let side_loading = app.add_belt((0, 0, -1), HDir::East);
+        let side_loaded = app.add_belt((0, 0, 0), HDir::North);
         app.update();
+        for i in 0..ITEMS_PER_BELT {
+            app.add_item(side_loaded, i * ITEM_SPACING, LaneSide::Left);
+        }
+        let item = app.add_item(side_loading, 0, LaneSide::Left);
 
-        // Place item on source belt
-        let item = app.add_item(belt1, POSITIONS_PER_BELT / 2, LaneSide::Left);
-
-        // Block the target belt by placing items close together
-        app.add_item(belt2, POSITIONS_PER_BELT - ITEM_SPACING - 1, LaneSide::Left);
-        app.add_item(belt2, POSITIONS_PER_BELT - 1, LaneSide::Left);
-
-        app.update();
-        let init_pos = app.find_item(item).unwrap().1.translation;
-
-        // Run enough updates to attempt transfer
-        for _ in 0..((POSITIONS_PER_BELT / 2 + POSITIONS_PER_FRAGMENT) / BASE_BELT_SPEED + 5) {
+        for _ in 0..(POSITIONS_PER_FRAGMENT + ITEM_SPACING) / BASE_BELT_SPEED {
             app.update();
         }
-
-        let final_pos = app.find_item(item).unwrap().1.translation;
-
-        // Item should NOT have transferred (z coordinate should stay the same)
-        assert_eq!(
-            init_pos.z, final_pos.z,
-            "Item should still be on East belt at z={}, got z={}",
-            init_pos.z, final_pos.z
+        let expected = item_position(
+            BeltShape::Fragment(HDir::East),
+            (0, 0, 0),
+            LaneSide::Left,
+            0,
         );
+        let actual = app.find_item(item).unwrap().1;
+        assert_close(expected.translation, actual.translation);
     }
 
     #[test]
-    #[ignore = "todo"]
-    fn item_moves_onto_side_loaded_belt_unless_full_right_lane() {
+    fn item_doesnt_move_onto_side_loaded_belt_when_full_right_lane() {
         let mut app = test_app();
         let belt1 = app.add_belt((0, 0, 0), HDir::East);
         let belt2 = app.add_belt((0, 0, 1), HDir::North);
