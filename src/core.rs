@@ -56,11 +56,6 @@ impl Plugin for CorePlugin {
 
         app.add_systems(Update, (do_stuff, replace_items).chain());
         app.add_systems(PostUpdate, despawn_old_entities);
-
-        // Only clear belt changes in PostUpdate if invariant checking is disabled
-        // Otherwise, it's cleared after invariant checks
-        #[cfg(not(feature = "invariant-check"))]
-        app.add_systems(PostUpdate, clear_changed_belts);
     }
 }
 
@@ -204,6 +199,7 @@ pub enum BeltEvent {
 }
 
 pub fn do_stuff(world: &mut World) {
+    world.get_resource_mut::<BeltChanges>().unwrap().0.clear();
     let events = world
         .get_resource_mut::<BeltEvents>()
         .unwrap()
@@ -448,12 +444,13 @@ fn replace_items(lanes: Query<&BeltLane>, mut items: Query<(&mut Item, &mut Tran
     }
 }
 
-pub(crate) fn clear_changed_belts(mut changes: ResMut<BeltChanges>) {
-    changes.clear();
-}
-
 pub fn link_belts(world: &mut World, changed_belts: BeltChanges) {
     debug!("Updating belts: {:?}", changed_belts.0);
+
+    world
+        .resource_mut::<BeltChanges>()
+        .0
+        .extend(changed_belts.0.iter().cloned());
 
     let num_changes = changed_belts.0.len();
     for i in 0..num_changes {
@@ -2104,6 +2101,18 @@ mod tests {
 
         assert!(app.find_belt(first).is_none());
         assert!(app.find_belt(replaced).is_some());
+    }
+
+    #[test]
+    fn replace_north_belt_with_east_after_item() {
+        let mut app = test_app();
+
+        let belt = app.add_belt((-1, 2, 0), HDir::North);
+        app.update();
+        app.add_item(belt, 0, LaneSide::Left);
+        app.update();
+        app.add_belt((-1, 2, 0), HDir::East);
+        app.update();
     }
 
     #[test]

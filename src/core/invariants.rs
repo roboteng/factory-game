@@ -44,7 +44,6 @@ impl Plugin for InvariantsPlugin {
                 warn_items_too_close,
                 items_are_within_belt_bounds,
                 (items_dont_move_too_far, update_previous_transforms).chain(),
-                super::clear_changed_belts,
                 |mut b: ResMut<BrokenInvariants>| {
                     b.check();
                     b.clear();

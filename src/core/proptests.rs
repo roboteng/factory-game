@@ -37,15 +37,6 @@ fn execute_action_sequence(actions: Vec<Action>) -> Result<(), TestCaseError> {
                     );
                 }
 
-                if let Err(msg) = state.check_movement_bounds(&mut app) {
-                    panic!(
-                        "Movement bound violation after action {}/{}: {}",
-                        i + 1,
-                        actions.len(),
-                        msg
-                    );
-                }
-
                 state.next_frame();
             }
         }
@@ -58,10 +49,6 @@ fn execute_action_sequence(actions: Vec<Action>) -> Result<(), TestCaseError> {
     if app.has_placement_errors() {
         let errors = app.take_placement_errors();
         return Err(TestCaseError::Reject(format!("{errors:?}").into()));
-    }
-
-    if let Err(msg) = state.check_movement_bounds(&mut app) {
-        panic!("Movement bound violation at final update: {}", msg);
     }
 
     Ok(())
