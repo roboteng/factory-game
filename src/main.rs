@@ -1,3 +1,5 @@
+use std::env;
+
 use crate::core::*;
 
 use bevy::prelude::*;
@@ -5,6 +7,8 @@ use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 
 mod core;
+#[cfg(feature = "ui")]
+mod manual_sim;
 mod sim;
 #[cfg(feature = "ui")]
 mod ui;
@@ -12,7 +16,15 @@ mod ui;
 fn main() {
     let mut app = App::new();
 
-    app.add_plugins((DefaultPlugins, core::CorePlugin, sim::SimPlugin));
+    app.add_plugins((DefaultPlugins, core::CorePlugin));
+
+    let args = env::args().collect::<Vec<String>>();
+    if args.get(1).map(|s| s.as_str()).unwrap_or_default() == "--debug" {
+        #[cfg(feature = "ui")]
+        app.add_plugins(manual_sim::ManualSimPlugin);
+    } else {
+        app.add_plugins(sim::SimPlugin);
+    }
 
     #[cfg(feature = "dev")]
     app.add_plugins((

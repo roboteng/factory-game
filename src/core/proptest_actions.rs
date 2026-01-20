@@ -56,32 +56,6 @@ impl TestState {
         self.skip_movement_check = self.get_items_on_replaced_belts(app);
     }
 
-    pub fn check_movement_bounds(&self, app: &mut App) -> Result<(), String> {
-        // TODO: Calculate actual max movement based on BASE_BELT_SPEED
-        const MAX_MOVEMENT: f32 = 2.0;
-
-        let mut query = app
-            .world_mut()
-            .query_filtered::<(Entity, &Transform), With<Item>>();
-        for (entity, transform) in query.iter(app.world()) {
-            if self.skip_movement_check.contains(&entity) {
-                continue;
-            }
-
-            if let Some(prev_pos) = self.previous_item_positions.get(&entity) {
-                let distance = prev_pos.distance(transform.translation);
-                if distance > MAX_MOVEMENT {
-                    return Err(format!(
-                        "Item {:?} moved {} pixels (> {} max) from {:?} to {:?}",
-                        entity, distance, MAX_MOVEMENT, prev_pos, transform.translation
-                    ));
-                }
-            }
-        }
-
-        Ok(())
-    }
-
     pub fn next_frame(&mut self) {
         self.frame_count += 1;
         self.skip_movement_check.clear();

@@ -54,7 +54,7 @@ impl Plugin for CorePlugin {
         app.init_resource::<BeltEvents>();
         app.init_resource::<BeltChanges>();
 
-        app.add_systems(Update, (do_stuff, replace_items).chain());
+        app.add_systems(Update, (do_stuff).chain());
         app.add_systems(PostUpdate, despawn_old_entities);
     }
 }
@@ -395,13 +395,14 @@ fn on_place_belt(event: On<PlaceBelt>, mut events: ResMut<BeltEvents>) {
 
 fn on_place_item(
     event: On<PlaceItem>,
-    belts: Query<&InLane>,
+    belts: Query<(&InLane, &BeltShape, &WorldCoords)>,
     mut lanes: Query<&mut BeltLane>,
     mut commands: Commands,
 ) {
     let lane_ent = belts
         .get(event.belt)
         .expect("Invariant broken: all_belts_and_frags_claim_to_be_in_a_lane")
+        .0
         .lane;
     let mut lane = lanes
         .get_mut(lane_ent)
@@ -417,10 +418,11 @@ fn on_place_item(
         event.belt,
     ) {
         Ok(()) => {
-            // Add Item and Transform components to the entity
-            commands
-                .entity(event.entity)
-                .insert((event.item, Transform::default()));
+            let belt = belts.get(event.belt).unwrap();
+            commands.entity(event.entity).insert((
+                event.item,
+                item_position(*belt.1, *belt.2, event.lane, event.position),
+            ));
         }
         Err(error) => {
             // Call the error handler provided by the caller
@@ -1499,23 +1501,19 @@ fn create_sideload_connection(
     let target_lane_ent = get_lane_entity(world, target_belt_ent);
     let target_lane = get_lane(world, target_lane_ent);
 
-    // Get the ranges for the target belt
     let ranges = target_lane
         .range_for(target_belt_ent)
         .expect("Invariant broken: lane_belt_data_matches_world");
 
-    // Find the centerpoint of the target belt range
     let center = (ranges[target_side].start + ranges[target_side].end) / 2;
 
-    // Calculate lane offset
     let lane_offset = (LANE_OFFSET_FACTOR * POSITIONS_PER_BELT as f32) as i32;
 
-    // Items from the "earlier" lane go ahead, "later" lane goes behind
-    // TODO: THis assumption is wrong. Need to change
-    let left_offset = center + lane_offset;
-    let right_offset = center - lane_offset;
+    let (left_offset, right_offset) = match target_side {
+        LaneSide::Left => (center - lane_offset, center + lane_offset),
+        LaneSide::Right => (center + lane_offset, center - lane_offset),
+    };
 
-    // Create the connection
     world.entity_mut(source_lane_ent).insert(LaneConnection {
         target: target_lane_ent,
         offset: Offset {
