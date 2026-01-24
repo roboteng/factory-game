@@ -3,8 +3,6 @@ use std::env;
 use crate::core::*;
 
 use bevy::prelude::*;
-#[cfg(feature = "ui")]
-use bevy::window::PrimaryWindow;
 
 mod core;
 #[cfg(feature = "ui")]
@@ -37,18 +35,15 @@ fn main() {
     app.add_plugins(ui::UiPlugin);
 
     app.add_systems(Startup, setup);
-    app.add_systems(Update, update);
 
     #[cfg(all(feature = "ui", feature = "dev"))]
     app.add_systems(Startup, max_framerate);
-
-    app.init_resource::<ShouldRun>();
 
     app.run();
 }
 
 #[cfg(all(feature = "ui", feature = "dev"))]
-fn max_framerate(mut windows: Query<&mut Window, With<PrimaryWindow>>) {
+fn max_framerate(mut windows: Query<&mut Window, With<bevy::window::PrimaryWindow>>) {
     for mut window in windows.iter_mut() {
         window.present_mode = bevy::window::PresentMode::AutoNoVsync
     }
@@ -61,77 +56,16 @@ fn setup(mut cmd: Commands) {
         coords: (1, 0, 0).into(),
         dir: HDir::North,
     });
-    // let item = cmd.spawn_empty().id();
-    // cmd.trigger(PlaceItem {
-    //     entity: item,
-    //     item: Item(0),
-    //     belt: entity,
-    //     lane: LaneSide::Left,
-    //     position: 0,
-    // });
-    // let entity = cmd.spawn_empty().id();
-    // cmd.trigger(crate::core::PlaceBelt {
-    //     entity,
-    //     coords: (0, 0, 1).into(),
-    //     dir: HDir::East,
-    // });
-    // let item = cmd.spawn_empty().id();
-    // cmd.trigger(PlaceItem {
-    //     entity: item,
-    //     item: Item(0),
-    //     belt: entity,
-    //     lane: LaneSide::Left,
-    //     position: 0,
-    // });
     let entity = cmd.spawn_empty().id();
     cmd.trigger(crate::core::PlaceBelt {
         entity,
         coords: (0, 0, 0).into(),
         dir: HDir::North,
     });
-    // let item = cmd.spawn_empty().id();
-    // cmd.trigger(PlaceItem {
-    //     entity: item,
-    //     item: Item(0),
-    //     belt: entity,
-    //     lane: LaneSide::Left,
-    //     position: 0,
-    // });
     let entity = cmd.spawn_empty().id();
     cmd.trigger(crate::core::PlaceBelt {
         entity,
         coords: (-1, 0, 0).into(),
         dir: HDir::North,
     });
-    // let item = cmd.spawn_empty().id();
-    // cmd.trigger(PlaceItem {
-    //     entity: item,
-    //     item: Item(0),
-    //     belt: entity,
-    //     lane: LaneSide::Left,
-    //     position: 0,
-    // });
-}
-
-#[derive(Resource, Default)]
-struct ShouldRun(bool);
-
-fn update(mut should_run: ResMut<ShouldRun>, belts: Query<(Entity, &InLane)>, mut cmd: Commands) {
-    if !should_run.0 {
-        info!("Ran once");
-        for (entity, _) in belts.iter() {
-            let item = cmd.spawn_empty().id();
-            cmd.trigger(PlaceItem {
-                entity: item,
-                item: Item(0),
-                belt: entity,
-                lane: LaneSide::Left,
-                position: 0,
-                on_error: Box::new(|_, error| {
-                    warn!("Failed to place item in main: {:?}", error);
-                }),
-            });
-        }
-    }
-    should_run.0 = true;
 }
