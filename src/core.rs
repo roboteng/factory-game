@@ -1,5 +1,5 @@
 pub use crate::core::lane::*;
-use bevy::{math::ops::sin_cos, platform::collections::HashSet, prelude::*};
+use bevy::{math::ops::sin_cos, prelude::*};
 use derivative::Derivative;
 use std::{collections::HashMap, f32::consts::PI, ops::Range};
 
@@ -693,10 +693,6 @@ impl BeltChanges {
         let change = change.into();
         self.0.push(change);
     }
-
-    pub fn clear(&mut self) {
-        self.0.clear();
-    }
 }
 
 impl BeltChange {
@@ -708,6 +704,7 @@ impl BeltChange {
         }
     }
 
+    #[expect(dead_code)]
     pub fn coords(&self) -> WorldCoords {
         match self {
             BeltChange::New(NewBelt { coords, .. }) => *coords,

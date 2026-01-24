@@ -194,6 +194,7 @@ impl BeltLane {
         Ok(())
     }
 
+    #[expect(dead_code)]
     pub fn item_iter<'a>(
         &'a self,
     ) -> impl Iterator<Item = (Item, i32, BeltShape, LaneSide, WorldCoords, Entity)> + 'a {

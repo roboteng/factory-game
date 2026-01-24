@@ -539,10 +539,10 @@ mod tests {
         let mut app = test_app();
         app.add_belt((-1, 0, 0), HDir::North);
         let side_loading = app.add_belt((0, 0, 1), HDir::West);
-        let side_loaded = app.add_belt((0, 0, 0), HDir::North);
+        let _side_loaded = app.add_belt((0, 0, 0), HDir::North);
         app.update();
 
-        let item = app.add_item(side_loading, 0, LaneSide::Right);
+        app.add_item(side_loading, 0, LaneSide::Right);
 
         for _ in 0..(POSITIONS_PER_FRAGMENT + ITEM_SPACING) / BASE_BELT_SPEED {
             app.update();
