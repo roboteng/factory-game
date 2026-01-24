@@ -136,12 +136,12 @@ pub struct Item(pub u32);
 #[derive(Debug, Component)]
 pub struct LaneConnection {
     pub target: Entity,
-    pub offset: Offset,
+    pub offset: Sided<i32>,
     pub target_side: LaneSide,
 }
 #[derive(Debug, Component)]
 pub struct LaneLoopConnection {
-    pub offset: Offset,
+    pub offset: Sided<i32>,
 }
 
 #[derive(Component)]
@@ -183,6 +183,12 @@ pub struct ReplacedBelt {
     pub old_belt: BeltShape,
     pub new_belt: BeltShape,
     pub coords: WorldCoords,
+}
+
+#[derive(Component, Debug, PartialEq, Eq, Clone, Default)]
+pub struct Sided<T> {
+    pub left: T,
+    pub right: T,
 }
 
 // -------
@@ -433,17 +439,6 @@ fn on_place_item(
 
 fn on_remove_belt(event: On<RemoveBelt>, mut events: ResMut<BeltEvents>) {
     events.0.push(BeltEvent::Remove(event.clone()));
-}
-
-fn replace_items(lanes: Query<&BeltLane>, mut items: Query<(&mut Item, &mut Transform)>) {
-    for lane in lanes {
-        for things in lane.item_iter() {
-            let mut item = items.get_mut(things.5).unwrap();
-            let transform = item_position(things.2, things.4, things.3, things.1);
-
-            *item.1 = transform;
-        }
-    }
 }
 
 pub fn link_belts(world: &mut World, changed_belts: BeltChanges) {
@@ -797,6 +792,26 @@ impl From<ReplacedBelt> for RemovedBelt {
     }
 }
 
+impl<T> std::ops::Index<LaneSide> for Sided<T> {
+    type Output = T;
+
+    fn index(&self, index: LaneSide) -> &Self::Output {
+        match index {
+            LaneSide::Left => &self.left,
+            LaneSide::Right => &self.right,
+        }
+    }
+}
+
+impl<T> std::ops::IndexMut<LaneSide> for Sided<T> {
+    fn index_mut(&mut self, index: LaneSide) -> &mut Self::Output {
+        match index {
+            LaneSide::Left => &mut self.left,
+            LaneSide::Right => &mut self.right,
+        }
+    }
+}
+
 // --------
 // Functions
 // ---------
@@ -1036,7 +1051,7 @@ fn new_belt(
                 world
                     .entity_mut(behind_lane_ent)
                     .insert(LaneLoopConnection {
-                        offset: Offset {
+                        offset: Sided {
                             left: ranges.left.end - ranges.left.start,
                             right: ranges.right.end - ranges.right.start,
                         },
@@ -1516,7 +1531,7 @@ fn create_sideload_connection(
 
     world.entity_mut(source_lane_ent).insert(LaneConnection {
         target: target_lane_ent,
-        offset: Offset {
+        offset: Sided {
             left: left_offset,
             right: right_offset,
         },
@@ -1880,13 +1895,13 @@ mod tests {
                 belt: BeltShape::Straight(HDir::North),
                 coords: (0, 0, 0).into(),
                 entity,
-                ranges: Ranges {
+                ranges: Sided {
                     left: 0..POSITIONS_PER_BELT - ITEM_SPACING / 2,
                     right: 0..POSITIONS_PER_BELT - ITEM_SPACING / 2,
                 },
-                lane_offsets: LaneOffsets { left: 0, right: 0 },
+                lane_offsets: Sided { left: 0, right: 0 },
             }],
-            lanes: Lanes {
+            lanes: Sided {
                 left: vec![ItemEntry {
                     pos: 0,
                     item: Item(0),
@@ -1894,7 +1909,7 @@ mod tests {
                 }],
                 right: vec![],
             },
-            is_blocked: Blocked {
+            is_blocked: Sided {
                 left: false,
                 right: false,
             },

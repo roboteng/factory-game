@@ -1,40 +1,4 @@
-use std::ops::{Index, IndexMut};
-
 use super::*;
-
-// ------
-// Macros
-// ------
-
-macro_rules! lane_pair {
-    ($(#[$attr:meta])* $name:ident, $inner:ty) => {
-        $(#[$attr])*
-        pub struct $name {
-            pub left: $inner,
-            pub right: $inner,
-        }
-
-        impl Index<LaneSide> for $name {
-            type Output = $inner;
-
-            fn index(&self, index: LaneSide) -> &Self::Output {
-                match index {
-                    LaneSide::Left => &self.left,
-                    LaneSide::Right => &self.right,
-                }
-            }
-        }
-
-        impl IndexMut<LaneSide> for $name {
-            fn index_mut(&mut self, index: LaneSide) -> &mut Self::Output {
-                match index {
-                    LaneSide::Left => &mut self.left,
-                    LaneSide::Right => &mut self.right,
-                }
-            }
-        }
-    };
-}
 
 // ------
 // Models
@@ -43,35 +7,9 @@ macro_rules! lane_pair {
 #[derive(Component, Debug, PartialEq, Eq, Clone)]
 pub struct BeltLane {
     pub belts: Vec<BeltEntry>,
-    pub lanes: Lanes,
-    pub is_blocked: Blocked,
+    pub lanes: Sided<Vec<ItemEntry>>,
+    pub is_blocked: Sided<bool>,
 }
-
-lane_pair!(
-    #[derive(Debug, PartialEq, Eq, Default, Clone)]
-    Lanes,
-    Vec<ItemEntry>
-);
-lane_pair!(
-    #[derive(Debug, PartialEq, Eq, Clone)]
-    Ranges,
-    Range<i32>
-);
-lane_pair!(
-    #[derive(Debug, PartialEq, Eq, Clone)]
-    LaneOffsets,
-    i32
-);
-lane_pair!(
-    #[derive(Debug, PartialEq, Eq, Clone, Copy)]
-    Offset,
-    i32
-);
-lane_pair!(
-    #[derive(Debug, PartialEq, Eq, Clone, Copy)]
-    Blocked,
-    bool
-);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ItemPlacementError {
@@ -86,8 +24,8 @@ pub struct BeltEntry {
     pub belt: BeltShape,
     pub coords: WorldCoords,
     pub entity: Entity,
-    pub ranges: Ranges,
-    pub lane_offsets: LaneOffsets,
+    pub ranges: Sided<Range<i32>>,
+    pub lane_offsets: Sided<i32>,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord)]
@@ -116,14 +54,14 @@ impl BeltLane {
                 belt,
                 coords,
                 entity,
-                ranges: Ranges {
+                ranges: Sided {
                     left: 0..(belt.left_num_pos() - ITEM_SPACING / 2),
                     right: 0..belt.right_num_pos() - ITEM_SPACING / 2,
                 },
-                lane_offsets: LaneOffsets { left: 0, right: 0 },
+                lane_offsets: Sided { left: 0, right: 0 },
             }],
             lanes: default(),
-            is_blocked: Blocked {
+            is_blocked: Sided {
                 left: false,
                 right: false,
             },
@@ -145,11 +83,11 @@ impl BeltLane {
                 belt,
                 coords,
                 entity,
-                ranges: Ranges {
+                ranges: Sided {
                     left: (new_left_start)..(self.belts[0].ranges.left.start),
                     right: (new_right_start)..(self.belts[0].ranges.right.start),
                 },
-                lane_offsets: LaneOffsets {
+                lane_offsets: Sided {
                     left: new_left_start,
                     right: new_right_start,
                 },
@@ -172,7 +110,7 @@ impl BeltLane {
     }
 
     /// Returns (left, right)
-    pub fn ranges(&self) -> Ranges {
+    pub fn ranges(&self) -> Sided<Range<i32>> {
         let left_start = self
             .belts
             .first()
@@ -201,7 +139,7 @@ impl BeltLane {
             .ranges
             .right
             .end;
-        Ranges {
+        Sided {
             left: left_start..left_end,
             right: right_start..right_end,
         }
@@ -292,7 +230,7 @@ impl BeltLane {
         left_items.chain(right_items)
     }
 
-    pub fn range_for(&self, belt: Entity) -> Option<Ranges> {
+    pub fn range_for(&self, belt: Entity) -> Option<Sided<Range<i32>>> {
         self.find_belt(belt).map(|b| b.1.ranges.clone())
     }
 
@@ -328,11 +266,11 @@ impl BeltLane {
                 belt: BeltShape::Fragment(output),
                 coords,
                 entity,
-                ranges: Ranges {
+                ranges: Sided {
                     left: (left_start - POSITIONS_PER_FRAGMENT)..left_start,
                     right: (right_start - POSITIONS_PER_FRAGMENT)..right_start,
                 },
-                lane_offsets: LaneOffsets {
+                lane_offsets: Sided {
                     left: left_start - POSITIONS_PER_FRAGMENT + ITEM_SPACING,
                     right: right_start - POSITIONS_PER_FRAGMENT + ITEM_SPACING,
                 },
@@ -452,11 +390,11 @@ impl BeltLane {
 
         Some(Self {
             belts: new_belts,
-            lanes: Lanes {
+            lanes: Sided {
                 left: left_items,
                 right: right_items,
             },
-            is_blocked: Blocked {
+            is_blocked: Sided {
                 left: false,
                 right: false,
             },
@@ -506,33 +444,30 @@ mod tests {
                     belt: BeltShape::Straight(HDir::North),
                     coords: (0, 0, 0).into(),
                     entity,
-                    ranges: Ranges {
+                    ranges: Sided {
                         left: 0..POSITIONS_PER_BELT - ITEM_SPACING / 2,
                         right: 0..POSITIONS_PER_BELT - ITEM_SPACING / 2,
                     },
-                    lane_offsets: LaneOffsets { left: 0, right: 0 },
+                    lane_offsets: Sided { left: 0, right: 0 },
                 },
                 BeltEntry {
                     belt: BeltShape::Straight(HDir::North),
                     coords: (-1, 0, 0).into(),
                     entity: tail,
-                    ranges: Ranges {
+                    ranges: Sided {
                         left: POSITIONS_PER_BELT - ITEM_SPACING / 2
                             ..(2 * POSITIONS_PER_BELT) - ITEM_SPACING / 2,
                         right: POSITIONS_PER_BELT - ITEM_SPACING / 2
                             ..(2 * POSITIONS_PER_BELT) - ITEM_SPACING / 2,
                     },
-                    lane_offsets: LaneOffsets {
+                    lane_offsets: Sided {
                         left: POSITIONS_PER_BELT,
                         right: POSITIONS_PER_BELT,
                     },
                 },
             ],
-            lanes: Lanes {
-                left: vec![],
-                right: vec![],
-            },
-            is_blocked: Blocked {
+            lanes: default(),
+            is_blocked: Sided {
                 left: false,
                 right: false,
             },
