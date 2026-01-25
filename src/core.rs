@@ -214,10 +214,6 @@ pub struct Sided<T> {
     pub right: T,
 }
 
-// -------
-// Systems
-// -------
-
 #[derive(Resource, Default, Debug)]
 pub struct BeltEvents(pub Vec<BeltEvent>);
 
@@ -226,6 +222,10 @@ pub enum BeltEvent {
     Place(PlaceBelt),
     Remove(RemoveBelt),
 }
+
+// -------
+// Systems
+// -------
 
 pub fn do_stuff(world: &mut World) {
     world.get_resource_mut::<BeltChanges>().unwrap().0.clear();

@@ -9,11 +9,15 @@ use bevy::{
 };
 use rand::Rng;
 
+mod hotbar;
+
 pub struct UiPlugin;
 impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(hotbar::HotbarPlugin);
         app.insert_resource(ClearColor(Color::srgb(0.01, 0.01, 0.05))); // Dark night sky
         app.add_systems(Startup, setup);
+        app.add_systems(Startup, setup_reticle);
 
         // Systems that trigger events Must run in PreUpdate
         app.add_systems(PreUpdate, camera_movement);
@@ -612,4 +616,69 @@ fn ray_box_intersection(
     let hit_point = ray_origin + ray_dir * t;
 
     Some((t, hit_point))
+}
+
+fn setup_reticle(mut cmd: Commands) {
+    let color = Color::srgba(1.0, 1.0, 1.0, 0.8);
+    let thickness = 2.0;
+    let length = 12.0;
+    let gap = 4.0; // Gap in the center
+
+    // Container centered on screen
+    cmd.spawn(Node {
+        position_type: PositionType::Absolute,
+        left: Val::Percent(50.0),
+        top: Val::Percent(50.0),
+        ..default()
+    })
+    .with_children(|parent| {
+        // Horizontal left
+        parent.spawn((
+            Node {
+                position_type: PositionType::Absolute,
+                width: Val::Px(length),
+                height: Val::Px(thickness),
+                left: Val::Px(-length - gap),
+                top: Val::Px(-thickness / 2.0),
+                ..default()
+            },
+            BackgroundColor(color),
+        ));
+        // Horizontal right
+        parent.spawn((
+            Node {
+                position_type: PositionType::Absolute,
+                width: Val::Px(length),
+                height: Val::Px(thickness),
+                left: Val::Px(gap),
+                top: Val::Px(-thickness / 2.0),
+                ..default()
+            },
+            BackgroundColor(color),
+        ));
+        // Vertical top
+        parent.spawn((
+            Node {
+                position_type: PositionType::Absolute,
+                width: Val::Px(thickness),
+                height: Val::Px(length),
+                left: Val::Px(-thickness / 2.0),
+                top: Val::Px(-length - gap),
+                ..default()
+            },
+            BackgroundColor(color),
+        ));
+        // Vertical bottom
+        parent.spawn((
+            Node {
+                position_type: PositionType::Absolute,
+                width: Val::Px(thickness),
+                height: Val::Px(length),
+                left: Val::Px(-thickness / 2.0),
+                top: Val::Px(gap),
+                ..default()
+            },
+            BackgroundColor(color),
+        ));
+    });
 }
