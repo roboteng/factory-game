@@ -67,12 +67,12 @@ fn all_belts_have_coords(
 }
 
 fn belt_coords_is_a_correct_cache(
-    belt_coords: Res<BeltCoords>,
+    belt_coords: Res<WorldPlacements>,
     belts: Query<(Entity, &BeltShape, &WorldCoords), With<Belt>>,
     mut b: ResMut<BrokenInvariants>,
 ) {
     for (entity, belt, coords) in belts.iter() {
-        match belt_coords.get(*coords) {
+        match belt_coords.get_belt(*coords) {
             Some((res_entity, res_belt)) => {
                 if res_entity != entity {
                     b.add(format!(

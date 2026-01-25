@@ -50,7 +50,7 @@ impl Plugin for CorePlugin {
         app.add_observer(on_place_item);
         app.add_observer(on_remove_belt);
 
-        app.init_resource::<BeltCoords>();
+        app.init_resource::<WorldPlacements>();
         app.init_resource::<BeltEvents>();
         app.init_resource::<BeltChanges>();
 
@@ -94,7 +94,7 @@ pub struct WorldCoords {
     pub z: i32,
 }
 
-/// Horizon direction
+/// Horizontal direction
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HDir {
     North,
@@ -149,8 +149,31 @@ pub struct InLane {
     pub lane: Entity,
 }
 
+/// Entry in the world grid
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GridEntry {
+    Belt(BeltShape),
+    #[expect(unused)]
+    BeltAdjacent(BeltAdjacent),
+    /// Entities that are placed in the world, but never affect belts directly
+    #[expect(unused)]
+    Machine(Item),
+}
+
+/// Entities that affect belt curving, but don't join belt lanes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[expect(unused)]
+pub enum BeltAdjacent {
+    /// Only has an input for belt connections
+    Input(HDir),
+    /// Only has an output for belt connections
+    Output(HDir),
+    /// Has an input and output for belt connections
+    InputAndOutput { input: HDir, output: HDir },
+}
+
 #[derive(Resource, Default)]
-pub struct BeltCoords(HashMap<WorldCoords, (Entity, BeltShape)>);
+pub struct WorldPlacements(HashMap<WorldCoords, (Entity, GridEntry)>);
 
 #[derive(Resource, Default, Debug, PartialEq, Eq, Clone)]
 pub struct BeltChanges(pub Vec<BeltChange>);
@@ -232,7 +255,7 @@ fn event_place_belt(world: &mut World, event: PlaceBelt) {
     let belt = plan_belt_placement(&event, belt_coords);
     let angle = belt.output().angle();
 
-    let old_entity_and_belt = belt_coords.get(event.coords);
+    let old_entity_and_belt = belt_coords.get_belt(event.coords);
     if let Some((e, _)) = old_entity_and_belt {
         debug!("Marking entity {e:?} for deletion (replaced by new belt)");
         world.entity_mut(e).insert(Delete);
@@ -253,9 +276,11 @@ fn event_place_belt(world: &mut World, event: PlaceBelt) {
         "Updating BeltCoords resource: inserting {:?} at {:?}",
         event.entity, event.coords
     );
-    world
-        .resource_mut::<BeltCoords>()
-        .insert(event.coords, event.entity, belt);
+    world.resource_mut::<WorldPlacements>().insert(
+        event.coords,
+        event.entity,
+        GridEntry::Belt(belt),
+    );
 
     if let Some((old_entity, old_belt)) = old_entity_and_belt {
         debug!("Found existing belt: {old_entity:?}. Replacing it");
@@ -278,13 +303,13 @@ fn event_place_belt(world: &mut World, event: PlaceBelt) {
 
     // Check if placing this belt should curve the belt ahead
     let ahead = event.coords.step(belt.output());
-    if let Some((entity, ahead_belt)) = world.resource::<BeltCoords>().get(ahead) {
+    if let Some((entity, ahead_belt)) = world.resource::<WorldPlacements>().get_belt(ahead) {
         let place = PlaceBelt {
             entity,
             dir: ahead_belt.output(),
             coords: ahead,
         };
-        let new_belt = plan_belt_placement(&place, world.resource::<BeltCoords>());
+        let new_belt = plan_belt_placement(&place, world.resource::<WorldPlacements>());
         if ahead_belt != new_belt {
             debug!(
                 "Placing belt {:?} affected {entity:?}, updating that belt",
@@ -304,9 +329,11 @@ fn event_place_belt(world: &mut World, event: PlaceBelt) {
                 "Updating BeltCoords resource: inserting {:?} at {:?}",
                 place.entity, place.coords
             );
-            world
-                .resource_mut::<BeltCoords>()
-                .insert(place.coords, place.entity, new_belt);
+            world.resource_mut::<WorldPlacements>().insert(
+                place.coords,
+                place.entity,
+                GridEntry::Belt(new_belt),
+            );
             changes.push(ReplacedBelt {
                 entity: place.entity,
                 old_entity: None, // Same entity, just changed belt type
@@ -340,7 +367,7 @@ fn event_remove_belt(world: &mut World, event: RemoveBelt) {
         "Updating BeltCoords resource: removing entry at {:?}",
         prev_coords
     );
-    world.resource_mut::<BeltCoords>().remove(prev_coords);
+    world.resource_mut::<WorldPlacements>().remove(prev_coords);
     changes.push(RemovedBelt {
         entity: event.entity,
         old_belt: belt,
@@ -351,13 +378,13 @@ fn event_remove_belt(world: &mut World, event: RemoveBelt) {
 
     // Check if placing this belt should curve the belt ahead
     let ahead = prev_coords.step(belt.output());
-    if let Some((entity, ahead_belt)) = world.resource::<BeltCoords>().get(ahead) {
+    if let Some((entity, ahead_belt)) = world.resource::<WorldPlacements>().get_belt(ahead) {
         let place = PlaceBelt {
             entity,
             dir: ahead_belt.output(),
             coords: ahead,
         };
-        let new_belt = plan_belt_placement(&place, world.resource::<BeltCoords>());
+        let new_belt = plan_belt_placement(&place, world.resource::<WorldPlacements>());
         if ahead_belt != new_belt {
             debug!(
                 "Placing belt {:?} affected {entity:?}, updating that belt",
@@ -377,9 +404,11 @@ fn event_remove_belt(world: &mut World, event: RemoveBelt) {
                 "Updating BeltCoords resource: inserting {:?} at {:?}",
                 place.entity, place.coords
             );
-            world
-                .resource_mut::<BeltCoords>()
-                .insert(place.coords, place.entity, new_belt);
+            world.resource_mut::<WorldPlacements>().insert(
+                place.coords,
+                place.entity,
+                GridEntry::Belt(new_belt),
+            );
         }
     }
     link_belts(world, changes);
@@ -516,22 +545,33 @@ impl WorldCoords {
     }
 }
 
-impl BeltCoords {
-    pub fn insert(&mut self, coords: WorldCoords, entity: Entity, belt: BeltShape) {
-        self.0.insert(coords, (entity, belt));
+impl WorldPlacements {
+    pub fn insert(&mut self, coords: WorldCoords, entity: Entity, entry: GridEntry) {
+        self.0.insert(coords, (entity, entry));
     }
 
-    pub fn get(&self, coords: WorldCoords) -> Option<(Entity, BeltShape)> {
+    pub fn get(&self, coords: WorldCoords) -> Option<(Entity, GridEntry)> {
         self.0.get(&coords).copied()
     }
 
-    pub fn remove(&mut self, coords: WorldCoords) -> Option<(Entity, BeltShape)> {
+    pub fn remove(&mut self, coords: WorldCoords) -> Option<(Entity, GridEntry)> {
         self.0.remove(&coords)
     }
 
     #[cfg_attr(not(feature = "proptests"), expect(dead_code))]
-    pub fn iter(&self) -> impl Iterator<Item = (&WorldCoords, &(Entity, BeltShape))> {
+    pub fn iter(&self) -> impl Iterator<Item = (&WorldCoords, &(Entity, GridEntry))> {
         self.0.iter()
+    }
+
+    /// Convenience method for belt-specific code
+    pub fn get_belt(&self, coords: WorldCoords) -> Option<(Entity, BeltShape)> {
+        self.0.get(&coords).and_then(|(entity, entry)| {
+            if let GridEntry::Belt(belt) = entry {
+                Some((*entity, *belt))
+            } else {
+                None
+            }
+        })
     }
 }
 
@@ -710,6 +750,32 @@ impl BeltChange {
             BeltChange::New(NewBelt { coords, .. }) => *coords,
             BeltChange::Removed(RemovedBelt { coords, .. }) => *coords,
             BeltChange::Replaced(ReplacedBelt { coords, .. }) => *coords,
+        }
+    }
+}
+
+impl BeltAdjacent {
+    pub fn output_dir(&self) -> Option<HDir> {
+        match self {
+            Self::Output(output) | Self::InputAndOutput { output, .. } => Some(*output),
+            Self::Input(_) => None,
+        }
+    }
+}
+
+impl GridEntry {
+    pub fn output_dir(&self) -> Option<HDir> {
+        match self {
+            Self::Belt(belt) => Some(belt.output()),
+            Self::BeltAdjacent(adj) => adj.output_dir(),
+            Self::Machine(_) => None,
+        }
+    }
+
+    pub fn is_belt(&self) -> Option<&BeltShape> {
+        match self {
+            Self::Belt(belt) => Some(belt),
+            _ => None,
         }
     }
 }
@@ -893,21 +959,24 @@ pub fn item_position(
     }
 }
 
-fn plan_belt_placement(trigger: &PlaceBelt, belt_coords: &BeltCoords) -> BeltShape {
+fn plan_belt_placement(trigger: &PlaceBelt, belt_coords: &WorldPlacements) -> BeltShape {
     let left = trigger.coords.step(trigger.dir.left());
     let right = trigger.coords.step(trigger.dir.right());
     let behind = trigger.coords.step(trigger.dir.opposite());
     let fed_from_left = belt_coords
         .get(left)
-        .map(|(_, belt)| belt.output() == trigger.dir.right())
+        .and_then(|(_, entry)| entry.output_dir())
+        .map(|dir| dir == trigger.dir.right())
         .unwrap_or(false);
     let fed_from_right = belt_coords
         .get(right)
-        .map(|(_, belt)| belt.output() == trigger.dir.left())
+        .and_then(|(_, entry)| entry.output_dir())
+        .map(|dir| dir == trigger.dir.left())
         .unwrap_or(false);
     let fed_from_behind = belt_coords
         .get(behind)
-        .map(|(_, belt)| belt.output() == trigger.dir)
+        .and_then(|(_, entry)| entry.output_dir())
+        .map(|dir| dir == trigger.dir)
         .unwrap_or(false);
     let belt = match (fed_from_left, fed_from_behind, fed_from_right) {
         (true, _, true) | (false, _, false) | (_, true, _) => BeltShape::Straight(trigger.dir),
@@ -934,7 +1003,7 @@ fn new_belt(
     new: &NewBelt,
     existing_items: (Vec<ItemEntry>, Vec<ItemEntry>),
 ) {
-    let belt_coords = world.resource::<BeltCoords>();
+    let belt_coords = world.resource::<WorldPlacements>();
     let ahead_belt = ahead_connected_belt(
         &belt_coords,
         remaining_entities,
@@ -1144,11 +1213,12 @@ fn new_belt(
     }
     if new.belt.input() == new.belt.output() {
         new.coords.step(new.belt.output().left());
-        let belt_coords = world.resource::<BeltCoords>();
+        let belt_coords = world.resource::<WorldPlacements>();
 
         let left = new.coords.step(new.belt.output().left());
-        if let Some(left_belt) = belt_coords.get(left).filter(|(ent, belt)| {
-            !remaining_entities.contains(ent) && belt.output() == new.belt.output().right()
+        if let Some(left_belt) = belt_coords.get(left).filter(|(ent, entry)| {
+            !remaining_entities.contains(ent)
+                && entry.output_dir() == Some(new.belt.output().right())
         }) {
             let left_lane_ent = get_lane_entity(world, left_belt.0);
 
@@ -1162,10 +1232,11 @@ fn new_belt(
             );
         }
 
-        let belt_coords = world.resource::<BeltCoords>();
+        let belt_coords = world.resource::<WorldPlacements>();
         let right = new.coords.step(new.belt.output().right());
-        if let Some(right_belt) = belt_coords.get(right).filter(|(ent, belt)| {
-            !remaining_entities.contains(ent) && belt.output() == new.belt.output().left()
+        if let Some(right_belt) = belt_coords.get(right).filter(|(ent, entry)| {
+            !remaining_entities.contains(ent)
+                && entry.output_dir() == Some(new.belt.output().left())
         }) {
             let right_lane_ent = get_lane_entity(world, right_belt.0);
 
@@ -1188,7 +1259,7 @@ fn detach_belt(
 ) -> (Vec<ItemEntry>, Vec<ItemEntry>) {
     debug!("Detaching {:?} from any lanes", removed.entity);
 
-    let belt_coords = world.resource::<BeltCoords>();
+    let belt_coords = world.resource::<WorldPlacements>();
     let ahead_belt = ahead_connected_belt(
         &belt_coords,
         remaining_entities,
@@ -1209,11 +1280,11 @@ fn detach_belt(
         for side_dir in [dir.left(), dir.right()] {
             let side_coords = removed.coords.step(side_dir);
 
-            let belt_coords = world.resource::<BeltCoords>();
+            let belt_coords = world.resource::<WorldPlacements>();
             let Some(side_belt) = belt_coords
                 .get(side_coords)
                 .filter(|(ent, _)| !remaining_entities.contains(ent))
-                .filter(|(_, belt)| belt.output() == side_dir.opposite())
+                .filter(|(_, entry)| entry.output_dir() == Some(side_dir.opposite()))
             else {
                 continue;
             };
@@ -1424,13 +1495,13 @@ fn replace_belt(world: &mut World, remaining_entities: &[Entity], replaced: &Rep
 }
 
 fn ahead_connected_belt(
-    belt_coords: &BeltCoords,
+    belt_coords: &WorldPlacements,
     remaining_entities: &[Entity],
     coords: WorldCoords,
     dir: HDir,
 ) -> Option<(Entity, BeltShape, ConnectionType)> {
     belt_coords
-        .get(coords.step(dir))
+        .get_belt(coords.step(dir))
         .filter(|(ent, _)| !remaining_entities.contains(ent))
         .and_then(|(entity, ahead)| {
             if ahead.input() == dir {
@@ -1480,13 +1551,13 @@ fn determine_sideload_target_side(source_dir: HDir, target_input: HDir) -> LaneS
 }
 
 fn behind_connected_belt(
-    belt_coords: &BeltCoords,
+    belt_coords: &WorldPlacements,
     remaining_entities: &[Entity],
     coords: WorldCoords,
     dir: HDir,
 ) -> Option<(Entity, BeltShape)> {
     belt_coords
-        .get(coords.step(dir.opposite()))
+        .get_belt(coords.step(dir.opposite()))
         .filter(|(ent, _)| !remaining_entities.contains(ent))
         .filter(|behind| behind.1.output() == dir)
 }
@@ -1693,7 +1764,7 @@ impl AppExtension for App {
 
     fn remove_belt_at(&mut self, coords: impl Into<WorldCoords>) -> bool {
         let coords = coords.into();
-        let Some((entity, _)) = self.world_mut().resource::<BeltCoords>().get(coords) else {
+        let Some((entity, _)) = self.world_mut().resource::<WorldPlacements>().get(coords) else {
             return false;
         };
         self.world_mut().trigger(RemoveBelt { entity });

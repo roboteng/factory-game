@@ -476,7 +476,7 @@ fn handle_place_item_on_belt(
     keys: Res<ButtonInput<KeyCode>>,
     cursor_options: Single<&CursorOptions>,
     camera_query: Single<&Transform, With<FirstPersonCamera>>,
-    belt_coords: Res<BeltCoords>,
+    belt_coords: Res<WorldPlacements>,
     mut cmd: Commands,
 ) {
     // Only handle spacebar when cursor is grabbed (game mode)
@@ -491,7 +491,10 @@ fn handle_place_item_on_belt(
     // Find the closest belt that the ray intersects
     let mut closest_hit: Option<(f32, Entity, BeltShape, WorldCoords, Vec3)> = None;
 
-    for (coords, (entity, belt_shape)) in belt_coords.iter() {
+    for (coords, (entity, belt_shape)) in belt_coords
+        .iter()
+        .filter_map(|(coords, b)| b.1.is_belt().map(|belt| (coords, (b.0, belt))))
+    {
         // Get belt center in world space
         let belt_center = Vec3::from(*coords);
 
@@ -500,7 +503,7 @@ fn handle_place_item_on_belt(
             ray_box_intersection(ray_origin, ray_dir, belt_center, Vec3::splat(BLOCK_SIZE))
         {
             if closest_hit.is_none() || t < closest_hit.as_ref().unwrap().0 {
-                closest_hit = Some((t, *entity, *belt_shape, *coords, hit_point));
+                closest_hit = Some((t, entity, *belt_shape, *coords, hit_point));
             }
         }
     }
