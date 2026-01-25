@@ -51,20 +51,23 @@ fn max_framerate(mut windows: Query<&mut Window, With<bevy::window::PrimaryWindo
 
 fn setup(mut cmd: Commands) {
     let entity = cmd.spawn_empty().id();
-    cmd.trigger(crate::core::PlaceBelt {
+    cmd.trigger(crate::core::PlaceBlock {
         entity,
+        item: crate::core::Item(1),
         coords: (1, 0, 0).into(),
         dir: HDir::North,
     });
     let entity = cmd.spawn_empty().id();
-    cmd.trigger(crate::core::PlaceBelt {
+    cmd.trigger(crate::core::PlaceBlock {
         entity,
+        item: crate::core::Item(1),
         coords: (0, 0, 0).into(),
         dir: HDir::North,
     });
     let entity = cmd.spawn_empty().id();
-    cmd.trigger(crate::core::PlaceBelt {
+    cmd.trigger(crate::core::PlaceBlock {
         entity,
+        item: crate::core::Item(1),
         coords: (-1, 0, 0).into(),
         dir: HDir::North,
     });

@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 
-use crate::core::{Item, do_stuff};
+use crate::core::{Item, block_changes};
 use crate::sim::{determine_sideload_blocks, do_moves, plan_moves, transfers};
 
 #[derive(Resource, Default)]
@@ -136,7 +136,7 @@ impl Plugin for ManualSimPlugin {
             )
                 .chain()
                 .run_if(simulation_should_run)
-                .after(do_stuff),
+                .after(block_changes),
         );
 
         // Add debug control systems

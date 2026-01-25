@@ -46,15 +46,15 @@ impl Plugin for CorePlugin {
     fn build(&self, app: &mut App) {
         #[cfg(feature = "invariant-check")]
         app.add_plugins(crate::core::invariants::InvariantsPlugin);
-        app.add_observer(on_place_belt);
+        app.add_observer(on_place_block);
         app.add_observer(on_place_item);
-        app.add_observer(on_remove_belt);
+        app.add_observer(on_remove_block);
 
         app.init_resource::<WorldPlacements>();
-        app.init_resource::<BeltEvents>();
+        app.init_resource::<BlockEvents>();
         app.init_resource::<BeltChanges>();
 
-        app.add_systems(Update, (do_stuff).chain());
+        app.add_systems(Update, (block_changes).chain());
         app.add_systems(PostUpdate, despawn_old_entities);
     }
 }
@@ -64,8 +64,9 @@ impl Plugin for CorePlugin {
 // ------
 
 #[derive(EntityEvent, Debug, Clone)]
-pub struct PlaceBelt {
+pub struct PlaceBlock {
     pub entity: Entity,
+    pub item: Item,
     pub coords: WorldCoords,
     pub dir: HDir,
 }
@@ -83,7 +84,7 @@ pub struct PlaceItem {
 }
 
 #[derive(EntityEvent, Debug, Clone)]
-pub struct RemoveBelt {
+pub struct RemoveBlock {
     pub entity: Entity,
 }
 
@@ -215,22 +216,22 @@ pub struct Sided<T> {
 }
 
 #[derive(Resource, Default, Debug)]
-pub struct BeltEvents(pub Vec<BeltEvent>);
+pub struct BlockEvents(pub Vec<BlockEvent>);
 
 #[derive(Debug, Clone)]
-pub enum BeltEvent {
-    Place(PlaceBelt),
-    Remove(RemoveBelt),
+pub enum BlockEvent {
+    Place(PlaceBlock),
+    Remove(RemoveBlock),
 }
 
 // -------
 // Systems
 // -------
 
-pub fn do_stuff(world: &mut World) {
+pub fn block_changes(world: &mut World) {
     world.get_resource_mut::<BeltChanges>().unwrap().0.clear();
     let events = world
-        .get_resource_mut::<BeltEvents>()
+        .get_resource_mut::<BlockEvents>()
         .unwrap()
         .0
         .split_off(0);
@@ -238,13 +239,14 @@ pub fn do_stuff(world: &mut World) {
 
     for event in events {
         match event {
-            BeltEvent::Place(event) => event_place_belt(world, event),
-            BeltEvent::Remove(event) => event_remove_belt(world, event),
+            BlockEvent::Place(event) => event_place_block(world, event),
+            BlockEvent::Remove(event) => event_remove_block(world, event),
         }
     }
 }
 
-fn event_place_belt(world: &mut World, event: PlaceBelt) {
+fn event_place_block(world: &mut World, event: PlaceBlock) {
+    assert_eq!(event.item, Item(1), "Only belts (Item(1)) are supported");
     debug!(
         "Placing belt {:?} at {:?} facing {:?}",
         event.entity, event.coords, event.dir
@@ -304,8 +306,9 @@ fn event_place_belt(world: &mut World, event: PlaceBelt) {
     // Check if placing this belt should curve the belt ahead
     let ahead = event.coords.step(belt.output());
     if let Some((entity, ahead_belt)) = world.resource::<WorldPlacements>().get_belt(ahead) {
-        let place = PlaceBelt {
+        let place = PlaceBlock {
             entity,
+            item: Item(1),
             dir: ahead_belt.output(),
             coords: ahead,
         };
@@ -346,7 +349,7 @@ fn event_place_belt(world: &mut World, event: PlaceBelt) {
     link_belts(world, changes);
 }
 
-fn event_remove_belt(world: &mut World, event: RemoveBelt) {
+fn event_remove_block(world: &mut World, event: RemoveBlock) {
     let Ok((belt, prev_coords)) = world
         .query::<(&BeltShape, &WorldCoords)>()
         .get(world, event.entity)
@@ -379,8 +382,9 @@ fn event_remove_belt(world: &mut World, event: RemoveBelt) {
     // Check if placing this belt should curve the belt ahead
     let ahead = prev_coords.step(belt.output());
     if let Some((entity, ahead_belt)) = world.resource::<WorldPlacements>().get_belt(ahead) {
-        let place = PlaceBelt {
+        let place = PlaceBlock {
             entity,
+            item: Item(1),
             dir: ahead_belt.output(),
             coords: ahead,
         };
@@ -420,12 +424,12 @@ fn despawn_old_entities(mut cmd: Commands, q: Query<Entity, With<Delete>>) {
     }
 }
 
-fn on_place_belt(event: On<PlaceBelt>, mut events: ResMut<BeltEvents>) {
+fn on_place_block(event: On<PlaceBlock>, mut events: ResMut<BlockEvents>) {
     debug!(
         "Placing belt {:?} at {:?} facing {:?}",
         event.entity, event.coords, event.dir
     );
-    events.0.push(BeltEvent::Place(event.clone()));
+    events.0.push(BlockEvent::Place(event.clone()));
 }
 
 fn on_place_item(
@@ -466,8 +470,8 @@ fn on_place_item(
     }
 }
 
-fn on_remove_belt(event: On<RemoveBelt>, mut events: ResMut<BeltEvents>) {
-    events.0.push(BeltEvent::Remove(event.clone()));
+fn on_remove_block(event: On<RemoveBlock>, mut events: ResMut<BlockEvents>) {
+    events.0.push(BlockEvent::Remove(event.clone()));
 }
 
 pub fn link_belts(world: &mut World, changed_belts: BeltChanges) {
@@ -959,7 +963,7 @@ pub fn item_position(
     }
 }
 
-fn plan_belt_placement(trigger: &PlaceBelt, belt_coords: &WorldPlacements) -> BeltShape {
+fn plan_belt_placement(trigger: &PlaceBlock, belt_coords: &WorldPlacements) -> BeltShape {
     let left = trigger.coords.step(trigger.dir.left());
     let right = trigger.coords.step(trigger.dir.right());
     let behind = trigger.coords.step(trigger.dir.opposite());
@@ -1716,8 +1720,9 @@ pub trait AppExtension {
 impl AppExtension for App {
     fn add_belt(&mut self, coords: impl Into<WorldCoords>, dir: HDir) -> Entity {
         let entity = self.world_mut().spawn_empty().id();
-        self.world_mut().trigger(PlaceBelt {
+        self.world_mut().trigger(PlaceBlock {
             entity,
+            item: Item(1),
             dir,
             coords: coords.into(),
         });
@@ -1767,7 +1772,7 @@ impl AppExtension for App {
         let Some((entity, _)) = self.world_mut().resource::<WorldPlacements>().get(coords) else {
             return false;
         };
-        self.world_mut().trigger(RemoveBelt { entity });
+        self.world_mut().trigger(RemoveBlock { entity });
         true
     }
 
@@ -1990,8 +1995,9 @@ mod tests {
         let mut app = test_app();
         let world = app.world_mut();
         let entity = world.spawn_empty().id();
-        world.trigger(PlaceBelt {
+        world.trigger(PlaceBlock {
             entity,
+            item: Item(1),
             dir: HDir::North,
             coords: (0, 0, 0).into(),
         });

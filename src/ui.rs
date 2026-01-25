@@ -143,7 +143,7 @@ fn spawn_stars(
     }
 }
 
-fn on_place_belt(event: On<PlaceBelt>, mut cmd: Commands, asset_server: Res<AssetServer>) {
+fn on_place_belt(event: On<PlaceBlock>, mut cmd: Commands, asset_server: Res<AssetServer>) {
     cmd.entity(event.entity).insert(SceneRoot(
         asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/box.glb")),
     ));
@@ -377,6 +377,7 @@ fn handle_click_to_place(
     mouse: Res<ButtonInput<MouseButton>>,
     cursor_options: Single<&CursorOptions>,
     camera_query: Single<(&Transform, &FirstPersonCamera)>,
+    tool: Res<hotbar::PlacementTool>,
     mut cmd: Commands,
 ) {
     // Only handle clicks when cursor is grabbed (in game mode)
@@ -431,8 +432,9 @@ fn handle_click_to_place(
 
     // Create entity and trigger PlaceBelt event
     let entity = cmd.spawn_empty().id();
-    let event = PlaceBelt {
+    let event = PlaceBlock {
         entity,
+        item: tool.item(),
         coords,
         dir,
     };

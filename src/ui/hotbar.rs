@@ -19,6 +19,15 @@ pub enum PlacementTool {
     Splitter,
 }
 
+impl PlacementTool {
+    pub fn item(self) -> Item {
+        match self {
+            PlacementTool::Belt => Item(1),
+            PlacementTool::Splitter => Item(2),
+        }
+    }
+}
+
 #[derive(Component)]
 struct HotbarSlot {
     tool: PlacementTool,
