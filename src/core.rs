@@ -63,8 +63,16 @@ impl Plugin for CorePlugin {
 // Models
 // ------
 
-#[derive(EntityEvent, Debug, Clone)]
+#[derive(EntityEvent, Debug, Clone, Copy)]
 pub struct PlaceBlock {
+    pub entity: Entity,
+    pub item: Item,
+    pub coords: WorldCoords,
+    pub dir: HDir,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct PlaceBelt {
     pub entity: Entity,
     pub item: Item,
     pub coords: WorldCoords,
@@ -254,7 +262,7 @@ fn event_place_block(world: &mut World, event: PlaceBlock) {
     let mut changes = BeltChanges::default();
 
     let belt_coords = world.resource();
-    let belt = plan_belt_placement(&event, belt_coords);
+    let belt = plan_belt_placement(event.into(), belt_coords);
     let angle = belt.output().angle();
 
     let old_entity_and_belt = belt_coords.get_belt(event.coords);
@@ -312,7 +320,7 @@ fn event_place_block(world: &mut World, event: PlaceBlock) {
             dir: ahead_belt.output(),
             coords: ahead,
         };
-        let new_belt = plan_belt_placement(&place, world.resource::<WorldPlacements>());
+        let new_belt = plan_belt_placement(place.into(), world.resource::<WorldPlacements>());
         if ahead_belt != new_belt {
             debug!(
                 "Placing belt {:?} affected {entity:?}, updating that belt",
@@ -388,7 +396,7 @@ fn event_remove_block(world: &mut World, event: RemoveBlock) {
             dir: ahead_belt.output(),
             coords: ahead,
         };
-        let new_belt = plan_belt_placement(&place, world.resource::<WorldPlacements>());
+        let new_belt = plan_belt_placement(place.into(), world.resource::<WorldPlacements>());
         if ahead_belt != new_belt {
             debug!(
                 "Placing belt {:?} affected {entity:?}, updating that belt",
@@ -788,6 +796,17 @@ impl GridEntry {
 // Trait impls
 // -----------
 
+impl From<PlaceBlock> for PlaceBelt {
+    fn from(value: PlaceBlock) -> Self {
+        PlaceBelt {
+            coords: value.coords,
+            dir: value.dir,
+            entity: value.entity,
+            item: value.item,
+        }
+    }
+}
+
 impl From<WorldCoords> for Vec3 {
     fn from(coords: WorldCoords) -> Self {
         Vec3::new(coords.x as f32, coords.y as f32, coords.z as f32) * BLOCK_SIZE
@@ -963,7 +982,7 @@ pub fn item_position(
     }
 }
 
-fn plan_belt_placement(trigger: &PlaceBlock, belt_coords: &WorldPlacements) -> BeltShape {
+fn plan_belt_placement(trigger: PlaceBelt, belt_coords: &WorldPlacements) -> BeltShape {
     let left = trigger.coords.step(trigger.dir.left());
     let right = trigger.coords.step(trigger.dir.right());
     let behind = trigger.coords.step(trigger.dir.opposite());
