@@ -27,7 +27,7 @@ impl Plugin for UiPlugin {
         app.add_systems(Update, camera_look);
         app.add_systems(Update, cursor_grab.after(handle_click_to_place));
 
-        app.add_observer(on_place_belt);
+        app.add_observer(on_belt_shape_insert);
         app.add_observer(on_place_item);
     }
 }
@@ -51,7 +51,6 @@ fn setup(
     mut cmd: Commands,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut meshes: ResMut<Assets<Mesh>>,
-    asset_server: Res<AssetServer>,
 ) {
     // Create and save a handle to the mesh.
     let cube_mesh_handle: Handle<Mesh> = meshes.add(create_cube_mesh());
@@ -88,16 +87,6 @@ fn setup(
 
     // Light up the scene.
     cmd.spawn((PointLight::default(), light_transform));
-
-    cmd.spawn((
-        SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/item.glb"))),
-        item_position(
-            BeltShape::Straight(HDir::North),
-            (0, 0, 0),
-            LaneSide::Left,
-            0,
-        ),
-    ));
 
     // Generate stars
     spawn_stars(&mut cmd, &mut meshes, &mut materials);
@@ -143,15 +132,39 @@ fn spawn_stars(
     }
 }
 
-fn on_place_belt(event: On<PlaceBlock>, mut cmd: Commands, asset_server: Res<AssetServer>) {
-    cmd.entity(event.entity).insert(SceneRoot(
-        asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/box.glb")),
+fn on_belt_shape_insert(
+    trigger: On<Insert, BeltShape>,
+    query: Query<(&BeltShape, &Item)>,
+    mut cmd: Commands,
+    asset_server: Res<AssetServer>,
+    registry: Res<ItemRegistry>,
+) {
+    let entity = trigger.event_target();
+    let (shape, item) = query
+        .get(entity)
+        .expect("BeltShape inserted but missing components");
+    let entry = registry.get(item).expect("Item not in registry");
+    let variant = match shape {
+        BeltShape::Straight(_) => "straight",
+        BeltShape::Curve(_) => "curved",
+        BeltShape::Fragment(_) => return,
+    };
+    let scene = entry.scene_index(variant);
+    cmd.entity(entity).insert(SceneRoot(
+        asset_server.load(GltfAssetLabel::Scene(scene).from_asset(entry.model_path.clone())),
     ));
 }
 
-fn on_place_item(event: On<PlaceItem>, mut cmd: Commands, asset_server: Res<AssetServer>) {
+fn on_place_item(
+    event: On<PlaceItem>,
+    mut cmd: Commands,
+    asset_server: Res<AssetServer>,
+    registry: Res<ItemRegistry>,
+) {
+    let entry = registry.get(&event.item).expect("Item not in registry");
+    let scene = entry.scene_index("default");
     cmd.entity(event.entity).insert(SceneRoot(
-        asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/item.glb")),
+        asset_server.load(GltfAssetLabel::Scene(scene).from_asset(entry.model_path.clone())),
     ));
 }
 

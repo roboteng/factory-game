@@ -1,7 +1,7 @@
 pub use crate::core::lane::*;
 use bevy::{math::ops::sin_cos, prelude::*};
 use derivative::Derivative;
-use std::{collections::HashMap, f32::consts::PI, ops::Range};
+use std::{collections::HashMap, f32::consts::PI, ops::Range, path::PathBuf};
 
 mod lane;
 
@@ -49,6 +49,36 @@ impl Plugin for CorePlugin {
         app.add_observer(on_place_block);
         app.add_observer(on_place_item);
         app.add_observer(on_remove_block);
+
+        let mut registry = ItemRegistry::default();
+        registry.register(
+            Item(0),
+            ItemRegEntry {
+                name: "Item",
+                model_path: PathBuf::from("models/item.glb"),
+                model_variants: HashMap::new(),
+                placement: PlacementCategory::NotWorldPlacable,
+            },
+        );
+        registry.register(
+            Item(1),
+            ItemRegEntry {
+                name: "Belt",
+                model_path: PathBuf::from("models/belt.glb"),
+                model_variants: HashMap::from([("straight", 0), ("curved", 1)]),
+                placement: PlacementCategory::Belt,
+            },
+        );
+        registry.register(
+            Item(2),
+            ItemRegEntry {
+                name: "Splitter",
+                model_path: PathBuf::from("models/splitter.glb"),
+                model_variants: HashMap::new(),
+                placement: PlacementCategory::AffectsBelts,
+            },
+        );
+        app.insert_resource(registry);
 
         app.init_resource::<WorldPlacements>();
         app.init_resource::<BlockEvents>();
@@ -139,7 +169,7 @@ pub enum Curve {
 }
 
 /// Item ID
-#[derive(Component, Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord)]
+#[derive(Component, Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord, Hash)]
 pub struct Item(pub u32);
 
 #[derive(Debug, Component)]
@@ -232,6 +262,45 @@ pub enum BlockEvent {
     Remove(RemoveBlock),
 }
 
+#[derive(Resource, Default)]
+pub struct ItemRegistry(HashMap<Item, ItemRegEntry>);
+
+impl ItemRegistry {
+    pub fn register(&mut self, item: Item, entry: ItemRegEntry) {
+        self.0.insert(item, entry);
+    }
+
+    pub fn get(&self, item: &Item) -> Option<&ItemRegEntry> {
+        self.0.get(item)
+    }
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct ItemRegEntry {
+    pub name: &'static str,
+    pub model_path: PathBuf,
+    pub model_variants: HashMap<&'static str, usize>,
+    pub placement: PlacementCategory,
+}
+
+impl ItemRegEntry {
+    /// Returns the scene index for a variant, defaulting to 0.
+    pub fn scene_index(&self, variant: &str) -> usize {
+        self.model_variants.get(variant).copied().unwrap_or(0)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlacementCategory {
+    Belt,
+    /// This item should affect how belts curve, but isn't a belt itself
+    AffectsBelts,
+    /// This item is placable, but doesn't interact with belts
+    Independant,
+    /// This cannot be placed as a block in the world
+    NotWorldPlacable,
+}
+
 // -------
 // Systems
 // -------
@@ -254,7 +323,16 @@ pub fn block_changes(world: &mut World) {
 }
 
 fn event_place_block(world: &mut World, event: PlaceBlock) {
-    assert_eq!(event.item, Item(1), "Only belts (Item(1)) are supported");
+    let placement = world
+        .resource::<ItemRegistry>()
+        .get(&event.item)
+        .unwrap_or_else(|| panic!("Item {:?} not found in registry", event.item))
+        .placement;
+    assert_eq!(
+        placement,
+        PlacementCategory::Belt,
+        "Only belts are currently supported for placement"
+    );
     debug!(
         "Placing belt {:?} at {:?} facing {:?}",
         event.entity, event.coords, event.dir
@@ -280,6 +358,7 @@ fn event_place_block(world: &mut World, event: PlaceBlock) {
             .with_rotation(Quat::from_rotation_y(angle)),
         Belt,
         belt,
+        event.item,
         event.coords,
     ));
     debug!(

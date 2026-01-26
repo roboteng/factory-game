@@ -39,7 +39,7 @@ const HOTBAR_BORDER_NORMAL: Color = Color::srgba(0.3, 0.3, 0.3, 0.8);
 const HOTBAR_BORDER_SELECTED: Color = Color::srgba(1.0, 0.8, 0.2, 1.0);
 const HOTBAR_BG: Color = Color::srgba(0.1, 0.1, 0.1, 0.8);
 
-fn setup_hotbar(mut cmd: Commands) {
+fn setup_hotbar(mut cmd: Commands, registry: Res<ItemRegistry>) {
     let tools = [PlacementTool::Belt, PlacementTool::Splitter];
 
     // Root container at bottom center
@@ -101,8 +101,9 @@ fn setup_hotbar(mut cmd: Commands) {
                             ));
 
                             // Tool name label
+                            let name = registry.get(&tool.item()).expect("Item not in registry").name;
                             parent.spawn((
-                                Text::new(tool_name(tool)),
+                                Text::new(name),
                                 TextFont {
                                     font_size: 12.0,
                                     ..default()
@@ -113,13 +114,6 @@ fn setup_hotbar(mut cmd: Commands) {
                 }
             });
     });
-}
-
-fn tool_name(tool: PlacementTool) -> &'static str {
-    match tool {
-        PlacementTool::Belt => "Belt",
-        PlacementTool::Splitter => "Splitter",
-    }
 }
 
 fn handle_tool_selection(keys: Res<ButtonInput<KeyCode>>, mut tool: ResMut<PlacementTool>) {
