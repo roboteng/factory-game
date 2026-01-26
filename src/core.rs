@@ -296,6 +296,7 @@ pub enum PlacementCategory {
     /// This item should affect how belts curve, but isn't a belt itself
     AffectsBelts,
     /// This item is placable, but doesn't interact with belts
+    #[expect(dead_code)]
     Independant,
     /// This cannot be placed as a block in the world
     NotWorldPlacable,
@@ -649,7 +650,6 @@ impl WorldPlacements {
         self.0.remove(&coords)
     }
 
-    #[cfg_attr(not(feature = "proptests"), expect(dead_code))]
     pub fn iter(&self) -> impl Iterator<Item = (&WorldCoords, &(Entity, GridEntry))> {
         self.0.iter()
     }
