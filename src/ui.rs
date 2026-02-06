@@ -1,4 +1,4 @@
-use crate::core::*;
+use crate::{core::*, ui::hotbar::Inventory};
 
 use bevy::{
     input::mouse::AccumulatedMouseMotion,
@@ -115,15 +115,15 @@ fn spawn_stars(
 
 fn on_belt_shape_insert(
     trigger: On<Insert, BeltShape>,
-    query: Query<(&BeltShape, &Item)>,
+    query: Query<(&BeltShape, &Item), With<Belt>>,
     mut cmd: Commands,
     asset_server: Res<AssetServer>,
     registry: Res<ItemRegistry>,
 ) {
     let entity = trigger.event_target();
-    let (shape, item) = query
-        .get(entity)
-        .expect("BeltShape inserted but missing components");
+    let Ok((shape, item)) = query.get(entity) else {
+        return;
+    };
     let entry = registry.get(item).expect("Item not in registry");
     let variant = match shape {
         BeltShape::Straight(_) => "straight",
@@ -223,7 +223,8 @@ fn handle_click_to_place(
     mouse: Res<ButtonInput<MouseButton>>,
     cursor_options: Single<&CursorOptions>,
     camera_query: Single<&Transform, With<FirstPersonCamera>>,
-    tool: Res<hotbar::PlacementTool>,
+    tool: Res<hotbar::PlacementIndex>,
+    inv: Res<Inventory>,
     mut cmd: Commands,
 ) {
     // Only handle clicks when cursor is grabbed (in game mode)
@@ -276,11 +277,13 @@ fn handle_click_to_place(
     // HDir angle mapping: North=0, East=-PI/2, South=PI, West=PI/2
     let dir = angle_to_hdir(angle);
 
-    // Create entity and trigger PlaceBelt event
     let entity = cmd.spawn_empty().id();
+    let Some(tool) = inv.items[tool.slot] else {
+        panic!()
+    };
     let event = PlaceBlock {
         entity,
-        item: tool.item(),
+        item: tool,
         coords,
         dir,
     };

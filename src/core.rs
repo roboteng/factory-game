@@ -64,8 +64,10 @@ impl Plugin for CorePlugin {
             Item(1),
             ItemRegEntry {
                 name: "Belt",
-                model_path: PathBuf::from("models/belt.glb"),
-                model_variants: HashMap::from([("straight", 0), ("curved", 1)]),
+                model_path: PathBuf::from("models/Untitled.glb"),
+                // Blender exports scenes alphabetically
+                // We don't have control over the order, but it should be stable between different types
+                model_variants: HashMap::from([("curve", 0), ("straight", 1)]),
                 placement: PlacementCategory::Belt,
             },
         );
@@ -76,6 +78,24 @@ impl Plugin for CorePlugin {
                 model_path: PathBuf::from("models/splitter.glb"),
                 model_variants: HashMap::new(),
                 placement: PlacementCategory::AffectsBelts,
+            },
+        );
+        registry.register(
+            Item(3),
+            ItemRegEntry {
+                name: "Source",
+                model_path: PathBuf::from("models/item.glb"),
+                model_variants: HashMap::new(),
+                placement: PlacementCategory::Independant,
+            },
+        );
+        registry.register(
+            Item(4),
+            ItemRegEntry {
+                name: "Sink",
+                model_path: PathBuf::from("models/item.glb"),
+                model_variants: HashMap::new(),
+                placement: PlacementCategory::Independant,
             },
         );
         app.insert_resource(registry);
