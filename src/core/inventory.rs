@@ -2,7 +2,7 @@ use std::num::NonZeroU16;
 
 use bevy::prelude::*;
 
-use crate::core::{Item, ItemRegEntry, ItemRegistry};
+use crate::core::{Item, ItemRegistry};
 
 #[derive(Component)]
 pub struct Inventory(Vec<Option<Stack>>);
@@ -29,8 +29,10 @@ impl Inventory {
     }
 
     /// Add items to the first availible slot
-    pub fn insert(&mut self, stack: Stack, reg: &ItemRegEntry) -> Result<(), InventoryAddError> {
-        todo!()
+    pub fn insert(&mut self, stack: Stack, reg: &ItemRegistry) -> Result<(), InventoryAddError> {
+        // TODO: combine stacks
+        self.0.push(Some(stack));
+        Ok(())
     }
 
     /// Adding items at a specific location in the inventory
@@ -47,7 +49,12 @@ impl Inventory {
     }
 
     pub fn item_count(&self, item: Item) -> u16 {
-        todo!()
+        self.0
+            .iter()
+            .filter_map(|slot| slot.as_ref())
+            .filter(|stack| stack.item == item)
+            .map(|stack| stack.count.get())
+            .sum()
     }
 
     /// Returns the number of items acutally taken from the inventory
@@ -56,13 +63,29 @@ impl Inventory {
     }
 }
 
+#[derive(Debug)]
 pub enum InventoryAddError {
     TooFull,
 }
+impl std::fmt::Display for InventoryAddError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            InventoryAddError::TooFull => f.write_str("Too Full"),
+        }
+    }
+}
+
+impl std::error::Error for InventoryAddError {}
 
 pub struct Stack {
-    item: Item,
-    count: NonZeroU16,
+    pub item: Item,
+    pub count: NonZeroU16,
+}
+
+impl Stack {
+    pub fn new(item: Item, count: NonZeroU16) -> Self {
+        Self { item, count }
+    }
 }
 
 #[cfg(test)]

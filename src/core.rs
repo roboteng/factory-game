@@ -1,4 +1,4 @@
-use crate::core::inventory::Inventory;
+use crate::core::inventory::{Inventory, Stack};
 pub use crate::core::lane::*;
 use bevy::{math::ops::sin_cos, prelude::*};
 use derivative::Derivative;
@@ -52,9 +52,6 @@ impl Plugin for CorePlugin {
         app.add_observer(on_place_item);
         app.add_observer(on_remove_block);
 
-        let player = app.world_mut().spawn(Inventory::new()).id();
-        app.insert_resource(Player(player));
-
         let mut registry = ItemRegistry::default();
         registry.register(
             Item(0),
@@ -103,6 +100,13 @@ impl Plugin for CorePlugin {
                 placement: PlacementCategory::AffectsBelts,
             },
         );
+
+        let mut inv = Inventory::new();
+        inv.insert(Stack::new(Item(1), 15.try_into().unwrap()), &registry)
+            .unwrap();
+        let player = app.world_mut().spawn(inv).id();
+        app.insert_resource(Player(player));
+
         app.insert_resource(registry);
 
         app.init_resource::<WorldPlacements>();
