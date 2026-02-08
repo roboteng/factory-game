@@ -1,4 +1,7 @@
-use crate::{core::*, ui::hotbar::Inventory};
+use crate::{
+    core::{inventory::Inventory, *},
+    ui::hotbar::{Hotbar, PlacementItem},
+};
 
 use bevy::{
     input::mouse::AccumulatedMouseMotion,
@@ -223,10 +226,24 @@ fn handle_click_to_place(
     mouse: Res<ButtonInput<MouseButton>>,
     cursor_options: Single<&CursorOptions>,
     camera_query: Single<&Transform, With<FirstPersonCamera>>,
-    tool: Res<hotbar::PlacementIndex>,
-    inv: Res<Inventory>,
+    tool: Res<PlacementItem>,
+    player: Res<Player>,
+    hotbar: Res<Hotbar>,
+    mut invs: Query<&mut Inventory>,
     mut cmd: Commands,
 ) {
+    let Ok(_) = invs.get_mut(player.0) else {
+        error!("Could not find the player");
+        return;
+    };
+    let item = match *tool {
+        PlacementItem::HotbarSlot(slot) => match hotbar.0.get(slot as usize) {
+            Some(Some(item)) => *item,
+            _ => return,
+        },
+        PlacementItem::Custom(item) => item,
+        PlacementItem::None => return,
+    };
     // Only handle clicks when cursor is grabbed (in game mode)
     if !mouse.just_pressed(MouseButton::Left) || cursor_options.grab_mode != CursorGrabMode::Locked
     {
@@ -278,12 +295,10 @@ fn handle_click_to_place(
     let dir = angle_to_hdir(angle);
 
     let entity = cmd.spawn_empty().id();
-    let Some(tool) = inv.items[tool.slot] else {
-        panic!()
-    };
+
     let event = PlaceBlock {
         entity,
-        item: tool,
+        item,
         coords,
         dir,
     };

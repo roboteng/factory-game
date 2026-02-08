@@ -10,6 +10,7 @@ ui = ["bevy/3d","bevy/bevy_color", "dep:rand"]
 invariant-check = []
 proptests = ["dep:proptest", "dep:rand"]
 dev = ["bevy/bevy_dev_tools"]
+debug = ["bevy/debug"]
 
 [dependencies]
 bevy = {version="0.18.0", default-features = false, features = ["bevy_log"]}

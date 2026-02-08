@@ -1,8 +1,10 @@
+use crate::core::inventory::Inventory;
 pub use crate::core::lane::*;
 use bevy::{math::ops::sin_cos, prelude::*};
 use derivative::Derivative;
 use std::{collections::HashMap, f32::consts::PI, ops::Range, path::PathBuf};
 
+pub mod inventory;
 mod lane;
 
 #[cfg(feature = "invariant-check")]
@@ -50,6 +52,9 @@ impl Plugin for CorePlugin {
         app.add_observer(on_place_item);
         app.add_observer(on_remove_block);
 
+        let player = app.world_mut().spawn(Inventory::new()).id();
+        app.insert_resource(Player(player));
+
         let mut registry = ItemRegistry::default();
         registry.register(
             Item(0),
@@ -86,7 +91,7 @@ impl Plugin for CorePlugin {
                 name: "Source",
                 model_path: PathBuf::from("models/item.glb"),
                 model_variants: HashMap::new(),
-                placement: PlacementCategory::Independant,
+                placement: PlacementCategory::AffectsBelts,
             },
         );
         registry.register(
@@ -95,7 +100,7 @@ impl Plugin for CorePlugin {
                 name: "Sink",
                 model_path: PathBuf::from("models/item.glb"),
                 model_variants: HashMap::new(),
-                placement: PlacementCategory::Independant,
+                placement: PlacementCategory::AffectsBelts,
             },
         );
         app.insert_resource(registry);
@@ -322,6 +327,9 @@ pub enum PlacementCategory {
     NotWorldPlacable,
 }
 
+#[derive(Resource)]
+pub struct Player(pub Entity);
+
 // -------
 // Systems
 // -------
@@ -349,11 +357,16 @@ fn event_place_block(world: &mut World, event: PlaceBlock) {
         .get(&event.item)
         .unwrap_or_else(|| panic!("Item {:?} not found in registry", event.item))
         .placement;
-    assert_eq!(
-        placement,
-        PlacementCategory::Belt,
-        "Only belts are currently supported for placement"
-    );
+
+    match placement {
+        PlacementCategory::Belt => place_belt(world, event),
+        PlacementCategory::AffectsBelts => todo!(),
+        PlacementCategory::Independant => todo!(),
+        PlacementCategory::NotWorldPlacable => todo!(),
+    }
+}
+
+fn place_belt(world: &mut World, event: PlaceBlock) {
     debug!(
         "Placing belt {:?} at {:?} facing {:?}",
         event.entity, event.coords, event.dir

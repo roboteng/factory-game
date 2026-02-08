@@ -1,30 +1,35 @@
+use std::u16;
+
 use super::*;
 
 pub struct HotbarPlugin;
 impl Plugin for HotbarPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<PlacementIndex>();
-        let mut inv = Inventory::default();
-        inv.items[0] = Some(Item(1));
-        inv.items[1] = Some(Item(3));
-        inv.items[2] = Some(Item(4));
-        app.insert_resource(inv);
+        let mut hotbar = [None; 10];
+        hotbar[0] = Some(Item(1));
+        hotbar[1] = Some(Item(3));
+        hotbar[2] = Some(Item(4));
+        app.insert_resource(Hotbar(hotbar));
+        app.insert_resource(PlacementItem::None);
 
         app.add_systems(Startup, setup_hotbar);
-        app.add_systems(PreUpdate, hotbar::handle_tool_selection);
-        app.add_systems(Update, hotbar::update_hotbar_selection);
+        app.add_systems(PreUpdate, handle_tool_selection);
+        app.add_systems(Update, update_hotbar_selection);
     }
 }
 
-#[derive(Resource, Default, Debug, Clone, Copy, PartialEq, Eq, Component)]
-pub struct PlacementIndex {
-    pub slot: usize,
+#[derive(Resource, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlacementItem {
+    HotbarSlot(u16),
+    Custom(Item),
+    None,
 }
 
-#[derive(Resource, Default, Debug, Clone, PartialEq, Eq, Component)]
-pub struct Inventory {
-    pub items: [Option<Item>; 10],
-}
+#[derive(Resource)]
+pub struct Hotbar(pub [Option<Item>; 10]);
+
+#[derive(Component)]
+struct HotbarSlot(u16);
 
 const HOTBAR_SLOT_SIZE: f32 = 64.0;
 const HOTBAR_SLOT_GAP: f32 = 8.0;
@@ -32,7 +37,7 @@ const HOTBAR_BORDER_NORMAL: Color = Color::srgba(0.3, 0.3, 0.3, 0.8);
 const HOTBAR_BORDER_SELECTED: Color = Color::srgba(1.0, 0.8, 0.2, 1.0);
 const HOTBAR_BG: Color = Color::srgba(0.1, 0.1, 0.1, 0.8);
 
-fn setup_hotbar(mut cmd: Commands, registry: Res<ItemRegistry>, inv: Res<Inventory>) {
+fn setup_hotbar(mut cmd: Commands, registry: Res<ItemRegistry>, inv: Res<Hotbar>) {
     // Root container at bottom center
     cmd.spawn(Node {
         position_type: PositionType::Absolute,
@@ -47,16 +52,12 @@ fn setup_hotbar(mut cmd: Commands, registry: Res<ItemRegistry>, inv: Res<Invento
         parent
             .spawn(Node {
                 position_type: PositionType::Relative,
-                left: Val::Px(
-                    -((inv.items.len() as f32 * (HOTBAR_SLOT_SIZE + HOTBAR_SLOT_GAP)) / 2.0),
-                ),
+                left: Val::Px(-((10.0 * (HOTBAR_SLOT_SIZE + HOTBAR_SLOT_GAP)) / 2.0)),
                 column_gap: Val::Px(HOTBAR_SLOT_GAP),
                 ..default()
             })
             .with_children(|parent| {
-                for (index, &tool) in inv.items.iter().enumerate() {
-                    let is_selected = index == 0; // Belt is default
-
+                for (index, &tool) in inv.0.iter().enumerate() {
                     // Slot container
                     parent
                         .spawn((
@@ -69,12 +70,8 @@ fn setup_hotbar(mut cmd: Commands, registry: Res<ItemRegistry>, inv: Res<Invento
                                 ..default()
                             },
                             BackgroundColor(HOTBAR_BG),
-                            BorderColor::all(if is_selected {
-                                HOTBAR_BORDER_SELECTED
-                            } else {
-                                HOTBAR_BORDER_NORMAL
-                            }),
-                            PlacementIndex { slot: index },
+                            BorderColor::all(HOTBAR_BORDER_NORMAL),
+                            HotbarSlot(index as u16),
                         ))
                         .with_children(|parent| {
                             let Some(tool) = tool else { return };
@@ -123,26 +120,31 @@ const DIGITS: [KeyCode; 10] = [
     KeyCode::Digit0,
 ];
 
-fn handle_tool_selection(keys: Res<ButtonInput<KeyCode>>, mut tool: ResMut<PlacementIndex>) {
+fn handle_tool_selection(keys: Res<ButtonInput<KeyCode>>, mut tool: ResMut<PlacementItem>) {
     for (index, key) in DIGITS.iter().enumerate() {
         if keys.just_pressed(*key) {
-            *tool = PlacementIndex { slot: index };
+            *tool = PlacementItem::HotbarSlot(index as u16);
         }
     }
 }
 
 fn update_hotbar_selection(
-    tool: Res<PlacementIndex>,
-    mut slots: Query<(&PlacementIndex, &mut BorderColor)>,
+    tool: Res<PlacementItem>,
+    mut slots: Query<(&HotbarSlot, &mut BorderColor)>,
 ) {
+    let PlacementItem::HotbarSlot(selected_slot) = *tool else {
+        for (_, mut border) in slots.iter_mut() {
+            let target = HOTBAR_BORDER_NORMAL;
+            *border = BorderColor::all(target);
+        }
+        return;
+    };
     for (slot, mut border) in slots.iter_mut() {
-        let target = BorderColor::all(if tool.slot == slot.slot {
+        let target = BorderColor::all(if selected_slot == slot.0 {
             HOTBAR_BORDER_SELECTED
         } else {
             HOTBAR_BORDER_NORMAL
         });
-        if *border != target {
-            *border = target;
-        }
+        *border = target;
     }
 }
