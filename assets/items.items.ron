@@ -1,0 +1,33 @@
+[
+    (
+        id: 0,
+        name: "Item",
+        model_path: "models/item.glb",
+        placement: NotWorldPlacable,
+    ),
+    (
+        id: 1,
+        name: "Belt",
+        model_path: "models/Untitled.glb",
+        model_variants: {"curve": 0, "straight": 1},
+        placement: Belt,
+    ),
+    (
+        id: 2,
+        name: "Splitter",
+        model_path: "models/splitter.glb",
+        placement: AffectsBelts,
+    ),
+    (
+        id: 3,
+        name: "Source",
+        model_path: "models/item.glb",
+        placement: AffectsBelts,
+    ),
+    (
+        id: 4,
+        name: "Sink",
+        model_path: "models/item.glb",
+        placement: AffectsBelts,
+    ),
+]

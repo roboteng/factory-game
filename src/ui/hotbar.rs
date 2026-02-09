@@ -86,9 +86,9 @@ fn setup_hotbar(mut cmd: Commands, registry: Res<ItemRegistry>, inv: Res<Hotbar>
                     ));
 
                     // Tool name label
-                    let name = registry.get(&tool).expect("Item not in registry").name;
+                    let name = &registry.get(&tool).expect("Item not in registry").name;
                     parent.spawn((
-                        Text::new(name),
+                        Text::new(name.clone()),
                         TextFont {
                             font_size: 12.0,
                             ..default()

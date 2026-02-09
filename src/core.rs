@@ -2,6 +2,7 @@ use crate::core::inventory::{Inventory, Stack};
 pub use crate::core::lane::*;
 use bevy::{math::ops::sin_cos, prelude::*};
 use derivative::Derivative;
+use serde::Deserialize;
 use std::{collections::HashMap, f32::consts::PI, ops::Range, path::PathBuf};
 
 pub mod inventory;
@@ -48,59 +49,14 @@ impl Plugin for CorePlugin {
     fn build(&self, app: &mut App) {
         #[cfg(feature = "invariant-check")]
         app.add_plugins(crate::core::invariants::InvariantsPlugin);
+
         app.add_observer(on_place_block);
         app.add_observer(on_place_item);
         app.add_observer(on_remove_block);
 
-        let mut registry = ItemRegistry::default();
-        registry.register(
-            Item(0),
-            ItemRegEntry {
-                name: "Item",
-                model_path: PathBuf::from("models/item.glb"),
-                model_variants: HashMap::new(),
-                placement: PlacementCategory::NotWorldPlacable,
-            },
-        );
-        registry.register(
-            Item(1),
-            ItemRegEntry {
-                name: "Belt",
-                model_path: PathBuf::from("models/Untitled.glb"),
-                // Blender exports scenes alphabetically
-                // We don't have control over the order, but it should be stable between different types
-                model_variants: HashMap::from([("curve", 0), ("straight", 1)]),
-                placement: PlacementCategory::Belt,
-            },
-        );
-        registry.register(
-            Item(2),
-            ItemRegEntry {
-                name: "Splitter",
-                model_path: PathBuf::from("models/splitter.glb"),
-                model_variants: HashMap::new(),
-                placement: PlacementCategory::AffectsBelts,
-            },
-        );
-        registry.register(
-            Item(3),
-            ItemRegEntry {
-                name: "Source",
-                model_path: PathBuf::from("models/item.glb"),
-                model_variants: HashMap::new(),
-                placement: PlacementCategory::AffectsBelts,
-            },
-        );
-        registry.register(
-            Item(4),
-            ItemRegEntry {
-                name: "Sink",
-                model_path: PathBuf::from("models/item.glb"),
-                model_variants: HashMap::new(),
-                placement: PlacementCategory::AffectsBelts,
-            },
-        );
-
+        const ITEMS_RON: &str = include_str!("../assets/items.items.ron");
+        let registry: ItemRegistry =
+            ron::from_str(ITEMS_RON).expect("Failed to parse items.items.ron");
         let mut inv = Inventory::new();
         inv.insert(Stack::new(Item(1), 15.try_into().unwrap()), &registry)
             .unwrap();
@@ -291,24 +247,49 @@ pub enum BlockEvent {
     Remove(RemoveBlock),
 }
 
-#[derive(Resource, Default)]
+#[derive(Resource, Debug, Deserialize)]
+#[serde(from = "Vec<ItemDefinition>")]
 pub struct ItemRegistry(HashMap<Item, ItemRegEntry>);
 
-impl ItemRegistry {
-    pub fn register(&mut self, item: Item, entry: ItemRegEntry) {
-        self.0.insert(item, entry);
-    }
+#[derive(Deserialize)]
+struct ItemDefinition {
+    id: u32,
+    name: String,
+    model_path: String,
+    #[serde(default)]
+    model_variants: HashMap<String, usize>,
+    placement: PlacementCategory,
+}
 
+impl From<Vec<ItemDefinition>> for ItemRegistry {
+    fn from(raw: Vec<ItemDefinition>) -> Self {
+        let mut map = HashMap::new();
+        for def in raw {
+            map.insert(
+                Item(def.id),
+                ItemRegEntry {
+                    name: def.name,
+                    model_path: PathBuf::from(def.model_path),
+                    model_variants: def.model_variants,
+                    placement: def.placement,
+                },
+            );
+        }
+        ItemRegistry(map)
+    }
+}
+
+impl ItemRegistry {
     pub fn get(&self, item: &Item) -> Option<&ItemRegEntry> {
         self.0.get(item)
     }
 }
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub struct ItemRegEntry {
-    pub name: &'static str,
+    pub name: String,
     pub model_path: PathBuf,
-    pub model_variants: HashMap<&'static str, usize>,
+    pub model_variants: HashMap<String, usize>,
     pub placement: PlacementCategory,
 }
 
@@ -319,13 +300,12 @@ impl ItemRegEntry {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 pub enum PlacementCategory {
     Belt,
     /// This item should affect how belts curve, but isn't a belt itself
     AffectsBelts,
     /// This item is placable, but doesn't interact with belts
-    #[expect(dead_code)]
     Independant,
     /// This cannot be placed as a block in the world
     NotWorldPlacable,
