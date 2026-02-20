@@ -39,7 +39,12 @@ const HOTBAR_BORDER_NORMAL: Color = Color::srgba(0.3, 0.3, 0.3, 0.8);
 const HOTBAR_BORDER_SELECTED: Color = Color::srgba(1.0, 0.8, 0.2, 1.0);
 const HOTBAR_BG: Color = Color::srgba(0.1, 0.1, 0.1, 0.8);
 
-fn setup_hotbar(mut cmd: Commands, registry: Res<ItemRegistry>, inv: Res<Hotbar>) {
+fn setup_hotbar(
+    mut cmd: Commands,
+    registry: Res<ItemRegistry>,
+    names: Query<&ItemName>,
+    inv: Res<Hotbar>,
+) {
     // Root container at bottom center - uses full width with flexbox centering
     cmd.spawn(Node {
         position_type: PositionType::Absolute,
@@ -86,9 +91,10 @@ fn setup_hotbar(mut cmd: Commands, registry: Res<ItemRegistry>, inv: Res<Hotbar>
                     ));
 
                     // Tool name label
-                    let name = &registry.get(&tool).expect("Item not in registry").name;
+                    let def = registry.entity(&tool).expect("Item not in registry");
+                    let name = names.get(def).expect("Item has no name");
                     parent.spawn((
-                        Text::new(name.clone()),
+                        Text::new(name.0),
                         TextFont {
                             font_size: 12.0,
                             ..default()

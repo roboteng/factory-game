@@ -9,8 +9,23 @@ use bevy::{
     window::{CursorGrabMode, CursorOptions},
 };
 use rand::Rng;
+use std::{collections::HashMap, path::PathBuf};
 
 mod hotbar;
+
+/// Visual model data for an item type. Only present on item definition entities
+/// when the `ui` feature is enabled.
+#[derive(Component, Debug, Clone)]
+pub struct ItemModel {
+    pub path: PathBuf,
+    pub variants: HashMap<String, usize>,
+}
+
+impl ItemModel {
+    pub fn scene_index(&self, variant: &str) -> usize {
+        self.variants.get(variant).copied().unwrap_or(0)
+    }
+}
 
 pub struct UiPlugin;
 impl Plugin for UiPlugin {
@@ -19,6 +34,7 @@ impl Plugin for UiPlugin {
         app.insert_resource(ClearColor(Color::srgb(0.01, 0.01, 0.05))); // Dark night sky
         app.add_systems(Startup, setup);
         app.add_systems(Startup, setup_reticle);
+        app.add_systems(Startup, add_item_visuals);
 
         // Systems that trigger events Must run in PreUpdate
         app.add_systems(PreUpdate, camera_movement);
@@ -116,26 +132,43 @@ fn spawn_stars(
     }
 }
 
+fn add_item_visuals(registry: Res<ItemRegistry>, mut cmd: Commands) {
+    if let Some(e) = registry.entity(&Item(0)) {
+        cmd.entity(e).insert(ItemModel {
+            path: "models/item.glb".into(),
+            variants: HashMap::new(),
+        });
+    }
+    if let Some(e) = registry.entity(&Item(1)) {
+        cmd.entity(e).insert(ItemModel {
+            path: "models/Untitled.glb".into(),
+            variants: [("curve".into(), 0usize), ("straight".into(), 1)].into(),
+        });
+    }
+}
+
 fn on_belt_shape_insert(
     trigger: On<Insert, BeltShape>,
     query: Query<(&BeltShape, &Item), With<Belt>>,
     mut cmd: Commands,
     asset_server: Res<AssetServer>,
     registry: Res<ItemRegistry>,
+    models: Query<&ItemModel>,
 ) {
     let entity = trigger.event_target();
     let Ok((shape, item)) = query.get(entity) else {
         return;
     };
-    let entry = registry.get(item).expect("Item not in registry");
+    let def = registry.entity(item).expect("Item not in registry");
+    let model = models.get(def).expect("Item has no model");
     let variant = match shape {
         BeltShape::Straight(_) => "straight",
         BeltShape::Curve(_) => "curved",
         BeltShape::Fragment(_) => return,
     };
-    let scene = entry.scene_index(variant);
+    let scene = model.scene_index(variant);
     cmd.entity(entity).insert(SceneRoot(
-        asset_server.load(GltfAssetLabel::Scene(scene).from_asset(entry.model_path.clone())),
+        asset_server.load(GltfAssetLabel::Scene(scene).from_asset(model.path.clone())),
     ));
 }
 
@@ -144,11 +177,13 @@ fn on_place_item(
     mut cmd: Commands,
     asset_server: Res<AssetServer>,
     registry: Res<ItemRegistry>,
+    models: Query<&ItemModel>,
 ) {
-    let entry = registry.get(&event.item).expect("Item not in registry");
-    let scene = entry.scene_index("default");
+    let def = registry.entity(&event.item).expect("Item not in registry");
+    let model = models.get(def).expect("Item has no model");
+    let scene = model.scene_index("default");
     cmd.entity(event.entity).insert(SceneRoot(
-        asset_server.load(GltfAssetLabel::Scene(scene).from_asset(entry.model_path.clone())),
+        asset_server.load(GltfAssetLabel::Scene(scene).from_asset(model.path.clone())),
     ));
 }
 

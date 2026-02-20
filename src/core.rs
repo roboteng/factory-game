@@ -2,10 +2,10 @@ use crate::core::inventory::{Inventory, Stack};
 pub use crate::core::lane::*;
 use bevy::{math::ops::sin_cos, prelude::*};
 use derivative::Derivative;
-use serde::Deserialize;
-use std::{collections::HashMap, f32::consts::PI, ops::Range, path::PathBuf};
+use std::{collections::HashMap, f32::consts::PI, ops::Range};
 
 pub mod inventory;
+pub mod items;
 mod lane;
 
 #[cfg(feature = "invariant-check")]
@@ -54,9 +54,8 @@ impl Plugin for CorePlugin {
         app.add_observer(on_place_item);
         app.add_observer(on_remove_block);
 
-        const ITEMS_RON: &str = include_str!("../assets/items.items.ron");
-        let registry: ItemRegistry =
-            ron::from_str(ITEMS_RON).expect("Failed to parse items.items.ron");
+        let mut registry = ItemRegistry::default();
+        items::register_all(app.world_mut(), &mut registry);
         let mut inv = Inventory::new();
         inv.insert(Stack::new(Item(1), 15.try_into().unwrap()), &registry)
             .unwrap();
@@ -247,69 +246,28 @@ pub enum BlockEvent {
     Remove(RemoveBlock),
 }
 
-#[derive(Resource, Debug, Deserialize)]
-#[serde(from = "Vec<ItemDefinition>")]
-pub struct ItemRegistry(HashMap<Item, ItemRegEntry>);
-
-#[derive(Deserialize)]
-struct ItemDefinition {
-    id: u32,
-    name: String,
-    model_path: String,
-    #[serde(default)]
-    model_variants: HashMap<String, usize>,
-    placement: PlacementCategory,
-}
-
-impl From<Vec<ItemDefinition>> for ItemRegistry {
-    fn from(raw: Vec<ItemDefinition>) -> Self {
-        let mut map = HashMap::new();
-        for def in raw {
-            map.insert(
-                Item(def.id),
-                ItemRegEntry {
-                    name: def.name,
-                    model_path: PathBuf::from(def.model_path),
-                    model_variants: def.model_variants,
-                    placement: def.placement,
-                },
-            );
-        }
-        ItemRegistry(map)
-    }
-}
+#[derive(Resource, Debug, Default)]
+pub struct ItemRegistry(pub HashMap<Item, Entity>);
 
 impl ItemRegistry {
-    pub fn get(&self, item: &Item) -> Option<&ItemRegEntry> {
-        self.0.get(item)
+    pub fn entity(&self, item: &Item) -> Option<Entity> {
+        self.0.get(item).copied()
     }
 }
 
-#[derive(Clone, PartialEq, Eq, Debug)]
-pub struct ItemRegEntry {
-    pub name: String,
-    pub model_path: PathBuf,
-    pub model_variants: HashMap<String, usize>,
-    pub placement: PlacementCategory,
-}
+/// Display name for an item type.
+#[derive(Component, Debug, Clone, Copy)]
+pub struct ItemName(pub &'static str);
 
-impl ItemRegEntry {
-    /// Returns the scene index for a variant, defaulting to 0.
-    pub fn scene_index(&self, variant: &str) -> usize {
-        self.model_variants.get(variant).copied().unwrap_or(0)
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-pub enum PlacementCategory {
-    Belt,
-    /// This item should affect how belts curve, but isn't a belt itself
-    AffectsBelts,
-    /// This item is placable, but doesn't interact with belts
-    Independant,
-    /// This cannot be placed as a block in the world
-    NotWorldPlacable,
-}
+/// Placement capability markers — each item gets at most one.
+#[derive(Component, Debug, Clone, Copy)]
+pub struct BeltPlaceable;
+#[derive(Component, Debug, Clone, Copy)]
+pub struct AffectsBelts;
+#[derive(Component, Debug, Clone, Copy)]
+pub struct IndependentPlaceable;
+#[derive(Component, Debug, Clone, Copy)]
+pub struct NotWorldPlaceable;
 
 #[derive(Resource)]
 pub struct Player(pub Entity);
@@ -336,17 +294,19 @@ pub fn block_changes(world: &mut World) {
 }
 
 fn event_place_block(world: &mut World, event: PlaceBlock) {
-    let placement = world
+    let def = world
         .resource::<ItemRegistry>()
-        .get(&event.item)
-        .unwrap_or_else(|| panic!("Item {:?} not found in registry", event.item))
-        .placement;
+        .entity(&event.item)
+        .unwrap_or_else(|| panic!("Item {:?} not found in registry", event.item));
 
-    match placement {
-        PlacementCategory::Belt => place_belt(world, event),
-        PlacementCategory::AffectsBelts => todo!(),
-        PlacementCategory::Independant => todo!(),
-        PlacementCategory::NotWorldPlacable => todo!(),
+    if world.entity(def).contains::<BeltPlaceable>() {
+        place_belt(world, event);
+    } else if world.entity(def).contains::<AffectsBelts>() {
+        todo!()
+    } else if world.entity(def).contains::<IndependentPlaceable>() {
+        todo!()
+    } else {
+        todo!()
     }
 }
 
