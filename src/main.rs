@@ -53,21 +53,21 @@ fn setup(mut cmd: Commands) {
     let entity = cmd.spawn_empty().id();
     cmd.trigger(crate::core::PlaceBlock {
         entity,
-        item: crate::core::Item(1),
+        item: crate::core::Item::Belt,
         coords: (1, 0, 0).into(),
         dir: HDir::North,
     });
     let entity = cmd.spawn_empty().id();
     cmd.trigger(crate::core::PlaceBlock {
         entity,
-        item: crate::core::Item(1),
+        item: crate::core::Item::Belt,
         coords: (0, 0, 0).into(),
         dir: HDir::North,
     });
     let entity = cmd.spawn_empty().id();
     cmd.trigger(crate::core::PlaceBlock {
         entity,
-        item: crate::core::Item(1),
+        item: crate::core::Item::Belt,
         coords: (-1, 0, 0).into(),
         dir: HDir::North,
     });

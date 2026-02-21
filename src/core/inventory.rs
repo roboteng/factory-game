@@ -2,7 +2,7 @@ use std::num::NonZeroU16;
 
 use bevy::prelude::*;
 
-use crate::core::{Item, ItemRegistry};
+use crate::core::Item;
 
 #[derive(Component)]
 pub struct Inventory(Vec<Option<Stack>>);
@@ -29,7 +29,7 @@ impl Inventory {
     }
 
     /// Add items to the first availible slot
-    pub fn insert(&mut self, stack: Stack, reg: &ItemRegistry) -> Result<(), InventoryAddError> {
+    pub fn insert(&mut self, stack: Stack) -> Result<(), InventoryAddError> {
         // TODO: combine stacks
         self.0.push(Some(stack));
         Ok(())
@@ -39,12 +39,7 @@ impl Inventory {
     /// for example, by clicking
     ///
     /// It gives any remaining leftover
-    pub fn insert_at(
-        &mut self,
-        stack: Option<Stack>,
-        slot: u16,
-        reg: &ItemRegistry,
-    ) -> Option<Stack> {
+    pub fn insert_at(&mut self, stack: Option<Stack>, slot: u16) -> Option<Stack> {
         todo!()
     }
 

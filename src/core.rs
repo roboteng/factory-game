@@ -5,7 +5,6 @@ use derivative::Derivative;
 use std::{collections::HashMap, f32::consts::PI, ops::Range};
 
 pub mod inventory;
-pub mod items;
 mod lane;
 
 #[cfg(feature = "invariant-check")]
@@ -54,15 +53,11 @@ impl Plugin for CorePlugin {
         app.add_observer(on_place_item);
         app.add_observer(on_remove_block);
 
-        let mut registry = ItemRegistry::default();
-        items::register_all(app.world_mut(), &mut registry);
         let mut inv = Inventory::new();
-        inv.insert(Stack::new(Item(1), 15.try_into().unwrap()), &registry)
+        inv.insert(Stack::new(Item::Belt, 15.try_into().unwrap()))
             .unwrap();
         let player = app.world_mut().spawn(inv).id();
         app.insert_resource(Player(player));
-
-        app.insert_resource(registry);
 
         app.init_resource::<WorldPlacements>();
         app.init_resource::<BlockEvents>();
@@ -88,7 +83,6 @@ pub struct PlaceBlock {
 #[derive(Debug, Clone, Copy)]
 pub struct PlaceBelt {
     pub entity: Entity,
-    pub item: Item,
     pub coords: WorldCoords,
     pub dir: HDir,
 }
@@ -152,9 +146,23 @@ pub enum Curve {
     EastToNorth,
 }
 
-/// Item ID
+/// Item type.
 #[derive(Component, Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord, Hash)]
-pub struct Item(pub u32);
+pub enum Item {
+    Belt,
+    Source,
+    Sink,
+}
+
+impl Item {
+    pub fn name(self) -> &'static str {
+        match self {
+            Item::Belt => "Belt",
+            Item::Source => "Source",
+            Item::Sink => "Sink",
+        }
+    }
+}
 
 #[derive(Debug, Component)]
 pub struct LaneConnection {
@@ -176,16 +184,13 @@ pub struct InLane {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GridEntry {
     Belt(BeltShape),
-    #[expect(unused)]
     BeltAdjacent(BeltAdjacent),
     /// Entities that are placed in the world, but never affect belts directly
-    #[expect(unused)]
-    Machine(Item),
+    Machine,
 }
 
 /// Entities that affect belt curving, but don't join belt lanes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[expect(unused)]
 pub enum BeltAdjacent {
     /// Only has an input for belt connections
     Input(HDir),
@@ -246,29 +251,6 @@ pub enum BlockEvent {
     Remove(RemoveBlock),
 }
 
-#[derive(Resource, Debug, Default)]
-pub struct ItemRegistry(pub HashMap<Item, Entity>);
-
-impl ItemRegistry {
-    pub fn entity(&self, item: &Item) -> Option<Entity> {
-        self.0.get(item).copied()
-    }
-}
-
-/// Display name for an item type.
-#[derive(Component, Debug, Clone, Copy)]
-pub struct ItemName(pub &'static str);
-
-/// Placement capability markers — each item gets at most one.
-#[derive(Component, Debug, Clone, Copy)]
-pub struct BeltPlaceable;
-#[derive(Component, Debug, Clone, Copy)]
-pub struct AffectsBelts;
-#[derive(Component, Debug, Clone, Copy)]
-pub struct IndependentPlaceable;
-#[derive(Component, Debug, Clone, Copy)]
-pub struct NotWorldPlaceable;
-
 #[derive(Resource)]
 pub struct Player(pub Entity);
 
@@ -294,35 +276,30 @@ pub fn block_changes(world: &mut World) {
 }
 
 fn event_place_block(world: &mut World, event: PlaceBlock) {
-    let def = world
-        .resource::<ItemRegistry>()
-        .entity(&event.item)
-        .unwrap_or_else(|| panic!("Item {:?} not found in registry", event.item));
-
-    if world.entity(def).contains::<BeltPlaceable>() {
-        place_belt(world, event);
-    } else if world.entity(def).contains::<AffectsBelts>() {
-        todo!()
-    } else if world.entity(def).contains::<IndependentPlaceable>() {
-        place_independent(world, event);
-    } else {
-        todo!()
+    match event.item {
+        Item::Belt => place_belt(world, event),
+        Item::Source | Item::Sink => place_belt_adjacent(world, event),
     }
 }
 
-fn place_independent(world: &mut World, event: PlaceBlock) {
+fn place_belt_adjacent(world: &mut World, event: PlaceBlock) {
     if let Some((e, _)) = world.resource::<WorldPlacements>().get(event.coords) {
         world.entity_mut(e).insert(Delete);
     }
+    let adj = match event.item {
+        Item::Source => BeltAdjacent::Output(event.dir),
+        Item::Sink => BeltAdjacent::Input(event.dir),
+        Item::Belt => return,
+    };
     world.entity_mut(event.entity).insert((
         Transform::from_translation(Vec3::from(event.coords)),
-        event.item,
         event.coords,
+        event.item,
     ));
     world.resource_mut::<WorldPlacements>().insert(
         event.coords,
         event.entity,
-        GridEntry::Machine(event.item),
+        GridEntry::BeltAdjacent(adj),
     );
 }
 
@@ -352,8 +329,8 @@ fn place_belt(world: &mut World, event: PlaceBlock) {
             .with_rotation(Quat::from_rotation_y(angle)),
         Belt,
         belt,
-        event.item,
         event.coords,
+        event.item,
     ));
     debug!(
         "Updating BeltCoords resource: inserting {:?} at {:?}",
@@ -389,7 +366,7 @@ fn place_belt(world: &mut World, event: PlaceBlock) {
     if let Some((entity, ahead_belt)) = world.resource::<WorldPlacements>().get_belt(ahead) {
         let place = PlaceBlock {
             entity,
-            item: Item(1),
+            item: Item::Belt,
             dir: ahead_belt.output(),
             coords: ahead,
         };
@@ -475,7 +452,7 @@ fn event_remove_block(world: &mut World, event: RemoveBlock) {
     if let Some((entity, ahead_belt)) = world.resource::<WorldPlacements>().get_belt(ahead) {
         let place = PlaceBlock {
             entity,
-            item: Item(1),
+            item: Item::Belt,
             dir: ahead_belt.output(),
             coords: ahead,
         };
@@ -862,7 +839,7 @@ impl GridEntry {
         match self {
             Self::Belt(belt) => Some(belt.output()),
             Self::BeltAdjacent(adj) => adj.output_dir(),
-            Self::Machine(_) => None,
+            Self::Machine => None,
         }
     }
 
@@ -884,7 +861,6 @@ impl From<PlaceBlock> for PlaceBelt {
             coords: value.coords,
             dir: value.dir,
             entity: value.entity,
-            item: value.item,
         }
     }
 }
@@ -1823,7 +1799,7 @@ impl AppExtension for App {
         let entity = self.world_mut().spawn_empty().id();
         self.world_mut().trigger(PlaceBlock {
             entity,
-            item: Item(1),
+            item: Item::Belt,
             dir,
             coords: coords.into(),
         });
@@ -1834,7 +1810,7 @@ impl AppExtension for App {
         let entity = self.world_mut().spawn_empty().id();
         self.world_mut().trigger(PlaceItem {
             entity,
-            item: Item(0),
+            item: Item::Belt,
             belt,
             lane,
             position: pos,
@@ -2078,7 +2054,7 @@ mod tests {
             lanes: Sided {
                 left: vec![ItemEntry {
                     pos: 0,
-                    item: Item(0),
+                    item: Item::Belt,
                     entity: item_ent,
                 }],
                 right: vec![],
@@ -2098,7 +2074,7 @@ mod tests {
         let entity = world.spawn_empty().id();
         world.trigger(PlaceBlock {
             entity,
-            item: Item(1),
+            item: Item::Belt,
             dir: HDir::North,
             coords: (0, 0, 0).into(),
         });

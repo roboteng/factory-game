@@ -9,27 +9,8 @@ use bevy::{
     window::{CursorGrabMode, CursorOptions},
 };
 use rand::Rng;
-use std::{collections::HashMap, path::PathBuf};
 
 mod hotbar;
-
-/// Box color for items that render as a solid colored cube.
-#[derive(Component, Debug, Clone, Copy)]
-pub struct ItemBoxColor(pub Color);
-
-/// Visual model data for an item type. Only present on item definition entities
-/// when the `ui` feature is enabled.
-#[derive(Component, Debug, Clone)]
-pub struct ItemModel {
-    pub path: PathBuf,
-    pub variants: HashMap<String, usize>,
-}
-
-impl ItemModel {
-    pub fn scene_index(&self, variant: &str) -> usize {
-        self.variants.get(variant).copied().unwrap_or(0)
-    }
-}
 
 pub struct UiPlugin;
 impl Plugin for UiPlugin {
@@ -38,7 +19,6 @@ impl Plugin for UiPlugin {
         app.insert_resource(ClearColor(Color::srgb(0.01, 0.01, 0.05))); // Dark night sky
         app.add_systems(Startup, setup);
         app.add_systems(Startup, setup_reticle);
-        app.add_systems(Startup, add_item_visuals);
 
         // Systems that trigger events Must run in PreUpdate
         app.add_systems(PreUpdate, camera_movement);
@@ -137,84 +117,49 @@ fn spawn_stars(
     }
 }
 
-fn add_item_visuals(registry: Res<ItemRegistry>, mut cmd: Commands) {
-    if let Some(e) = registry.entity(&Item(0)) {
-        cmd.entity(e).insert(ItemModel {
-            path: "models/item.glb".into(),
-            variants: HashMap::new(),
-        });
-    }
-    if let Some(e) = registry.entity(&Item(1)) {
-        cmd.entity(e).insert(ItemModel {
-            path: "models/Untitled.glb".into(),
-            variants: [("curve".into(), 0usize), ("straight".into(), 1)].into(),
-        });
-    }
-    if let Some(e) = registry.entity(&Item(3)) {
-        cmd.entity(e).insert(ItemBoxColor(Color::srgb(0.2, 0.8, 0.2)));
-    }
-    if let Some(e) = registry.entity(&Item(4)) {
-        cmd.entity(e).insert(ItemBoxColor(Color::srgb(0.8, 0.2, 0.2)));
-    }
-}
-
 fn on_placed_block(
     trigger: On<Insert, WorldCoords>,
     query: Query<&Item>,
-    registry: Res<ItemRegistry>,
-    colors: Query<&ItemBoxColor>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut cmd: Commands,
 ) {
     let entity = trigger.event_target();
     let Ok(item) = query.get(entity) else { return };
-    let def = registry.entity(item).expect("Item not in registry");
-    if let Ok(color) = colors.get(def) {
-        cmd.entity(entity).insert((
-            Mesh3d(meshes.add(Cuboid::new(BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE))),
-            MeshMaterial3d(materials.add(color.0)),
-        ));
-    }
+    let color = match item {
+        Item::Belt => return,
+        Item::Source => Color::srgb(0.2, 0.8, 0.2),
+        Item::Sink => Color::srgb(0.8, 0.2, 0.2),
+    };
+    cmd.entity(entity).insert((
+        Mesh3d(meshes.add(Cuboid::new(BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE))),
+        MeshMaterial3d(materials.add(color)),
+    ));
 }
 
 fn on_belt_shape_insert(
     trigger: On<Insert, BeltShape>,
-    query: Query<(&BeltShape, &Item), With<Belt>>,
+    query: Query<&BeltShape, With<Belt>>,
     mut cmd: Commands,
     asset_server: Res<AssetServer>,
-    registry: Res<ItemRegistry>,
-    models: Query<&ItemModel>,
 ) {
     let entity = trigger.event_target();
-    let Ok((shape, item)) = query.get(entity) else {
+    let Ok(shape) = query.get(entity) else {
         return;
     };
-    let def = registry.entity(item).expect("Item not in registry");
-    let model = models.get(def).expect("Item has no model");
-    let variant = match shape {
-        BeltShape::Straight(_) => "straight",
-        BeltShape::Curve(_) => "curved",
+    let scene = match shape {
+        BeltShape::Straight(_) => 1usize,
+        BeltShape::Curve(_) => 0usize,
         BeltShape::Fragment(_) => return,
     };
-    let scene = model.scene_index(variant);
     cmd.entity(entity).insert(SceneRoot(
-        asset_server.load(GltfAssetLabel::Scene(scene).from_asset(model.path.clone())),
+        asset_server.load(GltfAssetLabel::Scene(scene).from_asset("models/Untitled.glb")),
     ));
 }
 
-fn on_place_item(
-    event: On<PlaceItem>,
-    mut cmd: Commands,
-    asset_server: Res<AssetServer>,
-    registry: Res<ItemRegistry>,
-    models: Query<&ItemModel>,
-) {
-    let def = registry.entity(&event.item).expect("Item not in registry");
-    let model = models.get(def).expect("Item has no model");
-    let scene = model.scene_index("default");
+fn on_place_item(event: On<PlaceItem>, mut cmd: Commands, asset_server: Res<AssetServer>) {
     cmd.entity(event.entity).insert(SceneRoot(
-        asset_server.load(GltfAssetLabel::Scene(scene).from_asset(model.path.clone())),
+        asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/item.glb")),
     ));
 }
 
@@ -484,7 +429,7 @@ fn handle_place_item_on_belt(
         let item_entity = cmd.spawn_empty().id();
         let event = PlaceItem {
             entity: item_entity,
-            item: Item(0),
+            item: Item::Belt,
             belt: belt_entity,
             lane,
             position,

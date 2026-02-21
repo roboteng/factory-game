@@ -485,7 +485,7 @@ mod tests {
         lane.add_item(
             ItemEntry {
                 pos: 0,
-                item: Item(0),
+                item: Item::Belt,
                 entity: Entity::from_raw_u32(10).unwrap(),
             },
             LaneSide::Left,
@@ -495,7 +495,7 @@ mod tests {
         let actual = lane.lanes[Left][0];
         let expected = ItemEntry {
             pos: 0,
-            item: Item(0),
+            item: Item::Belt,
             entity: Entity::from_raw_u32(10).unwrap(),
         };
         assert_eq!(actual, expected);
@@ -520,7 +520,7 @@ mod tests {
         lane.add_item(
             ItemEntry {
                 pos: 0,
-                item: Item(0),
+                item: Item::Belt,
                 entity: Entity::from_raw_u32(10).unwrap(),
             },
             LaneSide::Left,
@@ -530,7 +530,7 @@ mod tests {
         let actual = lane.lanes[Left][0];
         let expected = ItemEntry {
             pos: POSITIONS_PER_BELT,
-            item: Item(0),
+            item: Item::Belt,
             entity: Entity::from_raw_u32(10).unwrap(),
         };
         assert_eq!(actual, expected);
@@ -545,7 +545,7 @@ mod tests {
         lane.add_item(
             ItemEntry {
                 pos: 0,
-                item: Item(0),
+                item: Item::Belt,
                 entity: Entity::from_raw_u32(10).unwrap(),
             },
             LaneSide::Left,
@@ -556,7 +556,7 @@ mod tests {
         let actual = lane.lanes[Left][0];
         let expected = ItemEntry {
             pos: 0,
-            item: Item(0),
+            item: Item::Belt,
             entity: Entity::from_raw_u32(10).unwrap(),
         };
         assert_eq!(actual, expected);
@@ -571,7 +571,7 @@ mod tests {
         lane.add_item(
             ItemEntry {
                 pos: BASE_BELT_SPEED * 2,
-                item: Item(0),
+                item: Item::Belt,
                 entity: Entity::from_raw_u32(10).unwrap(),
             },
             LaneSide::Left,
@@ -582,7 +582,7 @@ mod tests {
         let actual = lane.lanes[Left][0];
         let expected = ItemEntry {
             pos: BASE_BELT_SPEED,
-            item: Item(0),
+            item: Item::Belt,
             entity: Entity::from_raw_u32(10).unwrap(),
         };
         assert_eq!(actual, expected);
@@ -597,7 +597,7 @@ mod tests {
         lane.add_item(
             ItemEntry {
                 pos: 0,
-                item: Item(0),
+                item: Item::Belt,
                 entity: Entity::from_raw_u32(10).unwrap(),
             },
             LaneSide::Left,
@@ -614,7 +614,7 @@ mod tests {
         let actual = lane.lanes[Left][0];
         let expected = ItemEntry {
             pos: -BASE_BELT_SPEED,
-            item: Item(0),
+            item: Item::Belt,
             entity: Entity::from_raw_u32(10).unwrap(),
         };
         assert_eq!(actual, expected);

@@ -4,9 +4,9 @@ pub struct HotbarPlugin;
 impl Plugin for HotbarPlugin {
     fn build(&self, app: &mut App) {
         let mut hotbar = [None; 10];
-        hotbar[0] = Some(Item(1));
-        hotbar[1] = Some(Item(3));
-        hotbar[2] = Some(Item(4));
+        hotbar[0] = Some(Item::Belt);
+        hotbar[1] = Some(Item::Source);
+        hotbar[2] = Some(Item::Sink);
         app.insert_resource(Hotbar(hotbar));
         app.insert_resource(PlacementItem::None);
 
@@ -39,12 +39,7 @@ const HOTBAR_BORDER_NORMAL: Color = Color::srgba(0.3, 0.3, 0.3, 0.8);
 const HOTBAR_BORDER_SELECTED: Color = Color::srgba(1.0, 0.8, 0.2, 1.0);
 const HOTBAR_BG: Color = Color::srgba(0.1, 0.1, 0.1, 0.8);
 
-fn setup_hotbar(
-    mut cmd: Commands,
-    registry: Res<ItemRegistry>,
-    names: Query<&ItemName>,
-    inv: Res<Hotbar>,
-) {
+fn setup_hotbar(mut cmd: Commands, inv: Res<Hotbar>) {
     // Root container at bottom center - uses full width with flexbox centering
     cmd.spawn(Node {
         position_type: PositionType::Absolute,
@@ -91,10 +86,8 @@ fn setup_hotbar(
                     ));
 
                     // Tool name label
-                    let def = registry.entity(&tool).expect("Item not in registry");
-                    let name = names.get(def).expect("Item has no name");
                     parent.spawn((
-                        Text::new(name.0),
+                        Text::new(tool.name()),
                         TextFont {
                             font_size: 12.0,
                             ..default()
