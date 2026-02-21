@@ -12,6 +12,7 @@ impl Inventory {
         Self(Vec::new())
     }
 
+    #[expect(unused)]
     pub fn get(&self, slot: u16) -> Option<&Stack> {
         match self.0.get(slot as usize) {
             Some(Some(s)) => Some(s),
@@ -20,6 +21,7 @@ impl Inventory {
         }
     }
 
+    #[expect(unused)]
     pub fn get_mut(&mut self, slot: u16) -> Option<&mut Stack> {
         match self.0.get_mut(slot as usize) {
             Some(Some(s)) => Some(s),
@@ -39,6 +41,7 @@ impl Inventory {
     /// for example, by clicking
     ///
     /// It gives any remaining leftover
+    #[expect(unused)]
     pub fn insert_at(&mut self, stack: Option<Stack>, slot: u16) -> Option<Stack> {
         todo!()
     }
@@ -53,6 +56,7 @@ impl Inventory {
     }
 
     /// Returns the number of items acutally taken from the inventory
+    #[expect(unused)]
     pub fn take_n_items(&mut self, n: NonZeroU16, item: Item) -> u16 {
         todo!()
     }
@@ -60,6 +64,7 @@ impl Inventory {
 
 #[derive(Debug)]
 pub enum InventoryAddError {
+    #[expect(dead_code)]
     TooFull,
 }
 impl std::fmt::Display for InventoryAddError {

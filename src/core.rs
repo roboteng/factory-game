@@ -82,6 +82,7 @@ pub struct PlaceBlock {
 
 #[derive(Debug, Clone, Copy)]
 pub struct PlaceBelt {
+    #[expect(dead_code)]
     pub entity: Entity,
     pub coords: WorldCoords,
     pub dir: HDir,
@@ -186,6 +187,7 @@ pub enum GridEntry {
     Belt(BeltShape),
     BeltAdjacent(BeltAdjacent),
     /// Entities that are placed in the world, but never affect belts directly
+    #[expect(dead_code)]
     Machine,
 }
 
@@ -197,6 +199,7 @@ pub enum BeltAdjacent {
     /// Only has an output for belt connections
     Output(HDir),
     /// Has an input and output for belt connections
+    #[expect(dead_code)]
     InputAndOutput { input: HDir, output: HDir },
 }
 
