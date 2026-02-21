@@ -304,10 +304,26 @@ fn event_place_block(world: &mut World, event: PlaceBlock) {
     } else if world.entity(def).contains::<AffectsBelts>() {
         todo!()
     } else if world.entity(def).contains::<IndependentPlaceable>() {
-        todo!()
+        place_independent(world, event);
     } else {
         todo!()
     }
+}
+
+fn place_independent(world: &mut World, event: PlaceBlock) {
+    if let Some((e, _)) = world.resource::<WorldPlacements>().get(event.coords) {
+        world.entity_mut(e).insert(Delete);
+    }
+    world.entity_mut(event.entity).insert((
+        Transform::from_translation(Vec3::from(event.coords)),
+        event.item,
+        event.coords,
+    ));
+    world.resource_mut::<WorldPlacements>().insert(
+        event.coords,
+        event.entity,
+        GridEntry::Machine(event.item),
+    );
 }
 
 fn place_belt(world: &mut World, event: PlaceBlock) {
@@ -415,6 +431,16 @@ fn place_belt(world: &mut World, event: PlaceBlock) {
 }
 
 fn event_remove_block(world: &mut World, event: RemoveBlock) {
+    if !world.entity(event.entity).contains::<BeltShape>() {
+        let coords = *world
+            .entity(event.entity)
+            .get::<WorldCoords>()
+            .expect("Machine entity missing WorldCoords");
+        world.resource_mut::<WorldPlacements>().remove(coords);
+        world.entity_mut(event.entity).insert(Delete);
+        return;
+    }
+
     let Ok((belt, prev_coords)) = world
         .query::<(&BeltShape, &WorldCoords)>()
         .get(world, event.entity)

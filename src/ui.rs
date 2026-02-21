@@ -13,6 +13,10 @@ use std::{collections::HashMap, path::PathBuf};
 
 mod hotbar;
 
+/// Box color for items that render as a solid colored cube.
+#[derive(Component, Debug, Clone, Copy)]
+pub struct ItemBoxColor(pub Color);
+
 /// Visual model data for an item type. Only present on item definition entities
 /// when the `ui` feature is enabled.
 #[derive(Component, Debug, Clone)]
@@ -46,6 +50,7 @@ impl Plugin for UiPlugin {
 
         app.add_observer(on_belt_shape_insert);
         app.add_observer(on_place_item);
+        app.add_observer(on_placed_block);
     }
 }
 
@@ -144,6 +149,32 @@ fn add_item_visuals(registry: Res<ItemRegistry>, mut cmd: Commands) {
             path: "models/Untitled.glb".into(),
             variants: [("curve".into(), 0usize), ("straight".into(), 1)].into(),
         });
+    }
+    if let Some(e) = registry.entity(&Item(3)) {
+        cmd.entity(e).insert(ItemBoxColor(Color::srgb(0.2, 0.8, 0.2)));
+    }
+    if let Some(e) = registry.entity(&Item(4)) {
+        cmd.entity(e).insert(ItemBoxColor(Color::srgb(0.8, 0.2, 0.2)));
+    }
+}
+
+fn on_placed_block(
+    trigger: On<Insert, WorldCoords>,
+    query: Query<&Item>,
+    registry: Res<ItemRegistry>,
+    colors: Query<&ItemBoxColor>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut cmd: Commands,
+) {
+    let entity = trigger.event_target();
+    let Ok(item) = query.get(entity) else { return };
+    let def = registry.entity(item).expect("Item not in registry");
+    if let Ok(color) = colors.get(def) {
+        cmd.entity(entity).insert((
+            Mesh3d(meshes.add(Cuboid::new(BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE))),
+            MeshMaterial3d(materials.add(color.0)),
+        ));
     }
 }
 
