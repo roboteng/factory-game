@@ -7,10 +7,33 @@ impl Plugin for SimPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
             Update,
-            (determine_sideload_blocks, transfers, plan_moves, do_moves)
+            (emit_from_sources, determine_sideload_blocks, transfers, plan_moves, do_moves)
                 .chain()
                 .after(block_changes),
         );
+    }
+}
+
+pub fn emit_from_sources(
+    sources: Query<(&WorldCoords, &BeltAdjacent)>,
+    placements: Res<WorldPlacements>,
+    mut commands: Commands,
+) {
+    for (&coords, adj) in &sources {
+        let Some(dir) = adj.output_dir() else { continue; };
+        let ahead = coords.step(dir);
+        let Some((belt_entity, _)) = placements.get_belt(ahead) else { continue; };
+        let item_entity = commands.spawn_empty().id();
+        commands.trigger(PlaceItem {
+            entity: item_entity,
+            item: Item::Belt,
+            belt: belt_entity,
+            lane: LaneSide::Left,
+            position: POSITIONS_PER_BELT - 1,
+            on_error: Box::new(move |mut commands, _| {
+                commands.entity(item_entity).despawn();
+            }),
+        });
     }
 }
 
@@ -690,5 +713,53 @@ mod tests {
             64,
         );
         assert_eq!(actual, expected_transform);
+    }
+
+    #[test]
+    fn source_puts_item_on_belt() {
+        let mut app = test_app();
+
+        // Belt at origin, facing North
+        app.add_belt((0, 0, 0), HDir::North);
+
+        // Source directly behind the belt (at (-1,0,0), facing North = outputs northward)
+        let source = app.world_mut().spawn_empty().id();
+        app.world_mut().trigger(PlaceBlock {
+            entity: source,
+            item: Item::Source,
+            coords: (-1, 0, 0).into(),
+            dir: HDir::North,
+        });
+
+        app.update();
+
+        // An item should now exist on the belt's left lane.
+        // Asserted via Transform, not internal BeltLane structure.
+        // Belt and source entities also have Item+Transform, but they also have WorldCoords.
+        // Lane items only have Item+Transform, so we exclude WorldCoords to isolate them.
+        let world = app.world_mut();
+        let transforms: Vec<Transform> = world
+            .query_filtered::<&Transform, (With<Item>, Without<WorldCoords>)>()
+            .iter(world)
+            .copied()
+            .collect();
+
+        assert_eq!(transforms.len(), 1, "Source should have placed one item on the belt");
+        let t = transforms[0];
+
+        // For a North-facing belt, the left lane sits at z = -LANE_OFFSET
+        assert!(
+            (t.translation.z - (-LANE_OFFSET)).abs() < 0.01,
+            "Item should be in the left lane (z ≈ {:.3}), got z = {:.3}",
+            -LANE_OFFSET,
+            t.translation.z
+        );
+        // Item should be on the belt surface
+        assert!(
+            (t.translation.y - BELT_HEIGHT_FROM_CENTER).abs() < 0.01,
+            "Item should be at belt height (y ≈ {:.3}), got y = {:.3}",
+            BELT_HEIGHT_FROM_CENTER,
+            t.translation.y
+        );
     }
 }

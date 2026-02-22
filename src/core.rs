@@ -192,7 +192,7 @@ pub enum GridEntry {
 }
 
 /// Entities that affect belt curving, but don't join belt lanes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BeltAdjacent {
     /// Only has an input for belt connections
     Input(HDir),
@@ -285,6 +285,46 @@ fn event_place_block(world: &mut World, event: PlaceBlock) {
     }
 }
 
+/// Re-evaluates the belt at `from_coords.step(output_dir)` and, if its shape
+/// has changed (because something new is now feeding into it from the side),
+/// updates its components and records a `ReplacedBelt` change.
+fn maybe_update_belt_ahead(
+    world: &mut World,
+    from_coords: WorldCoords,
+    output_dir: HDir,
+    changes: &mut BeltChanges,
+) {
+    let ahead = from_coords.step(output_dir);
+    let Some((entity, ahead_belt)) = world.resource::<WorldPlacements>().get_belt(ahead) else {
+        return;
+    };
+    let place = PlaceBlock {
+        entity,
+        item: Item::Belt,
+        dir: ahead_belt.output(),
+        coords: ahead,
+    };
+    let new_belt = plan_belt_placement(place.into(), world.resource::<WorldPlacements>());
+    if ahead_belt == new_belt {
+        return;
+    }
+    let angle = new_belt.output().angle();
+    world.entity_mut(entity).insert((
+        new_belt,
+        Transform::from_translation(Vec3::from(ahead)).with_rotation(Quat::from_rotation_y(angle)),
+    ));
+    world
+        .resource_mut::<WorldPlacements>()
+        .insert(ahead, entity, GridEntry::Belt(new_belt));
+    changes.push(ReplacedBelt {
+        entity,
+        old_entity: None,
+        old_belt: ahead_belt,
+        new_belt,
+        coords: ahead,
+    });
+}
+
 fn place_belt_adjacent(world: &mut World, event: PlaceBlock) {
     if let Some((e, _)) = world.resource::<WorldPlacements>().get(event.coords) {
         world.entity_mut(e).insert(Delete);
@@ -298,12 +338,23 @@ fn place_belt_adjacent(world: &mut World, event: PlaceBlock) {
         Transform::from_translation(Vec3::from(event.coords)),
         event.coords,
         event.item,
+        adj,
     ));
     world.resource_mut::<WorldPlacements>().insert(
         event.coords,
         event.entity,
         GridEntry::BeltAdjacent(adj),
     );
+
+    // If this block has an output (Source), re-evaluate the belt it feeds into.
+    // That belt may now need to curve, just as when a belt is placed to the side.
+    let mut changes = BeltChanges::default();
+    if let Some(output_dir) = adj.output_dir() {
+        maybe_update_belt_ahead(world, event.coords, output_dir, &mut changes);
+    }
+    if !changes.0.is_empty() {
+        link_belts(world, changes);
+    }
 }
 
 fn place_belt(world: &mut World, event: PlaceBlock) {
@@ -365,48 +416,7 @@ fn place_belt(world: &mut World, event: PlaceBlock) {
     }
 
     // Check if placing this belt should curve the belt ahead
-    let ahead = event.coords.step(belt.output());
-    if let Some((entity, ahead_belt)) = world.resource::<WorldPlacements>().get_belt(ahead) {
-        let place = PlaceBlock {
-            entity,
-            item: Item::Belt,
-            dir: ahead_belt.output(),
-            coords: ahead,
-        };
-        let new_belt = plan_belt_placement(place.into(), world.resource::<WorldPlacements>());
-        if ahead_belt != new_belt {
-            debug!(
-                "Placing belt {:?} affected {entity:?}, updating that belt",
-                event.entity
-            );
-            let angle = new_belt.output().angle();
-            debug!(
-                "Adding components to entity {:?}: BeltShape, Transform",
-                place.entity
-            );
-            world.entity_mut(place.entity).insert((
-                new_belt,
-                Transform::from_translation(Vec3::from(place.coords))
-                    .with_rotation(Quat::from_rotation_y(angle)),
-            ));
-            debug!(
-                "Updating BeltCoords resource: inserting {:?} at {:?}",
-                place.entity, place.coords
-            );
-            world.resource_mut::<WorldPlacements>().insert(
-                place.coords,
-                place.entity,
-                GridEntry::Belt(new_belt),
-            );
-            changes.push(ReplacedBelt {
-                entity: place.entity,
-                old_entity: None, // Same entity, just changed belt type
-                new_belt,
-                old_belt: ahead_belt,
-                coords: place.coords,
-            });
-        }
-    }
+    maybe_update_belt_ahead(world, event.coords, belt.output(), &mut changes);
     link_belts(world, changes);
 }
 
@@ -1300,9 +1310,8 @@ fn new_belt(
         let belt_coords = world.resource::<WorldPlacements>();
 
         let left = new.coords.step(new.belt.output().left());
-        if let Some(left_belt) = belt_coords.get(left).filter(|(ent, entry)| {
-            !remaining_entities.contains(ent)
-                && entry.output_dir() == Some(new.belt.output().right())
+        if let Some(left_belt) = belt_coords.get_belt(left).filter(|(ent, belt)| {
+            !remaining_entities.contains(ent) && belt.output() == new.belt.output().right()
         }) {
             let left_lane_ent = get_lane_entity(world, left_belt.0);
 
@@ -1318,9 +1327,8 @@ fn new_belt(
 
         let belt_coords = world.resource::<WorldPlacements>();
         let right = new.coords.step(new.belt.output().right());
-        if let Some(right_belt) = belt_coords.get(right).filter(|(ent, entry)| {
-            !remaining_entities.contains(ent)
-                && entry.output_dir() == Some(new.belt.output().left())
+        if let Some(right_belt) = belt_coords.get_belt(right).filter(|(ent, belt)| {
+            !remaining_entities.contains(ent) && belt.output() == new.belt.output().left()
         }) {
             let right_lane_ent = get_lane_entity(world, right_belt.0);
 
@@ -1366,9 +1374,9 @@ fn detach_belt(
 
             let belt_coords = world.resource::<WorldPlacements>();
             let Some(side_belt) = belt_coords
-                .get(side_coords)
+                .get_belt(side_coords)
                 .filter(|(ent, _)| !remaining_entities.contains(ent))
-                .filter(|(_, entry)| entry.output_dir() == Some(side_dir.opposite()))
+                .filter(|(_, belt)| belt.output() == side_dir.opposite())
             else {
                 continue;
             };
@@ -2415,5 +2423,97 @@ mod tests {
 
         app.remove_belt_at((0, 0, 1));
         app.update();
+    }
+
+    #[test]
+    fn belt_curves_when_source_placed_on_side() {
+        let mut app = test_app();
+
+        // Place a straight belt facing North
+        let belt = app.add_belt((0, 0, 0), HDir::North);
+        app.update();
+
+        // Place a Source to the left (West) of the belt, outputting East.
+        // plan_belt_placement already treats BeltAdjacent sources as feeding
+        // into belts, so the belt should curve from East to North.
+        let source = app.world_mut().spawn_empty().id();
+        app.world_mut().trigger(PlaceBlock {
+            entity: source,
+            item: Item::Source,
+            coords: (0, 0, -1).into(),
+            dir: HDir::East,
+        });
+        app.update();
+
+        let (shape, _) = app.find_belt(belt).expect("Belt should exist");
+        assert_eq!(shape, BeltShape::Curve(Curve::EastToNorth));
+    }
+
+    #[test]
+    fn belt_stays_straight_with_sources_on_both_sides() {
+        let mut app = test_app();
+
+        // Place a straight belt facing North
+        let belt = app.add_belt((0, 0, 0), HDir::North);
+        app.update();
+
+        // Place a source on the left (West side, outputting East).
+        // This alone would curve the belt to EastToNorth...
+        let source_left = app.world_mut().spawn_empty().id();
+        app.world_mut().trigger(PlaceBlock {
+            entity: source_left,
+            item: Item::Source,
+            coords: (0, 0, -1).into(),
+            dir: HDir::East,
+        });
+        app.update();
+
+        // ...but adding a source on the right (East side, outputting West)
+        // means fed_from_left AND fed_from_right, which forces straight.
+        let source_right = app.world_mut().spawn_empty().id();
+        app.world_mut().trigger(PlaceBlock {
+            entity: source_right,
+            item: Item::Source,
+            coords: (0, 0, 1).into(),
+            dir: HDir::West,
+        });
+        app.update();
+
+        let (shape, _) = app.find_belt(belt).expect("Belt should exist");
+        assert_eq!(shape, BeltShape::Straight(HDir::North));
+    }
+
+    #[test]
+    fn belt_stays_straight_with_sources_from_behind_and_side() {
+        let mut app = test_app();
+
+        // Place a straight belt facing North
+        let belt = app.add_belt((0, 0, 0), HDir::North);
+        app.update();
+
+        // Place a source on the left (West side, outputting East).
+        // This alone would curve the belt to EastToNorth...
+        let source_side = app.world_mut().spawn_empty().id();
+        app.world_mut().trigger(PlaceBlock {
+            entity: source_side,
+            item: Item::Source,
+            coords: (0, 0, -1).into(),
+            dir: HDir::East,
+        });
+        app.update();
+
+        // ...but adding a source behind (South side, outputting North)
+        // means fed_from_behind, which always forces straight regardless of sides.
+        let source_behind = app.world_mut().spawn_empty().id();
+        app.world_mut().trigger(PlaceBlock {
+            entity: source_behind,
+            item: Item::Source,
+            coords: (-1, 0, 0).into(),
+            dir: HDir::North,
+        });
+        app.update();
+
+        let (shape, _) = app.find_belt(belt).expect("Belt should exist");
+        assert_eq!(shape, BeltShape::Straight(HDir::North));
     }
 }
