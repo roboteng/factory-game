@@ -7,7 +7,13 @@ impl Plugin for SimPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
             Update,
-            (emit_from_sources, determine_sideload_blocks, transfers, plan_moves, do_moves)
+            (
+                emit_from_sources,
+                determine_sideload_blocks,
+                transfers,
+                plan_moves,
+                do_moves,
+            )
                 .chain()
                 .after(block_changes),
         );
@@ -20,9 +26,13 @@ pub fn emit_from_sources(
     mut commands: Commands,
 ) {
     for (&coords, adj) in &sources {
-        let Some(dir) = adj.output_dir() else { continue; };
+        let Some(dir) = adj.output_dir() else {
+            continue;
+        };
         let ahead = coords.step(dir);
-        let Some((belt_entity, _)) = placements.get_belt(ahead) else { continue; };
+        let Some((belt_entity, _)) = placements.get_belt(ahead) else {
+            continue;
+        };
         let item_entity = commands.spawn_empty().id();
         commands.trigger(PlaceItem {
             entity: item_entity,
@@ -49,7 +59,11 @@ pub fn do_moves(mut items: Query<&mut Transform, With<Item>>, lanes: Query<&Belt
             for item_entry in &lane.lanes[side] {
                 let belt_entry = lane
                     .belt_for(item_entry.pos, side)
-                    .expect("Invariant broken: items_are_within_belt_bounds");
+                    .unwrap_or_else(|| panic!(
+                        "Invariant broken: items_are_within_belt_bounds — item {:?} at pos {} side {:?}, lane ranges: {:?}",
+                        item_entry.entity, item_entry.pos, side,
+                        lane.belts.iter().map(|b| (b.belt, b.ranges[side].clone())).collect::<Vec<_>>()
+                    ));
 
                 let relative_pos = item_entry.pos - belt_entry.lane_offsets[side];
                 debug!(
@@ -138,13 +152,14 @@ pub fn transfers(
             if let Some(item_entry) = source_lane.lanes[side].first().copied() {
                 debug!("item at pos: {}", item_entry.pos);
                 if item_entry.pos - start < BASE_BELT_SPEED {
+                    let delta = item_entry.pos - start;
                     source_lane.lanes[side].remove(0);
                     let mut target_lane = lanes
                         .get_mut(conn.target)
                         .expect("Invariant broken: lane_connection_target_is_valid_lane");
                     target_lane.insert_items_at(
                         &[ItemEntry {
-                            pos: conn.offset[side],
+                            pos: conn.offset[side] + delta,
                             ..item_entry
                         }],
                         conn.target_side,
@@ -744,7 +759,11 @@ mod tests {
             .copied()
             .collect();
 
-        assert_eq!(transforms.len(), 1, "Source should have placed one item on the belt");
+        assert_eq!(
+            transforms.len(),
+            1,
+            "Source should have placed one item on the belt"
+        );
         let t = transforms[0];
 
         // For a North-facing belt, the left lane sits at z = -LANE_OFFSET
@@ -761,5 +780,26 @@ mod tests {
             BELT_HEIGHT_FROM_CENTER,
             t.translation.y
         );
+    }
+
+    #[test]
+    fn sideloading_items_coming_from_source() {
+        let mut app = test_app();
+
+        app.add_belt((0, 0, 0), HDir::North);
+        app.add_belt((-1, 0, 0), HDir::North);
+        app.add_belt((0, 0, 1), HDir::West);
+
+        let source = app.world_mut().spawn_empty().id();
+        app.world_mut().trigger(PlaceBlock {
+            entity: source,
+            item: Item::Source,
+            coords: (0, 0, 2).into(),
+            dir: HDir::West,
+        });
+
+        for _ in 0..POSITIONS_PER_BELT {
+            app.update();
+        }
     }
 }

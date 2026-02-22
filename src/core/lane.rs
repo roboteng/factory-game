@@ -349,6 +349,13 @@ impl BeltLane {
     pub fn tick(&mut self) {
         for side in SIDES {
             let head = self.belts[0].ranges[side].start;
+            let tail = self
+                .belts
+                .last()
+                .expect("Invariant broken: all_lanes_have_belts")
+                .ranges[side]
+                .end
+                - 1;
             let Some(lead_item) = self.lanes[side].get_mut(0) else {
                 continue;
             };
@@ -362,7 +369,8 @@ impl BeltLane {
                 let first = self.lanes[side][i - 1];
                 let second = &mut self.lanes[side][i];
 
-                second.pos = (first.pos + ITEM_SPACING).max(second.pos - BASE_BELT_SPEED);
+                second.pos =
+                    ((first.pos + ITEM_SPACING).max(second.pos - BASE_BELT_SPEED)).min(tail);
             }
         }
     }

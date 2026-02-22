@@ -1676,11 +1676,20 @@ fn create_sideload_connection(
     let target_lane_ent = get_lane_entity(world, target_belt_ent);
     let target_lane = get_lane(world, target_lane_ent);
 
-    let ranges = target_lane
-        .range_for(target_belt_ent)
+    let target_belt_entry = target_lane
+        .belts
+        .iter()
+        .find(|b| b.entity == target_belt_ent)
         .expect("Invariant broken: lane_belt_data_matches_world");
 
-    let center = (ranges[target_side].start + ranges[target_side].end) / 2;
+    // The geometric center of the belt in lane coordinates is stable regardless of how many
+    // head/tail belts are connected. It is lane_offsets + (POSITIONS_PER_BELT/2 - ITEM_SPACING/2),
+    // derived from item_position where t=0.5 → relative_pos = POSITIONS_PER_BELT/2 - ITEM_SPACING/2.
+    // Using the range midpoint is wrong because range.start shifts by -ITEM_SPACING/2 each time
+    // a head belt is prepended, while lane_offsets stays fixed.
+    let center = target_belt_entry.lane_offsets[target_side]
+        + POSITIONS_PER_BELT / 2
+        - ITEM_SPACING / 2;
 
     let lane_offset = (LANE_OFFSET_FACTOR * POSITIONS_PER_BELT as f32) as i32;
 
