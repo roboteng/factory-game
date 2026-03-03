@@ -124,6 +124,12 @@ pub enum HDir {
 #[derive(Component)]
 pub struct Belt;
 
+#[derive(Component)]
+pub struct Source;
+
+#[derive(Component)]
+pub struct Sink;
+
 /// Entities with this will get deleted in `PostUpdate'
 #[derive(Component)]
 pub struct Delete;
@@ -334,12 +340,23 @@ fn place_belt_adjacent(world: &mut World, event: PlaceBlock) {
         Item::Sink => BeltAdjacent::Input(event.dir),
         Item::Belt => return,
     };
-    world.entity_mut(event.entity).insert((
-        Transform::from_translation(Vec3::from(event.coords)),
-        event.coords,
-        event.item,
-        adj,
-    ));
+    match event.item {
+        Item::Source => world.entity_mut(event.entity).insert((
+            Transform::from_translation(Vec3::from(event.coords)),
+            event.coords,
+            event.item,
+            adj,
+            Source,
+        )),
+        Item::Sink => world.entity_mut(event.entity).insert((
+            Transform::from_translation(Vec3::from(event.coords)),
+            event.coords,
+            event.item,
+            adj,
+            Sink,
+        )),
+        Item::Belt => unreachable!(),
+    };
     world.resource_mut::<WorldPlacements>().insert(
         event.coords,
         event.entity,

@@ -11,6 +11,7 @@ impl Plugin for SimPlugin {
                 emit_from_sources,
                 determine_sideload_blocks,
                 transfers,
+                consume_at_sinks,
                 plan_moves,
                 do_moves,
             )
@@ -21,7 +22,7 @@ impl Plugin for SimPlugin {
 }
 
 pub fn emit_from_sources(
-    sources: Query<(&WorldCoords, &BeltAdjacent)>,
+    sources: Query<(&WorldCoords, &BeltAdjacent), With<Source>>,
     placements: Res<WorldPlacements>,
     mut commands: Commands,
 ) {
@@ -52,6 +53,30 @@ pub fn emit_from_sources(
                 commands.entity(item_entity).despawn();
             }),
         });
+    }
+}
+
+pub fn consume_at_sinks(
+    sinks: Query<(&WorldCoords, &BeltAdjacent), With<Sink>>,
+    placements: Res<WorldPlacements>,
+    in_lanes: Query<&InLane>,
+    mut lanes: Query<&mut BeltLane>,
+    mut commands: Commands,
+) {
+    for (&sink_coords, adj) in &sinks {
+        let BeltAdjacent::Input(dir) = adj else { continue; };
+        let belt_coords = sink_coords.step(*dir);
+        let Some((belt_entity, _)) = placements.get_belt(belt_coords) else { continue; };
+        let Ok(in_lane) = in_lanes.get(belt_entity) else { continue; };
+        let Ok(mut lane) = lanes.get_mut(in_lane.lane) else { continue; };
+        for side in SIDES {
+            let start = lane.belts[0].ranges[side].start;
+            while let Some(item_entry) = lane.lanes[side].first().copied() {
+                if item_entry.pos - start >= BASE_BELT_SPEED { break; }
+                lane.lanes[side].remove(0);
+                commands.entity(item_entry.entity).despawn();
+            }
+        }
     }
 }
 
@@ -984,6 +1009,23 @@ mod tests {
                 t.translation.z
             );
         }
+    }
+
+    #[test]
+    fn item_consumed_by_sink() {
+        let mut app = test_app();
+        let belt = app.add_belt((0, 0, 0), HDir::North);
+        app.update();
+        let item = app.add_item(belt, 0, LaneSide::Left);
+        let sink = app.world_mut().spawn_empty().id();
+        app.world_mut().trigger(PlaceBlock {
+            entity: sink,
+            item: Item::Sink,
+            coords: (1, 0, 0).into(),
+            dir: HDir::South,
+        });
+        app.update();
+        assert!(app.find_item(item).is_none(), "item should be consumed by sink");
     }
 
     #[test]
