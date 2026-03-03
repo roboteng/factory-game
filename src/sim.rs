@@ -30,15 +30,23 @@ pub fn emit_from_sources(
             continue;
         };
         let ahead = coords.step(dir);
-        let Some((belt_entity, _)) = placements.get_belt(ahead) else {
+        let Some((belt_entity, belt_shape)) = placements.get_belt(ahead) else {
             continue;
+        };
+        if dir.opposite() == belt_shape.output() {
+            continue;
+        }
+        let lane = if dir.opposite() == belt_shape.output().right() {
+            LaneSide::Right
+        } else {
+            LaneSide::Left
         };
         let item_entity = commands.spawn_empty().id();
         commands.trigger(PlaceItem {
             entity: item_entity,
             item: Item::Belt,
             belt: belt_entity,
-            lane: LaneSide::Left,
+            lane,
             position: POSITIONS_PER_BELT - 1,
             on_error: Box::new(move |mut commands, _| {
                 commands.entity(item_entity).despawn();
@@ -300,16 +308,21 @@ mod tests {
     #[test]
     fn item_moves_on_merged_lanes() {
         let mut app = test_app();
-        let layout = app.layout("
+        let layout = app.layout(
+            "
  |
 -> >
-");
+",
+        );
         app.update();
         debug!("head and tail placed");
-        let layout = layout.update(&mut app, "
+        let layout = layout.update(
+            &mut app,
+            "
  |
 ->>>
-");
+",
+        );
         let item = app.add_item(layout.get(0, 0), 0, LaneSide::Left);
         app.update();
         let (_, actual) = app.find_item(item).unwrap();
@@ -327,12 +340,14 @@ mod tests {
     #[test]
     fn small_belt_loop() {
         let mut app = test_app();
-        let layout = app.layout("
+        let layout = app.layout(
+            "
  |
  v<
 ->^
  |
-");
+",
+        );
         let belt = layout.get(1, 0);
         app.update();
         let item1 = app.add_item(belt, 0, LaneSide::Left);
@@ -410,12 +425,14 @@ mod tests {
     #[test]
     fn items_move_together() {
         let mut app = test_app();
-        let layout = app.layout("
+        let layout = app.layout(
+            "
  |
  ^
 -^
  |
-");
+",
+        );
         let belt1 = layout.get(0, 0);
         let belt2 = layout.get(1, 0);
         app.update();
@@ -432,13 +449,16 @@ mod tests {
             lead_pos.distance(follow_pos)
         }
         let expected = dist(&mut app, first_item, last_item);
-        layout.update(&mut app, "
+        layout.update(
+            &mut app,
+            "
  |
  ^
  ^
 -^
  |
-");
+",
+        );
 
         app.update();
         let actual = dist(&mut app, first_item, last_item);
@@ -448,19 +468,24 @@ mod tests {
     #[test]
     fn side_loading_starts_earlier_lane() {
         let mut app = test_app();
-        let layout = app.layout("
+        let layout = app.layout(
+            "
  |
 -^
  ^
  |
-");
+",
+        );
         app.update();
-        let layout = layout.update(&mut app, "
+        let layout = layout.update(
+            &mut app,
+            "
  |
 -^<
  ^
  |
-");
+",
+        );
         let side_load_belt = layout.get(0, 1);
         app.update();
         let item = app.add_item(side_load_belt, 0, LaneSide::Left);
@@ -474,19 +499,24 @@ mod tests {
     #[test]
     fn side_loading_starts_later_lane() {
         let mut app = test_app();
-        let layout = app.layout("
+        let layout = app.layout(
+            "
  |
 -^
  ^
  |
-");
+",
+        );
         app.update();
-        let layout = layout.update(&mut app, "
+        let layout = layout.update(
+            &mut app,
+            "
  |
 -^<
  ^
  |
-");
+",
+        );
         let side_load_belt = layout.get(0, 1);
         app.update();
         let item = app.add_item(side_load_belt, 0, LaneSide::Right);
@@ -514,12 +544,14 @@ mod tests {
     #[test]
     fn item_moves_towards_side_loading_belt_left_lane() {
         let mut app = test_app();
-        let layout = app.layout("
+        let layout = app.layout(
+            "
  |
 ->^
   ^
  |
-");
+",
+        );
         let belt1 = layout.get(0, 0);
         app.update();
 
@@ -536,12 +568,14 @@ mod tests {
     #[test]
     fn item_moves_towards_side_loading_belt_right_lane() {
         let mut app = test_app();
-        let layout = app.layout("
+        let layout = app.layout(
+            "
  |
 ->^
   ^
  |
-");
+",
+        );
         let belt1 = layout.get(0, 0);
         app.update();
 
@@ -558,18 +592,23 @@ mod tests {
     #[test]
     fn item_moves_towards_side_loading_belt_other_order_left_lane() {
         let mut app = test_app();
-        let layout = app.layout("
+        let layout = app.layout(
+            "
  |
 - ^
   ^
-");
+",
+        );
         app.update();
-        let layout = layout.update(&mut app, "
+        let layout = layout.update(
+            &mut app,
+            "
  |
 ->^
   ^
  |
-");
+",
+        );
         let belt1 = layout.get(0, 0);
         app.update();
 
@@ -586,18 +625,23 @@ mod tests {
     #[test]
     fn item_moves_towards_side_loading_belt_other_order_right_lane() {
         let mut app = test_app();
-        let layout = app.layout("
+        let layout = app.layout(
+            "
  |
 - ^
   ^
-");
+",
+        );
         app.update();
-        let layout = layout.update(&mut app, "
+        let layout = layout.update(
+            &mut app,
+            "
  |
 ->^
   ^
  |
-");
+",
+        );
         let belt1 = layout.get(0, 0);
         app.update();
 
@@ -614,12 +658,14 @@ mod tests {
     #[test]
     fn item_moves_onto_side_loaded_belt_left_lane() {
         let mut app = test_app();
-        let layout = app.layout("
+        let layout = app.layout(
+            "
  |
 ->^
   ^
  |
-");
+",
+        );
         let belt1 = layout.get(0, 0);
         app.update();
 
@@ -646,12 +692,14 @@ mod tests {
     #[test]
     fn item_moves_onto_side_loaded_belt_right_lane() {
         let mut app = test_app();
-        let layout = app.layout("
+        let layout = app.layout(
+            "
  |
 -^<
  ^
  |
-");
+",
+        );
         let side_loading = layout.get(0, 1);
         app.update();
 
@@ -665,11 +713,13 @@ mod tests {
     #[test]
     fn item_doesnt_move_onto_side_loaded_belt_when_full_left_lane() {
         let mut app = test_app();
-        let layout = app.layout("
+        let layout = app.layout(
+            "
   |
 ->^
   ^
-");
+",
+        );
         let side_loading = layout.get(0, -1);
         let side_loaded = layout.get(0, 0);
         app.update();
@@ -694,12 +744,14 @@ mod tests {
     #[test]
     fn item_doesnt_move_onto_side_loaded_belt_when_full_right_lane() {
         let mut app = test_app();
-        let layout = app.layout("
+        let layout = app.layout(
+            "
  |
 -^<
  ^
  |
-");
+",
+        );
         let side_loading = layout.get(0, 1);
         let side_loaded = layout.get(0, 0);
         app.update();
@@ -870,12 +922,14 @@ mod tests {
     fn sideloading_items_coming_from_source() {
         let mut app = test_app();
 
-        app.layout("
- |
--^<
- ^
- |
-");
+        app.layout(
+            "
+             |
+            -^<
+             ^
+             |
+            ",
+        );
 
         let source = app.world_mut().spawn_empty().id();
         app.world_mut().trigger(PlaceBlock {
@@ -888,5 +942,78 @@ mod tests {
         for _ in 0..POSITIONS_PER_BELT {
             app.update();
         }
+    }
+
+    #[test]
+    fn sideloading_items_from_source_right() {
+        let mut app = test_app();
+
+        let layout = app.layout(
+            "
+             |
+            -^
+             ^
+             |
+            ",
+        );
+
+        let source = app.world_mut().spawn_empty().id();
+        app.world_mut().trigger(PlaceBlock {
+            entity: source,
+            item: Item::Source,
+            coords: (0, 0, 1).into(),
+            dir: HDir::West,
+        });
+
+        app.update();
+
+        let belt_z = app.find_belt(layout.get(0, 0)).unwrap().1.translation.z;
+
+        let world = app.world_mut();
+        let items: Vec<Transform> = world
+            .query_filtered::<&Transform, (With<Item>, Without<WorldCoords>)>()
+            .iter(world)
+            .copied()
+            .collect();
+
+        assert!(!items.is_empty(), "Source should have placed at least one item");
+        for t in &items {
+            assert!(
+                t.translation.z > belt_z,
+                "Item should be farther +z than belt center ({belt_z}), got z = {}",
+                t.translation.z
+            );
+        }
+    }
+
+    #[test]
+    fn source_facing_into_belt_output_creates_no_items() {
+        let mut app = test_app();
+
+        // Belt at origin facing North (+x).
+        app.add_belt((0, 0, 0), HDir::North);
+
+        // Source at (1,0,0) facing South — points into the belt's output face.
+        let source = app.world_mut().spawn_empty().id();
+        app.world_mut().trigger(PlaceBlock {
+            entity: source,
+            item: Item::Source,
+            coords: (1, 0, 0).into(),
+            dir: HDir::South,
+        });
+
+        app.update();
+
+        let world = app.world_mut();
+        let items: Vec<Transform> = world
+            .query_filtered::<&Transform, (With<Item>, Without<WorldCoords>)>()
+            .iter(world)
+            .copied()
+            .collect();
+
+        assert!(
+            items.is_empty(),
+            "Source pointing into the output face of a belt should not place items"
+        );
     }
 }
