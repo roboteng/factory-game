@@ -1687,9 +1687,8 @@ fn create_sideload_connection(
     // derived from item_position where t=0.5 → relative_pos = POSITIONS_PER_BELT/2 - ITEM_SPACING/2.
     // Using the range midpoint is wrong because range.start shifts by -ITEM_SPACING/2 each time
     // a head belt is prepended, while lane_offsets stays fixed.
-    let center = target_belt_entry.lane_offsets[target_side]
-        + POSITIONS_PER_BELT / 2
-        - ITEM_SPACING / 2;
+    let center =
+        target_belt_entry.lane_offsets[target_side] + POSITIONS_PER_BELT / 2 - ITEM_SPACING / 2;
 
     let lane_offset = (LANE_OFFSET_FACTOR * POSITIONS_PER_BELT as f32) as i32;
 
@@ -1801,12 +1800,102 @@ pub struct PlacementErrors {
 }
 
 #[cfg(test)]
+pub struct Layout {
+    belts: HashMap<(i32, i32), (Entity, HDir)>,
+}
+
+#[cfg(test)]
+impl Layout {
+    pub fn get(&self, x: i32, z: i32) -> Entity {
+        self.belts
+            .get(&(x, z))
+            .map(|&(e, _)| e)
+            .unwrap_or_else(|| panic!("No belt at ({x}, {z})"))
+    }
+
+    /// Transition to a new layout string, diffing against this one:
+    /// - belts present in `s` but not here → `add_belt` called
+    /// - belts present in both with the same direction → entity reused, no call
+    /// - belts present in both with a different direction → `add_belt` called (replacement)
+    /// - belts present here but not in `s` → `remove_belt_at` called
+    pub fn update(&self, app: &mut App, s: &str) -> Layout {
+        let new_entries = parse_layout(s);
+        let new_coords: std::collections::HashSet<(i32, i32)> =
+            new_entries.iter().map(|&(x, z, _)| (x, z)).collect();
+
+        for (&(x, z), _) in &self.belts {
+            if !new_coords.contains(&(x, z)) {
+                app.remove_belt_at((x, 0, z));
+            }
+        }
+
+        let belts = new_entries
+            .into_iter()
+            .map(|(x, z, dir)| {
+                let e = match self.belts.get(&(x, z)) {
+                    Some(&(entity, old_dir)) if old_dir == dir => entity,
+                    _ => app.add_belt((x, 0, z), dir),
+                };
+                ((x, z), (e, dir))
+            })
+            .collect();
+
+        Layout { belts }
+    }
+}
+
+#[cfg(test)]
+fn parse_layout(s: &str) -> Vec<(i32, i32, HDir)> {
+    let lines: Vec<&str> = s.lines().filter(|l| !l.trim().is_empty()).collect();
+
+    // Single-belt shorthand: no axes needed, belt placed at (0,0,0)
+    let has_axes = lines.iter().any(|l| l.contains('|') || l.contains('-'));
+    let (h_row, v_col) = if has_axes {
+        let h = lines
+            .iter()
+            .position(|l| l.contains('-'))
+            .expect("layout with '|' also needs a '-' axis row") as i32;
+        let v = lines
+            .iter()
+            .find_map(|l| l.chars().position(|c| c == '|'))
+            .expect("layout with '-' also needs a '|' axis column") as i32;
+        (h, v)
+    } else {
+        // Find the single belt char and treat its position as (0,0,0)
+        let (row, col) = lines
+            .iter()
+            .enumerate()
+            .find_map(|(r, l)| l.chars().position(|c| ">^<v".contains(c)).map(|c| (r, c)))
+            .expect("layout must contain at least one belt character");
+        (row as i32, col as i32)
+    };
+
+    let mut out = Vec::new();
+    for (row, line) in lines.iter().enumerate() {
+        let x = h_row - row as i32;
+        for (col, ch) in line.chars().enumerate() {
+            let dir = match ch {
+                '>' => HDir::East,
+                '<' => HDir::West,
+                '^' => HDir::North,
+                'v' => HDir::South,
+                _ => continue,
+            };
+            let z = col as i32 - v_col;
+            out.push((x, z, dir));
+        }
+    }
+    out
+}
+
+#[cfg(test)]
 pub trait AppExtension {
     fn add_belt(&mut self, coords: impl Into<WorldCoords>, dir: HDir) -> Entity;
     fn add_item(&mut self, belt: Entity, pos: i32, lane: LaneSide) -> Entity;
     fn find_item(&mut self, item: Entity) -> Option<(Item, Transform)>;
     fn find_belt(&mut self, belt: Entity) -> Option<(BeltShape, Transform)>;
     fn remove_belt_at(&mut self, coords: impl Into<WorldCoords>) -> bool;
+    fn layout(&mut self, s: &str) -> Layout;
     #[allow(unused)]
     fn has_placement_errors(&self) -> bool;
     #[allow(unused)]
@@ -1885,6 +1974,17 @@ impl AppExtension for App {
             .get_resource_mut::<PlacementErrors>()
             .map(|mut e| std::mem::take(&mut e.errors))
             .unwrap_or_default()
+    }
+
+    fn layout(&mut self, s: &str) -> Layout {
+        let belts = parse_layout(s)
+            .into_iter()
+            .map(|(x, z, dir)| {
+                let e = self.add_belt((x, 0, z), dir);
+                ((x, z), (e, dir))
+            })
+            .collect();
+        Layout { belts }
     }
 }
 
@@ -2147,9 +2247,16 @@ mod tests {
     #[test]
     fn remove_belt_in_middle() {
         let mut app = test_app();
-        let entity = app.add_belt((0, 0, 0), HDir::North);
-        app.add_belt((1, 0, 0), HDir::North);
-        app.add_belt((-1, 0, 0), HDir::North);
+        let layout = app.layout(
+            "
+             |
+             ^
+            -^
+             ^
+             |
+            ",
+        );
+        let entity = layout.get(0, 0);
         app.update();
 
         app.remove_belt_at((0, 0, 0));
@@ -2161,9 +2268,18 @@ mod tests {
     #[test]
     fn remove_belt_in_middle_with_items() {
         let mut app = test_app();
-        let middle = app.add_belt((0, 0, 0), HDir::North);
-        let head = app.add_belt((1, 0, 0), HDir::North);
-        let tail = app.add_belt((-1, 0, 0), HDir::North);
+        let layout = app.layout(
+            "
+             |
+             ^
+            -^
+             ^
+             |
+            ",
+        );
+        let middle = layout.get(0, 0);
+        let head = layout.get(1, 0);
+        let tail = layout.get(-1, 0);
         app.update();
 
         for i in 0..ITEMS_PER_BELT {
@@ -2183,11 +2299,29 @@ mod tests {
     fn replace_belt_at_head_flipped() {
         let mut app = test_app();
 
-        let first = app.add_belt((0, 0, 0), HDir::East);
+        let layout = app.layout(">");
+        let first = layout.get(0, 0);
         app.update();
-        app.add_belt((-1, 0, 0), HDir::North);
+        let layout = layout.update(
+            &mut app,
+            "
+              |
+            - >
+              ^
+              |
+            ",
+        );
         app.update();
-        let replaced = app.add_belt((0, 0, 0), HDir::West);
+        let layout = layout.update(
+            &mut app,
+            "
+              |
+            - <
+              ^
+              |
+            ",
+        );
+        let replaced = layout.get(0, 0);
         app.update();
 
         assert!(app.find_belt(first).is_none());
@@ -2213,11 +2347,28 @@ mod tests {
     fn replace_belt_with_two_neighbors_with_update() {
         let mut app = test_app();
 
-        let first = app.add_belt((0, 0, 0), HDir::West);
-        app.add_belt((-1, 0, 0), HDir::North);
-        app.add_belt((1, 0, 0), HDir::South);
+        let layout = app.layout(
+            "
+              |
+              v
+            - <
+              ^
+              |
+            ",
+        );
+        let first = layout.get(0, 0);
         app.update();
-        let replaced = app.add_belt((0, 0, 0), HDir::North);
+        let layout = layout.update(
+            &mut app,
+            "
+              |
+              v
+            - ^
+              ^
+              |
+            ",
+        );
+        let replaced = layout.get(0, 0);
         app.update();
 
         // Verify the belt was replaced
@@ -2283,12 +2434,28 @@ mod tests {
     fn replace_with_two_neighbors_after_update() {
         let mut app = test_app();
 
-        let first = app.add_belt((0, 0, 0), HDir::West);
-        app.add_belt((-1, 0, 0), HDir::North);
+        let layout = app.layout(
+            "
+              |
+            - <
+              ^
+              |
+            ",
+        );
+        let first = layout.get(0, 0);
         app.update();
 
-        app.add_belt((1, 0, 0), HDir::South);
-        let replaced = app.add_belt((0, 0, 0), HDir::North);
+        let layout = layout.update(
+            &mut app,
+            "
+              |
+              v
+            - ^
+              ^
+              |
+            ",
+        );
+        let replaced = layout.get(0, 0);
         app.update();
 
         assert!(app.find_belt(first).is_none());
@@ -2424,10 +2591,14 @@ mod tests {
     #[test]
     fn remove_sideload_from_long_lane() {
         let mut app = test_app();
-        app.add_belt((0, 0, 0), HDir::North);
-        app.add_belt((-1, 0, 0), HDir::North);
-        let _side_loader = app.add_belt((0, 0, 1), HDir::West);
-        app.add_belt((0, 0, 2), HDir::West);
+        app.layout(
+            "
+              |
+            - ^<<
+              ^
+              |
+            ",
+        );
         app.update();
 
         app.remove_belt_at((0, 0, 1));

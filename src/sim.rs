@@ -180,7 +180,8 @@ mod tests {
     #[test]
     fn item_moves_on_belt() {
         let mut app = test_app();
-        let belt = app.add_belt((0, 0, 0), HDir::East);
+        let layout = app.layout(">");
+        let belt = layout.get(0, 0);
         app.update();
         let item = app.add_item(belt, POSITIONS_PER_BELT / 2, LaneSide::Left);
         app.update();
@@ -299,12 +300,17 @@ mod tests {
     #[test]
     fn item_moves_on_merged_lanes() {
         let mut app = test_app();
-        let tail_belt = app.add_belt((0, 0, 0), HDir::East);
-        let _head_belt = app.add_belt((0, 0, 2), HDir::East);
+        let layout = app.layout("
+ |
+-> >
+");
         app.update();
         debug!("head and tail placed");
-        let _middle_belt = app.add_belt((0, 0, 1), HDir::East);
-        let item = app.add_item(tail_belt, 0, LaneSide::Left);
+        let layout = layout.update(&mut app, "
+ |
+->>>
+");
+        let item = app.add_item(layout.get(0, 0), 0, LaneSide::Left);
         app.update();
         let (_, actual) = app.find_item(item).unwrap();
 
@@ -321,10 +327,13 @@ mod tests {
     #[test]
     fn small_belt_loop() {
         let mut app = test_app();
-        app.add_belt((0, 0, 0), HDir::East);
-        app.add_belt((0, 0, 1), HDir::North);
-        app.add_belt((1, 0, 1), HDir::West);
-        let belt = app.add_belt((1, 0, 0), HDir::South);
+        let layout = app.layout("
+ |
+ v<
+->^
+ |
+");
+        let belt = layout.get(1, 0);
         app.update();
         let item1 = app.add_item(belt, 0, LaneSide::Left);
         let item2 = app.add_item(belt, 0, LaneSide::Right);
@@ -401,8 +410,14 @@ mod tests {
     #[test]
     fn items_move_together() {
         let mut app = test_app();
-        let belt1 = app.add_belt((0, 0, 0), HDir::North);
-        let belt2 = app.add_belt((1, 0, 0), HDir::North);
+        let layout = app.layout("
+ |
+ ^
+-^
+ |
+");
+        let belt1 = layout.get(0, 0);
+        let belt2 = layout.get(1, 0);
         app.update();
 
         let first_item = app.add_item(belt2, 0, LaneSide::Left);
@@ -417,7 +432,13 @@ mod tests {
             lead_pos.distance(follow_pos)
         }
         let expected = dist(&mut app, first_item, last_item);
-        app.add_belt((2, 0, 0), HDir::North);
+        layout.update(&mut app, "
+ |
+ ^
+ ^
+-^
+ |
+");
 
         app.update();
         let actual = dist(&mut app, first_item, last_item);
@@ -427,10 +448,20 @@ mod tests {
     #[test]
     fn side_loading_starts_earlier_lane() {
         let mut app = test_app();
-        app.add_belt((0, 0, 0), HDir::North);
-        app.add_belt((-1, 0, 0), HDir::North);
+        let layout = app.layout("
+ |
+-^
+ ^
+ |
+");
         app.update();
-        let side_load_belt = app.add_belt((0, 0, 1), HDir::West);
+        let layout = layout.update(&mut app, "
+ |
+-^<
+ ^
+ |
+");
+        let side_load_belt = layout.get(0, 1);
         app.update();
         let item = app.add_item(side_load_belt, 0, LaneSide::Left);
         app.update();
@@ -443,10 +474,20 @@ mod tests {
     #[test]
     fn side_loading_starts_later_lane() {
         let mut app = test_app();
-        app.add_belt((0, 0, 0), HDir::North);
-        app.add_belt((-1, 0, 0), HDir::North);
+        let layout = app.layout("
+ |
+-^
+ ^
+ |
+");
         app.update();
-        let side_load_belt = app.add_belt((0, 0, 1), HDir::West);
+        let layout = layout.update(&mut app, "
+ |
+-^<
+ ^
+ |
+");
+        let side_load_belt = layout.get(0, 1);
         app.update();
         let item = app.add_item(side_load_belt, 0, LaneSide::Right);
         app.update();
@@ -473,9 +514,13 @@ mod tests {
     #[test]
     fn item_moves_towards_side_loading_belt_left_lane() {
         let mut app = test_app();
-        let belt1 = app.add_belt((0, 0, 0), HDir::East);
-        app.add_belt((0, 0, 1), HDir::North);
-        app.add_belt((-1, 0, 1), HDir::North);
+        let layout = app.layout("
+ |
+->^
+  ^
+ |
+");
+        let belt1 = layout.get(0, 0);
         app.update();
 
         let item = app.add_item(belt1, POSITIONS_PER_BELT / 2, LaneSide::Left);
@@ -491,9 +536,13 @@ mod tests {
     #[test]
     fn item_moves_towards_side_loading_belt_right_lane() {
         let mut app = test_app();
-        let belt1 = app.add_belt((0, 0, 0), HDir::East);
-        app.add_belt((0, 0, 1), HDir::North);
-        app.add_belt((-1, 0, 1), HDir::North);
+        let layout = app.layout("
+ |
+->^
+  ^
+ |
+");
+        let belt1 = layout.get(0, 0);
         app.update();
 
         let item = app.add_item(belt1, POSITIONS_PER_BELT / 2, LaneSide::Right);
@@ -509,10 +558,19 @@ mod tests {
     #[test]
     fn item_moves_towards_side_loading_belt_other_order_left_lane() {
         let mut app = test_app();
-        app.add_belt((0, 0, 1), HDir::North);
-        app.add_belt((-1, 0, 1), HDir::North);
+        let layout = app.layout("
+ |
+- ^
+  ^
+");
         app.update();
-        let belt1 = app.add_belt((0, 0, 0), HDir::East);
+        let layout = layout.update(&mut app, "
+ |
+->^
+  ^
+ |
+");
+        let belt1 = layout.get(0, 0);
         app.update();
 
         let item = app.add_item(belt1, POSITIONS_PER_BELT / 2, LaneSide::Left);
@@ -528,10 +586,19 @@ mod tests {
     #[test]
     fn item_moves_towards_side_loading_belt_other_order_right_lane() {
         let mut app = test_app();
-        app.add_belt((0, 0, 1), HDir::North);
-        app.add_belt((-1, 0, 1), HDir::North);
+        let layout = app.layout("
+ |
+- ^
+  ^
+");
         app.update();
-        let belt1 = app.add_belt((0, 0, 0), HDir::East);
+        let layout = layout.update(&mut app, "
+ |
+->^
+  ^
+ |
+");
+        let belt1 = layout.get(0, 0);
         app.update();
 
         let item = app.add_item(belt1, POSITIONS_PER_BELT / 2, LaneSide::Right);
@@ -547,9 +614,13 @@ mod tests {
     #[test]
     fn item_moves_onto_side_loaded_belt_left_lane() {
         let mut app = test_app();
-        let belt1 = app.add_belt((0, 0, 0), HDir::East);
-        app.add_belt((0, 0, 1), HDir::North);
-        app.add_belt((-1, 0, 1), HDir::North);
+        let layout = app.layout("
+ |
+->^
+  ^
+ |
+");
+        let belt1 = layout.get(0, 0);
         app.update();
 
         let item = app.add_item(belt1, POSITIONS_PER_BELT / 2, LaneSide::Left);
@@ -575,9 +646,13 @@ mod tests {
     #[test]
     fn item_moves_onto_side_loaded_belt_right_lane() {
         let mut app = test_app();
-        app.add_belt((-1, 0, 0), HDir::North);
-        let side_loading = app.add_belt((0, 0, 1), HDir::West);
-        let _side_loaded = app.add_belt((0, 0, 0), HDir::North);
+        let layout = app.layout("
+ |
+-^<
+ ^
+ |
+");
+        let side_loading = layout.get(0, 1);
         app.update();
 
         app.add_item(side_loading, 0, LaneSide::Right);
@@ -590,9 +665,13 @@ mod tests {
     #[test]
     fn item_doesnt_move_onto_side_loaded_belt_when_full_left_lane() {
         let mut app = test_app();
-        app.add_belt((-1, 0, 0), HDir::North);
-        let side_loading = app.add_belt((0, 0, -1), HDir::East);
-        let side_loaded = app.add_belt((0, 0, 0), HDir::North);
+        let layout = app.layout("
+  |
+->^
+  ^
+");
+        let side_loading = layout.get(0, -1);
+        let side_loaded = layout.get(0, 0);
         app.update();
         for i in 0..ITEMS_PER_BELT {
             app.add_item(side_loaded, i * ITEM_SPACING, LaneSide::Left);
@@ -615,9 +694,14 @@ mod tests {
     #[test]
     fn item_doesnt_move_onto_side_loaded_belt_when_full_right_lane() {
         let mut app = test_app();
-        app.add_belt((-1, 0, 0), HDir::North);
-        let side_loading = app.add_belt((0, 0, 1), HDir::West);
-        let side_loaded = app.add_belt((0, 0, 0), HDir::North);
+        let layout = app.layout("
+ |
+-^<
+ ^
+ |
+");
+        let side_loading = layout.get(0, 1);
+        let side_loaded = layout.get(0, 0);
         app.update();
         for i in 0..ITEMS_PER_BELT {
             app.add_item(side_loaded, i * ITEM_SPACING, LaneSide::Right);
@@ -786,9 +870,12 @@ mod tests {
     fn sideloading_items_coming_from_source() {
         let mut app = test_app();
 
-        app.add_belt((0, 0, 0), HDir::North);
-        app.add_belt((-1, 0, 0), HDir::North);
-        app.add_belt((0, 0, 1), HDir::West);
+        app.layout("
+ |
+-^<
+ ^
+ |
+");
 
         let source = app.world_mut().spawn_empty().id();
         app.world_mut().trigger(PlaceBlock {
