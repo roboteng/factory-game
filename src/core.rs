@@ -1530,23 +1530,50 @@ fn detach_belt(
             items
         }
         (Some((_, _, ConnectionType::Direct)), Some(_)) => {
-            debug!("Removing from the middle");
             let mut lane = get_lane_mut(world, lane_ent);
-            debug!("Splitting lane {lane_ent:?} at entity {:?}", removed.entity);
-            let mut tail_lane = lane.split_at(removed.entity).unwrap();
-            debug!("Removing head from split tail lane");
-            let leftover_items = tail_lane.remove_head();
-            let belts = tail_lane.belts.iter().map(|b| b.entity).collect::<Vec<_>>();
+            let idx = lane
+                .belts
+                .iter()
+                .position(|b| b.entity == removed.entity)
+                .expect("belt not found in its own lane");
 
-            let tail_lane_ent = world.spawn(tail_lane).id();
-            debug!("Spawned new lane entity {tail_lane_ent:?} from splitting");
-            for belt in belts.iter() {
-                debug!(
-                    "Adding InLane component to entity {belt:?} pointing to lane {tail_lane_ent:?}"
-                );
-                world.entity_mut(*belt).insert(InLane::new(tail_lane_ent));
+            if idx == 0 {
+                // World-space topology says "middle" (both ahead and behind
+                // exist), but within the lane this belt is the HEAD.  This
+                // happens for loop-lane heads that are later re-evaluated.
+                // Calling split_at(0) would empty self.belts and panic; just
+                // pop the head instead.
+                //
+                // Removing the head breaks any loop — a loop cannot shrink by
+                // one belt and remain a loop.  Drop the LaneLoopConnection so
+                // the stale offset doesn't teleport items to the wrong place.
+                debug!("Removing from the middle (at lane head)");
+                let items = lane.remove_head();
+                world.entity_mut(lane_ent).remove::<LaneLoopConnection>();
+                items
+            } else if idx == lane.belts.len() - 1 {
+                // Symmetric tail case: world says "middle" but belt is the
+                // lane tail — remove it directly.
+                debug!("Removing from the middle (at lane tail)");
+                lane.remove_tail()
+            } else {
+                debug!("Removing from the middle");
+                debug!("Splitting lane {lane_ent:?} at entity {:?}", removed.entity);
+                let mut tail_lane = lane.split_at(removed.entity).unwrap();
+                debug!("Removing head from split tail lane");
+                let leftover_items = tail_lane.remove_head();
+                let belts = tail_lane.belts.iter().map(|b| b.entity).collect::<Vec<_>>();
+
+                let tail_lane_ent = world.spawn(tail_lane).id();
+                debug!("Spawned new lane entity {tail_lane_ent:?} from splitting");
+                for belt in belts.iter() {
+                    debug!(
+                        "Adding InLane component to entity {belt:?} pointing to lane {tail_lane_ent:?}"
+                    );
+                    world.entity_mut(*belt).insert(InLane::new(tail_lane_ent));
+                }
+                leftover_items
             }
-            leftover_items
         }
         (Some((_, _, ConnectionType::SideLoad(_))), None) => {
             debug!("Despawning sideload lane entity {lane_ent:?}");
@@ -2712,5 +2739,30 @@ mod tests {
 
         let (shape, _) = app.find_belt(belt).expect("Belt should exist");
         assert_eq!(shape, BeltShape::Straight(HDir::North));
+    }
+
+    /// Regression test: placing a 5-belt loop where the last belt causes the
+    /// head of the loop lane to be re-evaluated used to panic inside `split_at`
+    /// because `split_off(0)` emptied `self.belts` and `last_mut().unwrap()`
+    /// found nothing.
+    ///
+    /// Layout (placed in this exact order, one update each):
+    ///
+    ///   >v   (0,0)=East  (0,1)=South
+    ///   ^<   (-1,0)=North  (-1,1)=West
+    ///   ^    (-2,0)=North
+    #[test]
+    fn loop_belt_head_replacement_does_not_panic() {
+        let mut app = test_app();
+        app.add_belt((0, 0, 0), HDir::East);
+        app.update();
+        app.add_belt((0, 0, 1), HDir::South);
+        app.update();
+        app.add_belt((-1, 0, 0), HDir::North);
+        app.update();
+        app.add_belt((-1, 0, 1), HDir::West);
+        app.update();
+        app.add_belt((-2, 0, 0), HDir::North);
+        app.update();
     }
 }

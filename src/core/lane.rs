@@ -335,10 +335,15 @@ impl BeltLane {
     }
 
     pub fn is_blocking_at(&self, offset: i32, lane: LaneSide) -> bool {
-        debug!("Checking if lane blocked at {}", offset);
-        self.lanes[lane]
+        let Some(belt) = self.belt_for(offset, lane) else {
+            return false;
+        };
+        let range = &belt.ranges[lane];
+        let count = self.lanes[lane]
             .iter()
-            .any(|item| item.pos >= offset - ITEM_SPACING && item.pos < offset)
+            .filter(|item| range.contains(&item.pos))
+            .count();
+        count >= ITEMS_PER_BELT as usize
     }
 
     pub fn is_blocked_for_side(&self, side: LaneSide) -> bool {

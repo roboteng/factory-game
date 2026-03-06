@@ -64,15 +64,25 @@ pub fn consume_at_sinks(
     mut commands: Commands,
 ) {
     for (&sink_coords, adj) in &sinks {
-        let BeltAdjacent::Input(dir) = adj else { continue; };
+        let BeltAdjacent::Input(dir) = adj else {
+            continue;
+        };
         let belt_coords = sink_coords.step(*dir);
-        let Some((belt_entity, _)) = placements.get_belt(belt_coords) else { continue; };
-        let Ok(in_lane) = in_lanes.get(belt_entity) else { continue; };
-        let Ok(mut lane) = lanes.get_mut(in_lane.lane) else { continue; };
+        let Some((belt_entity, _)) = placements.get_belt(belt_coords) else {
+            continue;
+        };
+        let Ok(in_lane) = in_lanes.get(belt_entity) else {
+            continue;
+        };
+        let Ok(mut lane) = lanes.get_mut(in_lane.lane) else {
+            continue;
+        };
         for side in SIDES {
             let start = lane.belts[0].ranges[side].start;
             while let Some(item_entry) = lane.lanes[side].first().copied() {
-                if item_entry.pos - start >= BASE_BELT_SPEED { break; }
+                if item_entry.pos - start >= BASE_BELT_SPEED {
+                    break;
+                }
                 lane.lanes[side].remove(0);
                 commands.entity(item_entry.entity).despawn();
             }
@@ -1001,7 +1011,10 @@ mod tests {
             .copied()
             .collect();
 
-        assert!(!items.is_empty(), "Source should have placed at least one item");
+        assert!(
+            !items.is_empty(),
+            "Source should have placed at least one item"
+        );
         for t in &items {
             assert!(
                 t.translation.z > belt_z,
@@ -1025,7 +1038,10 @@ mod tests {
             dir: HDir::South,
         });
         app.update();
-        assert!(app.find_item(item).is_none(), "item should be consumed by sink");
+        assert!(
+            app.find_item(item).is_none(),
+            "item should be consumed by sink"
+        );
     }
 
     #[test]
@@ -1057,5 +1073,53 @@ mod tests {
             items.is_empty(),
             "Source pointing into the output face of a belt should not place items"
         );
+    }
+
+    #[test]
+    fn belt_sideloads_itself() {
+        let mut app = test_app();
+
+        // Layout (placed one at a time so ordering is explicit):
+        //
+        //   |
+        // - >v      (0,0)=East  (0,1)=South
+        //   ^<      (-1,0)=North  (-1,1)=West
+        //   ^       (-2,0)=North
+        //   |
+        //
+        // Parse-order: (0,0) → (0,1) → (-1,0) → (-1,1) → (-2,0)
+        let east_belt = app.add_belt((0, 0, 0), HDir::East);
+        app.update();
+        app.add_belt((0, 0, 1), HDir::South);
+        app.update();
+        let north_belt = app.add_belt((-1, 0, 0), HDir::North);
+        app.update();
+        app.add_belt((-1, 0, 1), HDir::West);
+        app.update();
+        app.add_belt((-2, 0, 0), HDir::North);
+        app.update();
+
+        let item = app.add_item(east_belt, 0, LaneSide::Left);
+
+        // After warm-up the item must move on every step — never stuck
+        let mut prev = app
+            .find_item(item)
+            .expect("item should still exist after warm-up")
+            .1
+            .translation;
+
+        for _ in 0..POSITIONS_PER_BELT / BASE_BELT_SPEED {
+            app.update();
+            let curr = app
+                .find_item(item)
+                .expect("item should still exist in the loop")
+                .1
+                .translation;
+            assert_ne!(
+                prev, curr,
+                "item should be moving through the loop, not stuck"
+            );
+            prev = curr;
+        }
     }
 }
