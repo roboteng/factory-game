@@ -1,13 +1,8 @@
-use std::env;
-
 use crate::core::*;
 
 use bevy::prelude::*;
 
 mod core;
-#[cfg(feature = "ui")]
-mod manual_sim;
-mod sim;
 #[cfg(feature = "ui")]
 mod ui;
 
@@ -15,14 +10,6 @@ fn main() {
     let mut app = App::new();
 
     app.add_plugins((DefaultPlugins, core::CorePlugin));
-
-    let args = env::args().collect::<Vec<String>>();
-    if args.get(1).map(|s| s.as_str()).unwrap_or_default() == "--debug" {
-        #[cfg(feature = "ui")]
-        app.add_plugins(manual_sim::ManualSimPlugin);
-    } else {
-        app.add_plugins(sim::SimPlugin);
-    }
 
     #[cfg(feature = "dev")]
     app.add_plugins((
@@ -55,7 +42,7 @@ fn setup(mut cmd: Commands) {
         entity,
         item: crate::core::Item::Belt,
         coords: (1, 0, 0).into(),
-        dir: HDir::North,
+        dir: HDir::East,
     });
     let entity = cmd.spawn_empty().id();
     cmd.trigger(crate::core::PlaceBlock {

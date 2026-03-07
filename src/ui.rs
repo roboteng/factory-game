@@ -19,11 +19,11 @@ impl Plugin for UiPlugin {
         app.insert_resource(ClearColor(Color::srgb(0.01, 0.01, 0.05))); // Dark night sky
         app.add_systems(Startup, setup);
         app.add_systems(Startup, setup_reticle);
+        app.add_systems(Update, attach_models);
 
         // Systems that trigger events Must run in PreUpdate
         app.add_systems(PreUpdate, camera_movement);
         app.add_systems(PreUpdate, handle_click_to_place);
-        app.add_systems(PreUpdate, handle_place_item_on_belt);
 
         app.add_systems(Update, camera_look);
         app.add_systems(Update, cursor_grab.after(handle_click_to_place));
@@ -137,6 +137,31 @@ fn on_placed_block(
     ));
 }
 
+/// TODO: on insert, instead of every frame
+fn attach_models(
+    world_items: Query<(Entity, &WorldCoords, &Item, Option<&BeltShape>)>,
+    asset_server: Res<AssetServer>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut cmd: Commands,
+) {
+    for (entity, _, _, shape) in world_items {
+        match shape {
+            None => {}
+            Some(shape) => {
+                let scene = match shape {
+                    BeltShape::Straight(_) => 1,
+                    BeltShape::Curve(_) => 0,
+                };
+                cmd.entity(entity)
+                    .insert(SceneRoot(asset_server.load(
+                        GltfAssetLabel::Scene(scene).from_asset("models/Untitled.glb"),
+                    )));
+            }
+        }
+    }
+}
+
 fn on_belt_shape_insert(
     trigger: On<Insert, BeltShape>,
     query: Query<&BeltShape, With<Belt>>,
@@ -150,7 +175,6 @@ fn on_belt_shape_insert(
     let scene = match shape {
         BeltShape::Straight(_) => 1usize,
         BeltShape::Curve(_) => 0usize,
-        BeltShape::Fragment(_) => return,
     };
     cmd.entity(entity).insert(SceneRoot(
         asset_server.load(GltfAssetLabel::Scene(scene).from_asset("models/Untitled.glb")),
@@ -351,148 +375,6 @@ fn angle_to_hdir(angle: f32) -> HDir {
     } else {
         HDir::East
     }
-}
-
-fn handle_place_item_on_belt(
-    keys: Res<ButtonInput<KeyCode>>,
-    cursor_options: Single<&CursorOptions>,
-    camera_query: Single<&Transform, With<FirstPersonCamera>>,
-    belt_coords: Res<WorldPlacements>,
-    mut cmd: Commands,
-) {
-    // Only handle spacebar when cursor is grabbed (game mode)
-    if !keys.just_pressed(KeyCode::Space) || cursor_options.grab_mode != CursorGrabMode::Locked {
-        return;
-    }
-
-    let camera_transform = camera_query.into_inner();
-    let ray_origin = camera_transform.translation;
-    let ray_dir = camera_transform.forward().as_vec3();
-
-    // Find the closest belt that the ray intersects
-    let mut closest_hit: Option<(f32, Entity, BeltShape, WorldCoords, Vec3)> = None;
-
-    for (coords, (entity, belt_shape)) in belt_coords
-        .iter()
-        .filter_map(|(coords, b)| b.1.is_belt().map(|belt| (coords, (b.0, belt))))
-    {
-        // Get belt center in world space
-        let belt_center = Vec3::from(*coords);
-
-        // Ray-AABB intersection test
-        if let Some((t, hit_point)) =
-            ray_box_intersection(ray_origin, ray_dir, belt_center, Vec3::splat(BLOCK_SIZE))
-        {
-            if closest_hit.is_none() || t < closest_hit.as_ref().unwrap().0 {
-                closest_hit = Some((t, entity, *belt_shape, *coords, hit_point));
-            }
-        }
-    }
-
-    if let Some((_t, belt_entity, belt_shape, coords, hit_point)) = closest_hit {
-        // Convert hit point to belt local space
-        let belt_center = Vec3::from(coords);
-        let local_hit = hit_point - belt_center;
-
-        // Rotate hit point to belt's local coordinate system
-        let belt_angle = match belt_shape {
-            BeltShape::Straight(dir) | BeltShape::Fragment(dir) => dir.angle(),
-            BeltShape::Curve(curve) => curve.input().angle(),
-        };
-        let rotation = Quat::from_rotation_y(-belt_angle);
-        let local_rotated = rotation * local_hit;
-
-        // Determine lane based on z coordinate
-        // Left lane is at z = -LANE_OFFSET, Right lane is at z = LANE_OFFSET
-        let lane = if local_rotated.z < 0.0 {
-            LaneSide::Left
-        } else {
-            LaneSide::Right
-        };
-
-        // Determine position based on x coordinate (for straight belts)
-        // Position 0 is at x = HALF_BLOCK_SIZE, position POSITIONS_PER_BELT is at x = -HALF_BLOCK_SIZE
-        let position = match belt_shape {
-            BeltShape::Straight(_) | BeltShape::Fragment(_) => {
-                let t = (HALF_BLOCK_SIZE - local_rotated.x) / BLOCK_SIZE;
-                let pos = (t * POSITIONS_PER_BELT as f32).round() as i32;
-                pos.clamp(0, POSITIONS_PER_BELT - 1)
-            }
-            BeltShape::Curve(_) => {
-                // For curves, use a simpler approach - just use middle position for now
-                let num_pos = belt_shape.num_pos(lane);
-                num_pos / 2
-            }
-        };
-
-        // Create item entity and trigger PlaceItem event
-        let item_entity = cmd.spawn_empty().id();
-        let event = PlaceItem {
-            entity: item_entity,
-            item: Item::Belt,
-            belt: belt_entity,
-            lane,
-            position,
-            on_error: Box::new(|_, error| {
-                warn!("Failed to place item: {:?}", error);
-            }),
-        };
-        debug!("triggering: {event:?}");
-        cmd.trigger(event);
-    }
-}
-
-// Ray-AABB intersection test
-// Returns Some((t, hit_point)) if ray intersects the box, where t is the distance along the ray
-fn ray_box_intersection(
-    ray_origin: Vec3,
-    ray_dir: Vec3,
-    box_center: Vec3,
-    box_size: Vec3,
-) -> Option<(f32, Vec3)> {
-    let box_min = box_center - box_size / 2.0;
-    let box_max = box_center + box_size / 2.0;
-
-    let mut tmin = f32::NEG_INFINITY;
-    let mut tmax = f32::INFINITY;
-
-    for i in 0..3 {
-        let dir_component = ray_dir[i];
-        let origin_component = ray_origin[i];
-        let min_component = box_min[i];
-        let max_component = box_max[i];
-
-        if dir_component.abs() < 0.0001 {
-            // Ray is parallel to slab
-            if origin_component < min_component || origin_component > max_component {
-                return None;
-            }
-        } else {
-            let inv_d = 1.0 / dir_component;
-            let mut t1 = (min_component - origin_component) * inv_d;
-            let mut t2 = (max_component - origin_component) * inv_d;
-
-            if t1 > t2 {
-                std::mem::swap(&mut t1, &mut t2);
-            }
-
-            tmin = tmin.max(t1);
-            tmax = tmax.min(t2);
-
-            if tmin > tmax {
-                return None;
-            }
-        }
-    }
-
-    if tmax < 0.0 {
-        return None;
-    }
-
-    let t = if tmin >= 0.0 { tmin } else { tmax };
-    let hit_point = ray_origin + ray_dir * t;
-
-    Some((t, hit_point))
 }
 
 fn setup_reticle(mut cmd: Commands) {
