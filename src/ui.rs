@@ -19,6 +19,7 @@ impl Plugin for UiPlugin {
         app.insert_resource(ClearColor(Color::srgb(0.01, 0.01, 0.05))); // Dark night sky
         app.add_systems(Startup, setup);
         app.add_systems(Startup, setup_reticle);
+        app.add_systems(Startup, setup_models);
         app.add_systems(Update, attach_models);
 
         // Systems that trigger events Must run in PreUpdate
@@ -28,9 +29,56 @@ impl Plugin for UiPlugin {
         app.add_systems(Update, camera_look);
         app.add_systems(Update, cursor_grab.after(handle_click_to_place));
 
-        app.add_observer(on_belt_shape_insert);
         app.add_observer(on_place_item);
-        app.add_observer(on_placed_block);
+    }
+}
+
+enum ModelDef {
+    Scene(Handle<Scene>),
+    Mesh(Handle<Mesh>, Handle<StandardMaterial>),
+}
+
+#[derive(Resource)]
+struct AllModels {
+    belt_straight: ModelDef,
+    belt_curve: ModelDef,
+    source: ModelDef,
+    sink: ModelDef,
+}
+
+fn setup_models(
+    mut cmd: Commands,
+    asset_server: Res<AssetServer>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    let cuboid = meshes.add(Cuboid::new(BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE));
+    cmd.insert_resource(AllModels {
+        belt_straight: ModelDef::Scene(
+            asset_server.load(GltfAssetLabel::Scene(1).from_asset("models/Untitled.glb")),
+        ),
+        belt_curve: ModelDef::Scene(
+            asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Untitled.glb")),
+        ),
+        source: ModelDef::Mesh(
+            cuboid.clone(),
+            materials.add(Color::srgb(0.2, 0.8, 0.2)),
+        ),
+        sink: ModelDef::Mesh(
+            cuboid.clone(),
+            materials.add(Color::srgb(0.8, 0.2, 0.2)),
+        ),
+    });
+}
+
+fn apply_model(cmd: &mut EntityCommands, model: &ModelDef) {
+    match model {
+        ModelDef::Scene(handle) => {
+            cmd.insert(SceneRoot(handle.clone()));
+        }
+        ModelDef::Mesh(mesh, material) => {
+            cmd.insert((Mesh3d(mesh.clone()), MeshMaterial3d(material.clone())));
+        }
     }
 }
 
@@ -117,68 +165,23 @@ fn spawn_stars(
     }
 }
 
-fn on_placed_block(
-    trigger: On<Insert, WorldCoords>,
-    query: Query<&Item>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    mut cmd: Commands,
-) {
-    let entity = trigger.event_target();
-    let Ok(item) = query.get(entity) else { return };
-    let color = match item {
-        Item::Belt => return,
-        Item::Source => Color::srgb(0.2, 0.8, 0.2),
-        Item::Sink => Color::srgb(0.8, 0.2, 0.2),
-    };
-    cmd.entity(entity).insert((
-        Mesh3d(meshes.add(Cuboid::new(BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE))),
-        MeshMaterial3d(materials.add(color)),
-    ));
-}
-
-/// TODO: on insert, instead of every frame
 fn attach_models(
-    world_items: Query<(Entity, &WorldCoords, &Item, Option<&BeltShape>)>,
-    asset_server: Res<AssetServer>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    world_items: Query<(Entity, &Item, Option<&BeltShape>)>,
+    all_models: Res<AllModels>,
     mut cmd: Commands,
 ) {
-    for (entity, _, _, shape) in world_items {
-        match shape {
-            None => {}
-            Some(shape) => {
-                let scene = match shape {
-                    BeltShape::Straight(_) => 1,
-                    BeltShape::Curve(_) => 0,
-                };
-                cmd.entity(entity)
-                    .insert(SceneRoot(asset_server.load(
-                        GltfAssetLabel::Scene(scene).from_asset("models/Untitled.glb"),
-                    )));
-            }
-        }
+    for (entity, item, shape) in &world_items {
+        let model = match item {
+            Item::Source => &all_models.source,
+            Item::Sink => &all_models.sink,
+            Item::Belt => match shape {
+                Some(BeltShape::Straight(_)) => &all_models.belt_straight,
+                Some(BeltShape::Curve(_)) => &all_models.belt_curve,
+                None => continue,
+            },
+        };
+        apply_model(&mut cmd.entity(entity), model);
     }
-}
-
-fn on_belt_shape_insert(
-    trigger: On<Insert, BeltShape>,
-    query: Query<&BeltShape, With<Belt>>,
-    mut cmd: Commands,
-    asset_server: Res<AssetServer>,
-) {
-    let entity = trigger.event_target();
-    let Ok(shape) = query.get(entity) else {
-        return;
-    };
-    let scene = match shape {
-        BeltShape::Straight(_) => 1usize,
-        BeltShape::Curve(_) => 0usize,
-    };
-    cmd.entity(entity).insert(SceneRoot(
-        asset_server.load(GltfAssetLabel::Scene(scene).from_asset("models/Untitled.glb")),
-    ));
 }
 
 fn on_place_item(event: On<PlaceItem>, mut cmd: Commands, asset_server: Res<AssetServer>) {
