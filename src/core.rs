@@ -226,6 +226,8 @@ fn on_place_block(event: On<PlaceBlock>, mut cmd: Commands) {
         "Placing block {:?} at {:?} facing {:?}",
         event.entity, event.coords, event.dir
     );
+    // TODO: check existing blocks at this location
+
     match event.item {
         Item::Belt => cmd
             .entity(event.entity)
@@ -289,17 +291,24 @@ fn determine_belt_shape(
     }
 }
 
-fn move_items_on_belts(mut belts: Query<(&mut ItemLanes,)>) {
+fn move_items_on_belts(mut belts: Query<(&mut ItemLanes, &BeltShape)>) {
     for mut belt in belts.iter_mut() {
         for side in SIDES {
-            for item in &mut belt.0.0[side] {
-                item.0 = 0.max(item.0 - 1);
+            let Some(lead_item) = belt.0.0[side].get_mut(0) else {
+                continue;
+            };
+            lead_item.0 = 0.max(lead_item.0 - BASE_BELT_SPEED);
+            for i in 1..belt.0.0[side].len() {
+                let first = belt.0.0[side][i - 1];
+                let second = &mut belt.0.0[side][i];
+
+                second.0 = (first.0 + ITEM_SPACING).max(second.0 - BASE_BELT_SPEED);
             }
         }
     }
 }
 
-fn transfer_items(mut invs: Query<(Entity, &mut ItemLanes, &WorldCoords, &HDir)>) {
+fn transfer_items(mut invs: Query<(Entity, &mut ItemLanes, &WorldCoords, &HDir, &BeltShape)>) {
     struct Transfer {
         source: Entity,
         dest: Entity,
@@ -315,7 +324,10 @@ fn transfer_items(mut invs: Query<(Entity, &mut ItemLanes, &WorldCoords, &HDir)>
                 let Some(i) = source.1.0[side].get(0) else {
                     continue;
                 };
-                if i.0 <= 0 {
+                if i.0 <= 0
+                    && dest.1.0[side].last().map(|a| a.0).unwrap_or(0) + ITEM_SPACING
+                        < dest.4.num_pos(side)
+                {
                     transfers.push(Transfer {
                         source: source.0,
                         dest: dest.0,
@@ -332,7 +344,7 @@ fn transfer_items(mut invs: Query<(Entity, &mut ItemLanes, &WorldCoords, &HDir)>
 
         let mut dest = invs.get_mut(transfer.dest).unwrap();
         let lane = &mut dest.1.0[transfer.lane];
-        lane.push((POSITIONS_PER_BELT, slot.1));
+        lane.push((dest.4.num_pos(transfer.lane), slot.1));
     }
 }
 
