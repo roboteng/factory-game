@@ -51,11 +51,20 @@ fn setup(mut cmd: Commands) {
         coords: (0, 0, 0).into(),
         dir: HDir::North,
     });
-    let entity = cmd.spawn_empty().id();
+    let belt_entity = cmd.spawn_empty().id();
     cmd.trigger(crate::core::PlaceBlock {
-        entity,
+        entity: belt_entity,
         item: crate::core::Item::Belt,
         coords: (-1, 0, 0).into(),
         dir: HDir::North,
+    });
+    let item_entity = cmd.spawn_empty().id();
+    cmd.trigger(PlaceItem {
+        entity: item_entity,
+        item: Item::Belt,
+        belt: belt_entity,
+        lane: Side::Left,
+        position: 128,
+        on_error: Box::new(|_, _| {}),
     });
 }

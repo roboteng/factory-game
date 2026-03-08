@@ -20,12 +20,12 @@ impl Plugin for UiPlugin {
         app.add_systems(Startup, setup);
         app.add_systems(Startup, setup_reticle);
         app.add_systems(Startup, setup_models);
-        app.add_systems(Update, attach_models);
 
         // Systems that trigger events Must run in PreUpdate
         app.add_systems(PreUpdate, camera_movement);
         app.add_systems(PreUpdate, handle_click_to_place);
 
+        app.add_systems(Update, attach_models);
         app.add_systems(Update, camera_look);
         app.add_systems(Update, cursor_grab.after(handle_click_to_place));
 
@@ -60,14 +60,8 @@ fn setup_models(
         belt_curve: ModelDef::Scene(
             asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Untitled.glb")),
         ),
-        source: ModelDef::Mesh(
-            cuboid.clone(),
-            materials.add(Color::srgb(0.2, 0.8, 0.2)),
-        ),
-        sink: ModelDef::Mesh(
-            cuboid.clone(),
-            materials.add(Color::srgb(0.8, 0.2, 0.2)),
-        ),
+        source: ModelDef::Mesh(cuboid.clone(), materials.add(Color::srgb(0.2, 0.8, 0.2))),
+        sink: ModelDef::Mesh(cuboid.clone(), materials.add(Color::srgb(0.8, 0.2, 0.2))),
     });
 }
 
