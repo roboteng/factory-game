@@ -16,7 +16,7 @@ pub struct UiPlugin;
 impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(hotbar::HotbarPlugin);
-        app.init_resource::<DeleteMode>();
+        app.init_resource::<InteractionMode>();
         app.insert_resource(ClearColor(Color::srgb(0.01, 0.01, 0.05))); // Dark night sky
         app.add_systems(Startup, setup);
         app.add_systems(Startup, setup_reticle);
@@ -28,9 +28,9 @@ impl Plugin for UiPlugin {
         app.add_systems(
             PreUpdate,
             (
-                handle_delete_mode_toggle,
-                update_delete_preview.after(handle_delete_mode_toggle),
-                handle_click_to_place.after(handle_delete_mode_toggle),
+                handle_mode_inputs,
+                update_delete_preview.after(handle_mode_inputs),
+                handle_click_to_place.after(handle_mode_inputs),
             ),
         );
 
@@ -43,10 +43,11 @@ impl Plugin for UiPlugin {
 }
 
 #[derive(Resource, Default, PartialEq, Eq)]
-enum DeleteMode {
+pub(super) enum InteractionMode {
     #[default]
-    Off,
-    On,
+    None,
+    Placing,
+    Deleting,
 }
 
 #[derive(Component)]
@@ -213,6 +214,7 @@ fn cursor_grab(
     mut cursor_options: Single<&mut CursorOptions>,
     mouse: Res<ButtonInput<MouseButton>>,
     key: Res<ButtonInput<KeyCode>>,
+    mut mode: ResMut<InteractionMode>,
 ) {
     // Only grab cursor on left click if not already grabbed
     if mouse.just_pressed(MouseButton::Left) && cursor_options.grab_mode != CursorGrabMode::Locked {
@@ -221,8 +223,12 @@ fn cursor_grab(
     }
 
     if key.just_pressed(KeyCode::Escape) {
-        cursor_options.visible = true;
-        cursor_options.grab_mode = CursorGrabMode::None;
+        if *mode != InteractionMode::None {
+            *mode = InteractionMode::None;
+        } else {
+            cursor_options.visible = true;
+            cursor_options.grab_mode = CursorGrabMode::None;
+        }
     }
 }
 
@@ -366,10 +372,10 @@ fn handle_click_to_place(
     hotbar: Res<Hotbar>,
     mut invs: Query<&mut Inventory>,
     mut cmd: Commands,
-    mode: Res<DeleteMode>,
+    mode: Res<InteractionMode>,
     targets: Query<(&WorldCoords, &Transform, &RaycastTarget)>,
 ) {
-    if *mode == DeleteMode::On {
+    if *mode != InteractionMode::Placing {
         return;
     }
     let Ok(_) = invs.get_mut(player.0) else {
@@ -394,8 +400,13 @@ fn handle_click_to_place(
     let origin = camera_transform.translation;
     let ray_dir = *camera_transform.forward();
 
-    let Some(hit) = cast_ray(origin, ray_dir, targets.iter().map(|(c, t, rt)| (*c, t.translation, rt.half_extents)))
-    else {
+    let Some(hit) = cast_ray(
+        origin,
+        ray_dir,
+        targets
+            .iter()
+            .map(|(c, t, rt)| (*c, t.translation, rt.half_extents)),
+    ) else {
         return;
     };
 
@@ -438,20 +449,14 @@ fn setup_delete_preview(
     ));
 }
 
-fn handle_delete_mode_toggle(
-    keys: Res<ButtonInput<KeyCode>>,
-    mut mode: ResMut<DeleteMode>,
-) {
+fn handle_mode_inputs(keys: Res<ButtonInput<KeyCode>>, mut mode: ResMut<InteractionMode>) {
     if keys.just_pressed(KeyCode::KeyX) {
-        *mode = match *mode {
-            DeleteMode::Off => DeleteMode::On,
-            DeleteMode::On => DeleteMode::Off,
-        };
+        *mode = InteractionMode::Deleting;
     }
 }
 
 fn update_delete_preview(
-    mode: Res<DeleteMode>,
+    mode: Res<InteractionMode>,
     mouse: Res<ButtonInput<MouseButton>>,
     cursor_options: Single<&CursorOptions>,
     camera_q: Single<&Transform, With<FirstPersonCamera>>,
@@ -466,7 +471,7 @@ fn update_delete_preview(
     let (ref mut t, ref mut vis) = *preview_q;
     let cursor_locked = cursor_options.grab_mode == CursorGrabMode::Locked;
 
-    if *mode == DeleteMode::Off || !cursor_locked {
+    if *mode != InteractionMode::Deleting || !cursor_locked {
         **vis = Visibility::Hidden;
         return;
     }
@@ -475,9 +480,13 @@ fn update_delete_preview(
     let origin = camera_transform.translation;
     let ray_dir = *camera_transform.forward();
 
-    let Some(hit) =
-        cast_ray(origin, ray_dir, targets.iter().map(|(c, tr, rt)| (*c, tr.translation, rt.half_extents)))
-    else {
+    let Some(hit) = cast_ray(
+        origin,
+        ray_dir,
+        targets
+            .iter()
+            .map(|(c, tr, rt)| (*c, tr.translation, rt.half_extents)),
+    ) else {
         **vis = Visibility::Hidden;
         return;
     };

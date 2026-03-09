@@ -268,17 +268,31 @@ fn on_place_block(
     // Full-height blocks must sit at an even y coordinate. If the ray lands
     // on an odd slot (e.g. top face of a belt), snap down to the nearest even.
     let coords = if is_full {
-        WorldCoords { y: event.coords.y & !1, ..event.coords }
+        WorldCoords {
+            y: event.coords.y & !1,
+            ..event.coords
+        }
     } else {
         event.coords
     };
 
-    let place = PlaceBlock { coords, ..*event.event() };
+    let place = PlaceBlock {
+        coords,
+        ..*event.event()
+    };
 
-    debug!("Placing {:?} at {coords:?} facing {:?}", event.item, event.dir);
+    debug!(
+        "Placing {:?} at {coords:?} facing {:?}",
+        event.item, event.dir
+    );
 
     // For full-height blocks, also check the top slot.
-    if is_full && coord_map.0.contains_key(&WorldCoords { y: coords.y + 1, ..coords }) {
+    if is_full
+        && coord_map.0.contains_key(&WorldCoords {
+            y: coords.y + 1,
+            ..coords
+        })
+    {
         cmd.entity(event.entity).despawn();
         return;
     }
@@ -304,9 +318,10 @@ fn on_place_block(
     }
 
     match event.item {
-        Item::Belt => cmd
-            .entity(event.entity)
-            .insert((Belt, ItemLanes::default(), AffectsBelts, rt)),
+        Item::Belt => {
+            cmd.entity(event.entity)
+                .insert((Belt, ItemLanes::default(), AffectsBelts, rt))
+        }
         Item::Source => cmd.entity(event.entity).insert((Source, AffectsBelts, rt)),
         Item::Sink => cmd.entity(event.entity).insert((Sink, AffectsBelts, rt)),
         Item::Rock | Item::Dirt => cmd.entity(event.entity).insert(rt),
@@ -316,7 +331,13 @@ fn on_place_block(
     coord_map.0.insert(coords, event.entity);
     // Register the second slot for full-height blocks.
     if is_full {
-        coord_map.0.insert(WorldCoords { y: coords.y + 1, ..coords }, event.entity);
+        coord_map.0.insert(
+            WorldCoords {
+                y: coords.y + 1,
+                ..coords
+            },
+            event.entity,
+        );
     }
 }
 
@@ -350,7 +371,10 @@ fn on_remove_block(
     if let Ok(coords) = coords_q.get(event.entity) {
         coord_map.0.remove(coords);
         // Remove the top slot if this entity registered it (full-height blocks).
-        let top = WorldCoords { y: coords.y + 1, ..*coords };
+        let top = WorldCoords {
+            y: coords.y + 1,
+            ..*coords
+        };
         if coord_map.0.get(&top) == Some(&event.entity) {
             coord_map.0.remove(&top);
         }
