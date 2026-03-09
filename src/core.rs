@@ -337,8 +337,9 @@ fn determine_belt_shape(
                 cmd.entity(entity).insert(BeltShape::Straight(*dir));
             }
             (Some(a), false, None) | (None, false, Some(a)) => {
-                cmd.entity(entity)
-                    .insert(BeltShape::Curve(Curve::from_input_output(a, *dir).unwrap()));
+                let curve = Curve::from_input_output(a, *dir).unwrap();
+                assert_eq!(curve.output(), *dir);
+                cmd.entity(entity).insert(BeltShape::Curve(curve));
             }
         }
     }
@@ -672,7 +673,7 @@ impl Curve {
             (North, East) => Some(Self::NorthToEast),
             (North, West) => Some(Self::NorthToWest),
             (South, East) => Some(Self::SouthToEast),
-            (South, West) => Some(Self::SouthToEast),
+            (South, West) => Some(Self::SouthToWest),
             (East, North) => Some(Self::EastToNorth),
             (East, South) => Some(Self::EastToSouth),
             (West, North) => Some(Self::WestToNorth),
