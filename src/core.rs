@@ -1,7 +1,6 @@
 use crate::core::inventory::{Inventory, Stack};
 use bevy::{math::ops::sin_cos, prelude::*};
 use derivative::Derivative;
-#[cfg(test)]
 use std::collections::HashMap;
 use std::f32::consts::PI;
 
@@ -59,6 +58,8 @@ impl Plugin for CorePlugin {
     fn build(&self, app: &mut App) {
         #[cfg(feature = "invariant-check")]
         app.add_plugins(crate::core::invariants::InvariantsPlugin);
+
+        app.init_resource::<CoordMap>();
 
         app.add_observer(on_place_block);
         app.add_observer(on_place_item);
@@ -213,6 +214,9 @@ pub struct Sided<T> {
 #[derive(Resource)]
 pub struct Player(pub Entity);
 
+#[derive(Resource, Default)]
+pub struct CoordMap(pub HashMap<WorldCoords, Entity>);
+
 // -------
 // Systems
 // -------
@@ -223,7 +227,7 @@ fn despawn_old_entities(mut cmd: Commands, q: Query<Entity, With<Delete>>) {
     }
 }
 
-fn on_place_block(event: On<PlaceBlock>, mut cmd: Commands) {
+fn on_place_block(event: On<PlaceBlock>, mut cmd: Commands, mut coord_map: ResMut<CoordMap>) {
     debug!(
         "Placing block {:?} at {:?} facing {:?}",
         event.entity, event.coords, event.dir
@@ -239,6 +243,7 @@ fn on_place_block(event: On<PlaceBlock>, mut cmd: Commands) {
     };
 
     cmd.entity(event.entity).insert(event.to_bundle());
+    coord_map.0.insert(event.coords, event.entity);
 }
 
 fn on_place_item(
@@ -260,34 +265,48 @@ fn on_place_item(
     belt.2.0[event.lane].push((event.position, event.entity));
 }
 
-fn on_remove_block(event: On<RemoveBlock>) {
+fn on_remove_block(
+    event: On<RemoveBlock>,
+    coords_q: Query<&WorldCoords>,
+    mut coord_map: ResMut<CoordMap>,
+) {
     debug!("Removing {:?}", event.entity);
+    if let Ok(coords) = coords_q.get(event.entity) {
+        coord_map.0.remove(coords);
+    }
 }
 
 fn determine_belt_shape(
     belts: Query<(Entity, &WorldCoords, &HDir), With<Belt>>,
-    affecters: Query<(Entity, &WorldCoords, &HDir), With<AffectsBelts>>,
+    affecters: Query<&HDir, With<AffectsBelts>>,
+    coord_map: Res<CoordMap>,
     mut cmd: Commands,
 ) {
     for (entity, coords, dir) in belts.iter() {
-        let fed_from_behind = affecters
-            .iter()
-            .find(|(_, b_coords, b_dir)| *b_dir == dir && b_coords.step(**b_dir) == *coords)
-            .is_some();
-        let fed_from_left = affecters.iter().find(|(_, l_coords, l_dir)| {
-            **l_dir == dir.left() && l_coords.step(**l_dir) == *coords
-        });
-        let fed_from_right = affecters.iter().find(|(_, r_coords, r_dir)| {
-            **r_dir == dir.right() && r_coords.step(**r_dir) == *coords
-        });
+        let fed_from_behind = coord_map
+            .0
+            .get(&coords.step(dir.opposite()))
+            .and_then(|&e| affecters.get(e).ok())
+            .is_some_and(|d| *d == *dir);
+        let fed_from_left = coord_map
+            .0
+            .get(&coords.step(dir.right()))
+            .and_then(|&e| affecters.get(e).ok())
+            .filter(|d| **d == dir.left())
+            .copied();
+        let fed_from_right = coord_map
+            .0
+            .get(&coords.step(dir.left()))
+            .and_then(|&e| affecters.get(e).ok())
+            .filter(|d| **d == dir.right())
+            .copied();
         match (fed_from_left, fed_from_behind, fed_from_right) {
             (None, _, None) | (Some(_), _, Some(_)) | (_, true, _) => {
                 cmd.entity(entity).insert(BeltShape::Straight(*dir));
             }
-            (Some((_, _, a)), false, None) | (None, false, Some((_, _, a))) => {
-                cmd.entity(entity).insert(BeltShape::Curve(
-                    Curve::from_input_output(*a, *dir).unwrap(),
-                ));
+            (Some(a), false, None) | (None, false, Some(a)) => {
+                cmd.entity(entity)
+                    .insert(BeltShape::Curve(Curve::from_input_output(a, *dir).unwrap()));
             }
         }
     }
@@ -310,7 +329,10 @@ fn move_items_on_belts(mut belts: Query<(&mut ItemLanes, &BeltShape)>) {
     }
 }
 
-fn transfer_items(mut invs: Query<(Entity, &mut ItemLanes, &WorldCoords, &HDir, &BeltShape)>) {
+fn transfer_items(
+    mut invs: Query<(Entity, &mut ItemLanes, &WorldCoords, &HDir, &BeltShape)>,
+    coord_map: Res<CoordMap>,
+) {
     struct Transfer {
         source: Entity,
         dest: Entity,
@@ -318,25 +340,27 @@ fn transfer_items(mut invs: Query<(Entity, &mut ItemLanes, &WorldCoords, &HDir, 
     }
     let mut transfers = Vec::new();
     for source in invs.iter() {
-        for dest in invs.iter() {
-            if source.2.step(*source.3) != *dest.2 {
+        let next = source.2.step(*source.3);
+        let Some(&dest_entity) = coord_map.0.get(&next) else {
+            continue;
+        };
+        let Ok(dest) = invs.get(dest_entity) else {
+            continue;
+        };
+        for side in SIDES {
+            let Some(i) = source.1.0[side].get(0) else {
                 continue;
-            }
-            for side in SIDES {
-                let Some(i) = source.1.0[side].get(0) else {
-                    continue;
-                };
-                if i.0 <= 0
-                    && dest.1.0[side].last().map(|a| a.0).unwrap_or(0) + ITEM_SPACING
-                        < dest.4.num_pos(side)
-                    && source.4.output() == dest.4.input()
-                {
-                    transfers.push(Transfer {
-                        source: source.0,
-                        dest: dest.0,
-                        lane: side,
-                    });
-                }
+            };
+            if i.0 <= 0
+                && dest.1.0[side].last().map(|a| a.0).unwrap_or(0) + ITEM_SPACING
+                    < dest.4.num_pos(side)
+                && source.4.output() == dest.4.input()
+            {
+                transfers.push(Transfer {
+                    source: source.0,
+                    dest: dest_entity,
+                    lane: side,
+                });
             }
         }
     }
@@ -351,7 +375,10 @@ fn transfer_items(mut invs: Query<(Entity, &mut ItemLanes, &WorldCoords, &HDir, 
     }
 }
 
-fn side_loading(mut invs: Query<(Entity, &mut ItemLanes, &WorldCoords, &HDir, &BeltShape)>) {
+fn side_loading(
+    mut invs: Query<(Entity, &mut ItemLanes, &WorldCoords, &HDir, &BeltShape)>,
+    coord_map: Res<CoordMap>,
+) {
     struct Transfer {
         source: Entity,
         dest: Entity,
@@ -361,42 +388,44 @@ fn side_loading(mut invs: Query<(Entity, &mut ItemLanes, &WorldCoords, &HDir, &B
     }
     let mut transfers = Vec::new();
     for source in invs.iter() {
-        for dest in invs.iter() {
-            if source.2.step(*source.3) != *dest.2 {
-                continue;
-            }
-            if matches!(dest.4, BeltShape::Straight(_))
-                && (source.4.output() == dest.4.input().left()
-                    || source.4.output() == dest.4.input().right())
-            {
-                let dest_side = if source.4.output() == dest.4.input().right() {
-                    Side::Left
-                } else {
-                    Side::Right
+        let next = source.2.step(*source.3);
+        let Some(&dest_entity) = coord_map.0.get(&next) else {
+            continue;
+        };
+        let Ok(dest) = invs.get(dest_entity) else {
+            continue;
+        };
+        if matches!(dest.4, BeltShape::Straight(_))
+            && (source.4.output() == dest.4.input().left()
+                || source.4.output() == dest.4.input().right())
+        {
+            let dest_side = if source.4.output() == dest.4.input().right() {
+                Side::Left
+            } else {
+                Side::Right
+            };
+            for side in SIDES {
+                let Some(item) = source.1.0[side].get(0) else {
+                    continue;
                 };
-                for side in SIDES {
-                    let Some(item) = source.1.0[side].get(0) else {
-                        continue;
+                if item.0 <= 0
+                    && dest.1.0[dest_side].last().map(|a| a.0).unwrap_or(0) + ITEM_SPACING
+                        < dest.4.num_pos(dest_side)
+                {
+                    const OFFSET: i32 =
+                        (POSITIONS_PER_BELT as f32 * LANE_OFFSET_FACTOR).round() as i32;
+                    let position = if side == dest_side {
+                        POSITIONS_PER_BELT / 2 - OFFSET
+                    } else {
+                        POSITIONS_PER_BELT / 2 + OFFSET
                     };
-                    if item.0 <= 0
-                        && dest.1.0[dest_side].last().map(|a| a.0).unwrap_or(0) + ITEM_SPACING
-                            < dest.4.num_pos(dest_side)
-                    {
-                        const OFFSET: i32 =
-                            (POSITIONS_PER_BELT as f32 * LANE_OFFSET_FACTOR).round() as i32;
-                        let position = if side == dest_side {
-                            POSITIONS_PER_BELT / 2 - OFFSET
-                        } else {
-                            POSITIONS_PER_BELT / 2 + OFFSET
-                        };
-                        transfers.push(Transfer {
-                            source: source.0,
-                            dest: dest.0,
-                            source_lane: side,
-                            dest_lane: dest_side,
-                            position,
-                        });
-                    }
+                    transfers.push(Transfer {
+                        source: source.0,
+                        dest: dest_entity,
+                        source_lane: side,
+                        dest_lane: dest_side,
+                        position,
+                    });
                 }
             }
         }
@@ -430,46 +459,59 @@ fn set_item_transforms(
 
 fn sources_place(
     sources: Query<(&WorldCoords, &HDir), With<Source>>,
-    belts: Query<(Entity, &ItemLanes, &WorldCoords)>,
+    belts: Query<(Entity, &ItemLanes), With<Belt>>,
+    coord_map: Res<CoordMap>,
     mut cmd: Commands,
 ) {
-    for source in sources {
-        for belt in belts {
-            if *belt.2 == source.0.step(*source.1) && belt.1.0.left.len() <= ITEMS_PER_BELT as usize
-            {
-                let entity = cmd.spawn_empty().id();
-                cmd.trigger(PlaceItem {
-                    entity,
-                    item: Item::Belt,
-                    belt: belt.0,
-                    lane: Side::Left,
-                    position: POSITIONS_PER_BELT,
-                    on_error: Box::new(|_, _| {}),
-                })
-            }
+    for (source_coords, source_dir) in sources {
+        let target = source_coords.step(*source_dir);
+        let Some(&belt_entity) = coord_map.0.get(&target) else {
+            continue;
+        };
+        let Ok((belt_entity, lanes)) = belts.get(belt_entity) else {
+            continue;
+        };
+        if lanes.0.left.len() <= ITEMS_PER_BELT as usize {
+            let entity = cmd.spawn_empty().id();
+            cmd.trigger(PlaceItem {
+                entity,
+                item: Item::Belt,
+                belt: belt_entity,
+                lane: Side::Left,
+                position: POSITIONS_PER_BELT,
+                on_error: Box::new(|_, _| {}),
+            });
         }
     }
 }
 
 fn sinks_destroy(
     sinks: Query<&WorldCoords, With<Sink>>,
-    mut belts: Query<(Entity, &mut ItemLanes, &WorldCoords, &HDir)>,
+    mut belts: Query<(Entity, &mut ItemLanes, &HDir)>,
+    coord_map: Res<CoordMap>,
     mut cmd: Commands,
 ) {
-    for coords in sinks {
-        for mut belt in belts.iter_mut() {
-            if belt.2.step(*belt.3) != *coords {
+    for sink_coords in sinks {
+        for d in [HDir::North, HDir::South, HDir::East, HDir::West] {
+            let neighbor = sink_coords.step(d.opposite());
+            let Some(&belt_entity) = coord_map.0.get(&neighbor) else {
+                continue;
+            };
+            let Ok((_, mut lanes, belt_dir)) = belts.get_mut(belt_entity) else {
+                continue;
+            };
+            if *belt_dir != d {
                 continue;
             }
             for side in SIDES {
-                let Some(lead_item) = belt.1.0[side].get(0) else {
+                let Some(lead_item) = lanes.0[side].get(0) else {
                     continue;
                 };
                 if lead_item.0 != 0 {
                     continue;
                 }
                 cmd.entity(lead_item.1).despawn();
-                belt.1.0[side].remove(0);
+                lanes.0[side].remove(0);
             }
         }
     }
