@@ -158,6 +158,9 @@ pub struct Sink;
 pub struct AffectsBelts;
 
 #[derive(Component)]
+pub struct RaycastTarget;
+
+#[derive(Component)]
 pub struct OnBelt;
 
 pub type ItemPos = i32;
@@ -265,10 +268,10 @@ fn on_place_block(
     match event.item {
         Item::Belt => cmd
             .entity(event.entity)
-            .insert((Belt, ItemLanes::default(), AffectsBelts)),
-        Item::Source => cmd.entity(event.entity).insert((Source, AffectsBelts)),
-        Item::Sink => cmd.entity(event.entity).insert((Sink, AffectsBelts)),
-        Item::Rock | Item::Dirt => cmd.entity(event.entity).insert(()),
+            .insert((Belt, ItemLanes::default(), AffectsBelts, RaycastTarget)),
+        Item::Source => cmd.entity(event.entity).insert((Source, AffectsBelts, RaycastTarget)),
+        Item::Sink => cmd.entity(event.entity).insert((Sink, AffectsBelts, RaycastTarget)),
+        Item::Rock | Item::Dirt => cmd.entity(event.entity).insert(RaycastTarget),
     };
 
     cmd.entity(event.entity).insert(event.to_bundle());

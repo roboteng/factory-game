@@ -279,21 +279,68 @@ fn camera_movement(
     }
 }
 
-fn camera_ray_to_world_coords(camera_transform: &Transform) -> Option<WorldCoords> {
-    let camera_pos = camera_transform.translation;
-    let camera_forward = camera_transform.forward();
-    if camera_forward.y.abs() < 0.001 {
-        return None;
+struct RayHit {
+    hit_coords: WorldCoords,
+    place_coords: WorldCoords,
+}
+
+fn cast_ray(
+    origin: Vec3,
+    dir: Vec3,
+    targets: impl Iterator<Item = (WorldCoords, Vec3)>,
+) -> Option<RayHit> {
+    let half = BLOCK_SIZE / 2.0;
+    let mut best: Option<(f32, WorldCoords, [i32; 3])> = None;
+
+    'outer: for (coords, center) in targets {
+        let mut t_enter = f32::NEG_INFINITY;
+        let mut t_leave = f32::INFINITY;
+        let mut enter_axis = 0usize;
+
+        for axis in 0..3usize {
+            let d = dir[axis];
+            let o = origin[axis];
+            let c = center[axis];
+
+            if d.abs() < 1e-9 {
+                if (o - c).abs() > half {
+                    continue 'outer; // parallel and outside slab → miss
+                }
+                continue; // parallel and inside slab → unconstrained on this axis
+            }
+
+            let t_a = (c - half - o) / d;
+            let t_b = (c + half - o) / d;
+            let (t0, t1) = if d > 0.0 { (t_a, t_b) } else { (t_b, t_a) };
+
+            if t0 > t_enter {
+                t_enter = t0;
+                enter_axis = axis;
+            }
+            t_leave = t_leave.min(t1);
+        }
+
+        if t_enter >= t_leave || t_leave <= 0.0 {
+            continue; // miss
+        }
+
+        if best.map_or(true, |(best_t, _, _)| t_enter < best_t) {
+            let mut offset = [0i32; 3];
+            offset[enter_axis] = if dir[enter_axis] > 0.0 { -1 } else { 1 };
+            best = Some((t_enter, coords, offset));
+        }
     }
-    let t = -camera_pos.y / camera_forward.y;
-    if t < 0.0 {
-        return None;
-    }
-    let intersection = camera_pos + camera_forward * t;
-    Some(WorldCoords {
-        x: (intersection.x / BLOCK_SIZE).round() as i32,
-        y: 0,
-        z: (intersection.z / BLOCK_SIZE).round() as i32,
+
+    best.map(|(_, hit_coords, offset)| {
+        let place_coords = WorldCoords {
+            x: hit_coords.x + offset[0],
+            y: hit_coords.y + offset[1],
+            z: hit_coords.z + offset[2],
+        };
+        RayHit {
+            hit_coords,
+            place_coords,
+        }
     })
 }
 
@@ -307,6 +354,7 @@ fn handle_click_to_place(
     mut invs: Query<&mut Inventory>,
     mut cmd: Commands,
     mode: Res<DeleteMode>,
+    targets: Query<(&WorldCoords, &Transform), With<RaycastTarget>>,
 ) {
     if *mode == DeleteMode::On {
         return;
@@ -330,8 +378,11 @@ fn handle_click_to_place(
     }
 
     let camera_transform = camera_query.into_inner();
+    let origin = camera_transform.translation;
+    let ray_dir = *camera_transform.forward();
 
-    let Some(coords) = camera_ray_to_world_coords(camera_transform) else {
+    let Some(hit) = cast_ray(origin, ray_dir, targets.iter().map(|(c, t)| (*c, t.translation)))
+    else {
         return;
     };
 
@@ -349,7 +400,7 @@ fn handle_click_to_place(
     let event = PlaceBlock {
         entity,
         item,
-        coords,
+        coords: hit.place_coords,
         dir,
     };
     debug!("Triggering: {event:?}");
@@ -398,6 +449,7 @@ fn update_delete_preview(
         (With<DeletePreview>, Without<FirstPersonCamera>),
     >,
     mut cmd: Commands,
+    targets: Query<(&WorldCoords, &Transform), (With<RaycastTarget>, Without<DeletePreview>)>,
 ) {
     let (ref mut t, ref mut vis) = *preview_q;
     let cursor_locked = cursor_options.grab_mode == CursorGrabMode::Locked;
@@ -406,17 +458,25 @@ fn update_delete_preview(
         **vis = Visibility::Hidden;
         return;
     }
-    let Some(coords) = camera_ray_to_world_coords(camera_q.into_inner()) else {
+
+    let camera_transform = camera_q.into_inner();
+    let origin = camera_transform.translation;
+    let ray_dir = *camera_transform.forward();
+
+    let Some(hit) =
+        cast_ray(origin, ray_dir, targets.iter().map(|(c, tr)| (*c, tr.translation)))
+    else {
         **vis = Visibility::Hidden;
         return;
     };
-    let Some(&target) = coord_map.0.get(&coords) else {
+
+    let Some(&target) = coord_map.0.get(&hit.hit_coords) else {
         **vis = Visibility::Hidden;
         return;
     };
 
     **vis = Visibility::Visible;
-    t.translation = Vec3::from(coords);
+    t.translation = Vec3::from(hit.hit_coords);
 
     if mouse.just_pressed(MouseButton::Left) {
         cmd.trigger(RemoveBlock { entity: target });
