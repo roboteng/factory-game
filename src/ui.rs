@@ -287,18 +287,17 @@ struct RayHit {
 fn cast_ray(
     origin: Vec3,
     dir: Vec3,
-    targets: impl Iterator<Item = (WorldCoords, Vec3, f32, i32)>,
+    targets: impl Iterator<Item = (WorldCoords, Vec3, Vec3)>,
 ) -> Option<RayHit> {
-    let xz_half = BLOCK_SIZE / 2.0;
     let mut best: Option<(f32, WorldCoords, [i32; 3])> = None;
 
-    'outer: for (coords, center, y_aabb_half, y_place_stride) in targets {
+    'outer: for (coords, center, half_extents) in targets {
         let mut t_enter = f32::NEG_INFINITY;
         let mut t_leave = f32::INFINITY;
         let mut enter_axis = 0usize;
 
         for axis in 0..3usize {
-            let half = if axis == 1 { y_aabb_half } else { xz_half };
+            let half = half_extents[axis];
             let d = dir[axis];
             let o = origin[axis];
             let c = center[axis];
@@ -327,8 +326,20 @@ fn cast_ray(
 
         if best.map_or(true, |(best_t, _, _)| t_enter < best_t) {
             let mut offset = [0i32; 3];
-            let stride = if enter_axis == 1 { y_place_stride } else { 1 };
-            offset[enter_axis] = if dir[enter_axis] > 0.0 { -stride } else { stride };
+            // How many half-block y-slots does this block occupy?
+            let y_slots = (2.0 * half_extents.y / HALF_BLOCK_SIZE).round() as i32;
+            if enter_axis == 1 {
+                // Top/bottom face: step past all occupied y slots.
+                offset[1] = if dir[1] > 0.0 { -y_slots } else { y_slots };
+            } else {
+                // Side face: snap Y to whichever half-block slot the ray actually
+                // hit, clamped to the block's own occupied slots.
+                let hit_world_y = origin[1] + t_enter * dir[1];
+                let raw_y = (hit_world_y / HALF_BLOCK_SIZE).round() as i32;
+                let snapped_y = raw_y.clamp(coords.y, coords.y + y_slots - 1);
+                offset[1] = snapped_y - coords.y;
+                offset[enter_axis] = if dir[enter_axis] > 0.0 { -1 } else { 1 };
+            }
             best = Some((t_enter, coords, offset));
         }
     }
@@ -356,7 +367,7 @@ fn handle_click_to_place(
     mut invs: Query<&mut Inventory>,
     mut cmd: Commands,
     mode: Res<DeleteMode>,
-    targets: Query<(&WorldCoords, &Transform, &BlockHeight), With<RaycastTarget>>,
+    targets: Query<(&WorldCoords, &Transform, &RaycastTarget)>,
 ) {
     if *mode == DeleteMode::On {
         return;
@@ -383,7 +394,7 @@ fn handle_click_to_place(
     let origin = camera_transform.translation;
     let ray_dir = *camera_transform.forward();
 
-    let Some(hit) = cast_ray(origin, ray_dir, targets.iter().map(|(c, t, bh)| (*c, t.translation, bh.y_aabb_half, bh.y_place_stride)))
+    let Some(hit) = cast_ray(origin, ray_dir, targets.iter().map(|(c, t, rt)| (*c, t.translation, rt.half_extents)))
     else {
         return;
     };
@@ -451,7 +462,7 @@ fn update_delete_preview(
         (With<DeletePreview>, Without<FirstPersonCamera>),
     >,
     mut cmd: Commands,
-    targets: Query<(&WorldCoords, &Transform, &BlockHeight), (With<RaycastTarget>, Without<DeletePreview>)>,
+    targets: Query<(&WorldCoords, &Transform, &RaycastTarget), Without<DeletePreview>>,
 ) {
     let (ref mut t, ref mut vis) = *preview_q;
     let cursor_locked = cursor_options.grab_mode == CursorGrabMode::Locked;
@@ -466,7 +477,7 @@ fn update_delete_preview(
     let ray_dir = *camera_transform.forward();
 
     let Some(hit) =
-        cast_ray(origin, ray_dir, targets.iter().map(|(c, tr, bh)| (*c, tr.translation, bh.y_aabb_half, bh.y_place_stride)))
+        cast_ray(origin, ray_dir, targets.iter().map(|(c, tr, rt)| (*c, tr.translation, rt.half_extents)))
     else {
         **vis = Visibility::Hidden;
         return;

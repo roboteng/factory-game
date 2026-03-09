@@ -157,24 +157,21 @@ pub struct Sink;
 #[derive(Component)]
 pub struct AffectsBelts;
 
-#[derive(Component)]
-pub struct RaycastTarget;
-
-/// Describes the physical Y extent of a block and how far to offset the
-/// placement cursor when the ray exits through a top/bottom face.
+/// Marks an entity as a target for block-placement raycasts.
+/// `half_extents` is the AABB half-size on each axis, centred on the entity's
+/// `Transform` translation.
 #[derive(Component, Clone, Copy)]
-pub struct BlockHeight {
-    pub y_aabb_half: f32,
-    pub y_place_stride: i32,
+pub struct RaycastTarget {
+    pub half_extents: Vec3,
 }
-impl BlockHeight {
-    pub const HALF: Self = Self {
-        y_aabb_half: HALF_BLOCK_SIZE / 2.0,
-        y_place_stride: 1,
+impl RaycastTarget {
+    /// Half-block tall (belts).
+    pub const HALF_BLOCK: Self = Self {
+        half_extents: Vec3::new(BLOCK_SIZE / 2.0, HALF_BLOCK_SIZE / 2.0, BLOCK_SIZE / 2.0),
     };
-    pub const FULL: Self = Self {
-        y_aabb_half: BLOCK_SIZE / 2.0,
-        y_place_stride: 2,
+    /// Full-block tall (Rock / Dirt / Source / Sink).
+    pub const FULL_BLOCK: Self = Self {
+        half_extents: Vec3::new(BLOCK_SIZE / 2.0, BLOCK_SIZE / 2.0, BLOCK_SIZE / 2.0),
     };
 }
 
@@ -228,6 +225,13 @@ impl Item {
             Item::Dirt => "Dirt",
         }
     }
+
+    pub fn raycast_target(self) -> RaycastTarget {
+        match self {
+            Item::Belt => RaycastTarget::HALF_BLOCK,
+            Item::Rock | Item::Dirt | Item::Source | Item::Sink => RaycastTarget::FULL_BLOCK,
+        }
+    }
 }
 
 #[derive(Component, Debug, PartialEq, Eq, Clone, Default)]
@@ -258,34 +262,39 @@ fn on_place_block(
     mut coord_map: ResMut<CoordMap>,
     belts_q: Query<&ItemLanes, With<Belt>>,
 ) {
-    debug!(
-        "Placing block {:?} at {:?} facing {:?}",
-        event.entity, event.coords, event.dir
-    );
+    let rt = event.item.raycast_target();
+    let is_full = rt.half_extents.y > HALF_BLOCK_SIZE / 2.0;
 
-    let is_full = matches!(event.item, Item::Rock | Item::Dirt | Item::Source | Item::Sink);
+    // Full-height blocks must sit at an even y coordinate. If the ray lands
+    // on an odd slot (e.g. top face of a belt), snap down to the nearest even.
+    let coords = if is_full {
+        WorldCoords { y: event.coords.y & !1, ..event.coords }
+    } else {
+        event.coords
+    };
+
+    let place = PlaceBlock { coords, ..*event.event() };
+
+    debug!("Placing {:?} at {coords:?} facing {:?}", event.item, event.dir);
 
     // For full-height blocks, also check the top slot.
-    if is_full {
-        let top = WorldCoords { y: event.coords.y + 1, ..event.coords };
-        if coord_map.0.contains_key(&top) {
-            cmd.entity(event.entity).despawn();
-            return;
-        }
+    if is_full && coord_map.0.contains_key(&WorldCoords { y: coords.y + 1, ..coords }) {
+        cmd.entity(event.entity).despawn();
+        return;
     }
 
     // Check for an existing block at this location.
-    if let Some(&existing) = coord_map.0.get(&event.coords) {
+    if let Some(&existing) = coord_map.0.get(&coords) {
         if event.item == Item::Belt {
             if let Ok(old_lanes) = belts_q.get(existing) {
                 // Belt-on-belt: replace the old belt and transfer its items to the new one.
                 let transferred = old_lanes.0.clone();
                 cmd.entity(existing).despawn();
-                coord_map.0.remove(&event.coords);
+                coord_map.0.remove(&coords);
                 cmd.entity(event.entity)
-                    .insert((Belt, ItemLanes(transferred), AffectsBelts, RaycastTarget, BlockHeight::HALF));
-                cmd.entity(event.entity).insert(event.to_bundle());
-                coord_map.0.insert(event.coords, event.entity);
+                    .insert((Belt, ItemLanes(transferred), AffectsBelts, rt));
+                cmd.entity(event.entity).insert(place.to_bundle());
+                coord_map.0.insert(coords, event.entity);
                 return;
             }
         }
@@ -297,17 +306,17 @@ fn on_place_block(
     match event.item {
         Item::Belt => cmd
             .entity(event.entity)
-            .insert((Belt, ItemLanes::default(), AffectsBelts, RaycastTarget, BlockHeight::HALF)),
-        Item::Source => cmd.entity(event.entity).insert((Source, AffectsBelts, RaycastTarget, BlockHeight::FULL)),
-        Item::Sink => cmd.entity(event.entity).insert((Sink, AffectsBelts, RaycastTarget, BlockHeight::FULL)),
-        Item::Rock | Item::Dirt => cmd.entity(event.entity).insert((RaycastTarget, BlockHeight::FULL)),
+            .insert((Belt, ItemLanes::default(), AffectsBelts, rt)),
+        Item::Source => cmd.entity(event.entity).insert((Source, AffectsBelts, rt)),
+        Item::Sink => cmd.entity(event.entity).insert((Sink, AffectsBelts, rt)),
+        Item::Rock | Item::Dirt => cmd.entity(event.entity).insert(rt),
     };
 
-    cmd.entity(event.entity).insert(event.to_bundle());
-    coord_map.0.insert(event.coords, event.entity);
+    cmd.entity(event.entity).insert(place.to_bundle());
+    coord_map.0.insert(coords, event.entity);
     // Register the second slot for full-height blocks.
     if is_full {
-        coord_map.0.insert(WorldCoords { y: event.coords.y + 1, ..event.coords }, event.entity);
+        coord_map.0.insert(WorldCoords { y: coords.y + 1, ..coords }, event.entity);
     }
 }
 
