@@ -23,9 +23,9 @@ pub const ITEM_SIZE: f32 = BLOCK_SIZE / 4.0;
 pub const HALF_ITEM_SIZE: f32 = ITEM_SIZE / 2.0;
 /// How far from the bottom of the voxel the belt surface is.
 #[allow(unused)]
-pub const BELT_HEIGHT: f32 = 0.25 * BLOCK_SIZE;
+pub const BELT_HEIGHT: f32 = 0.25 * HALF_BLOCK_SIZE;
 #[allow(unused)]
-pub const BELT_HEIGHT_FROM_CENTER: f32 = -HALF_BLOCK_SIZE + BELT_HEIGHT;
+pub const BELT_HEIGHT_FROM_CENTER: f32 = -(HALF_BLOCK_SIZE / 2.0) + BELT_HEIGHT;
 /// Amount of a unit voxel of how far a lane is offset from center.
 pub const LANE_OFFSET_FACTOR: f32 = 0.25;
 /// How far from center each lane is.
@@ -160,6 +160,24 @@ pub struct AffectsBelts;
 #[derive(Component)]
 pub struct RaycastTarget;
 
+/// Describes the physical Y extent of a block and how far to offset the
+/// placement cursor when the ray exits through a top/bottom face.
+#[derive(Component, Clone, Copy)]
+pub struct BlockHeight {
+    pub y_aabb_half: f32,
+    pub y_place_stride: i32,
+}
+impl BlockHeight {
+    pub const HALF: Self = Self {
+        y_aabb_half: HALF_BLOCK_SIZE / 2.0,
+        y_place_stride: 1,
+    };
+    pub const FULL: Self = Self {
+        y_aabb_half: BLOCK_SIZE / 2.0,
+        y_place_stride: 2,
+    };
+}
+
 #[derive(Component)]
 pub struct OnBelt;
 
@@ -245,6 +263,17 @@ fn on_place_block(
         event.entity, event.coords, event.dir
     );
 
+    let is_full = matches!(event.item, Item::Rock | Item::Dirt | Item::Source | Item::Sink);
+
+    // For full-height blocks, also check the top slot.
+    if is_full {
+        let top = WorldCoords { y: event.coords.y + 1, ..event.coords };
+        if coord_map.0.contains_key(&top) {
+            cmd.entity(event.entity).despawn();
+            return;
+        }
+    }
+
     // Check for an existing block at this location.
     if let Some(&existing) = coord_map.0.get(&event.coords) {
         if event.item == Item::Belt {
@@ -254,7 +283,7 @@ fn on_place_block(
                 cmd.entity(existing).despawn();
                 coord_map.0.remove(&event.coords);
                 cmd.entity(event.entity)
-                    .insert((Belt, ItemLanes(transferred), AffectsBelts));
+                    .insert((Belt, ItemLanes(transferred), AffectsBelts, RaycastTarget, BlockHeight::HALF));
                 cmd.entity(event.entity).insert(event.to_bundle());
                 coord_map.0.insert(event.coords, event.entity);
                 return;
@@ -268,14 +297,18 @@ fn on_place_block(
     match event.item {
         Item::Belt => cmd
             .entity(event.entity)
-            .insert((Belt, ItemLanes::default(), AffectsBelts, RaycastTarget)),
-        Item::Source => cmd.entity(event.entity).insert((Source, AffectsBelts, RaycastTarget)),
-        Item::Sink => cmd.entity(event.entity).insert((Sink, AffectsBelts, RaycastTarget)),
-        Item::Rock | Item::Dirt => cmd.entity(event.entity).insert(RaycastTarget),
+            .insert((Belt, ItemLanes::default(), AffectsBelts, RaycastTarget, BlockHeight::HALF)),
+        Item::Source => cmd.entity(event.entity).insert((Source, AffectsBelts, RaycastTarget, BlockHeight::FULL)),
+        Item::Sink => cmd.entity(event.entity).insert((Sink, AffectsBelts, RaycastTarget, BlockHeight::FULL)),
+        Item::Rock | Item::Dirt => cmd.entity(event.entity).insert((RaycastTarget, BlockHeight::FULL)),
     };
 
     cmd.entity(event.entity).insert(event.to_bundle());
     coord_map.0.insert(event.coords, event.entity);
+    // Register the second slot for full-height blocks.
+    if is_full {
+        coord_map.0.insert(WorldCoords { y: event.coords.y + 1, ..event.coords }, event.entity);
+    }
 }
 
 fn on_place_item(
@@ -307,6 +340,11 @@ fn on_remove_block(
     debug!("Removing {:?}", event.entity);
     if let Ok(coords) = coords_q.get(event.entity) {
         coord_map.0.remove(coords);
+        // Remove the top slot if this entity registered it (full-height blocks).
+        let top = WorldCoords { y: coords.y + 1, ..*coords };
+        if coord_map.0.get(&top) == Some(&event.entity) {
+            coord_map.0.remove(&top);
+        }
     }
     if let Ok(lanes) = lanes_q.get(event.entity) {
         for (_, item) in lanes.0.left.iter().chain(lanes.0.right.iter()) {
@@ -751,7 +789,11 @@ impl Curve {
 
 impl From<WorldCoords> for Vec3 {
     fn from(coords: WorldCoords) -> Self {
-        Vec3::new(coords.x as f32, coords.y as f32, coords.z as f32) * BLOCK_SIZE
+        Vec3::new(
+            coords.x as f32 * BLOCK_SIZE,
+            coords.y as f32 * HALF_BLOCK_SIZE,
+            coords.z as f32 * BLOCK_SIZE,
+        )
     }
 }
 

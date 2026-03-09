@@ -52,7 +52,7 @@ fn setup(mut cmd: Commands) {
                 cmd.trigger(crate::core::PlaceBlock {
                     entity,
                     item,
-                    coords: (x, -1, z).into(),
+                    coords: (x, -2, z).into(),
                     dir: HDir::North,
                 });
             }

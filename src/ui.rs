@@ -287,17 +287,18 @@ struct RayHit {
 fn cast_ray(
     origin: Vec3,
     dir: Vec3,
-    targets: impl Iterator<Item = (WorldCoords, Vec3)>,
+    targets: impl Iterator<Item = (WorldCoords, Vec3, f32, i32)>,
 ) -> Option<RayHit> {
-    let half = BLOCK_SIZE / 2.0;
+    let xz_half = BLOCK_SIZE / 2.0;
     let mut best: Option<(f32, WorldCoords, [i32; 3])> = None;
 
-    'outer: for (coords, center) in targets {
+    'outer: for (coords, center, y_aabb_half, y_place_stride) in targets {
         let mut t_enter = f32::NEG_INFINITY;
         let mut t_leave = f32::INFINITY;
         let mut enter_axis = 0usize;
 
         for axis in 0..3usize {
+            let half = if axis == 1 { y_aabb_half } else { xz_half };
             let d = dir[axis];
             let o = origin[axis];
             let c = center[axis];
@@ -326,7 +327,8 @@ fn cast_ray(
 
         if best.map_or(true, |(best_t, _, _)| t_enter < best_t) {
             let mut offset = [0i32; 3];
-            offset[enter_axis] = if dir[enter_axis] > 0.0 { -1 } else { 1 };
+            let stride = if enter_axis == 1 { y_place_stride } else { 1 };
+            offset[enter_axis] = if dir[enter_axis] > 0.0 { -stride } else { stride };
             best = Some((t_enter, coords, offset));
         }
     }
@@ -354,7 +356,7 @@ fn handle_click_to_place(
     mut invs: Query<&mut Inventory>,
     mut cmd: Commands,
     mode: Res<DeleteMode>,
-    targets: Query<(&WorldCoords, &Transform), With<RaycastTarget>>,
+    targets: Query<(&WorldCoords, &Transform, &BlockHeight), With<RaycastTarget>>,
 ) {
     if *mode == DeleteMode::On {
         return;
@@ -381,7 +383,7 @@ fn handle_click_to_place(
     let origin = camera_transform.translation;
     let ray_dir = *camera_transform.forward();
 
-    let Some(hit) = cast_ray(origin, ray_dir, targets.iter().map(|(c, t)| (*c, t.translation)))
+    let Some(hit) = cast_ray(origin, ray_dir, targets.iter().map(|(c, t, bh)| (*c, t.translation, bh.y_aabb_half, bh.y_place_stride)))
     else {
         return;
     };
@@ -449,7 +451,7 @@ fn update_delete_preview(
         (With<DeletePreview>, Without<FirstPersonCamera>),
     >,
     mut cmd: Commands,
-    targets: Query<(&WorldCoords, &Transform), (With<RaycastTarget>, Without<DeletePreview>)>,
+    targets: Query<(&WorldCoords, &Transform, &BlockHeight), (With<RaycastTarget>, Without<DeletePreview>)>,
 ) {
     let (ref mut t, ref mut vis) = *preview_q;
     let cursor_locked = cursor_options.grab_mode == CursorGrabMode::Locked;
@@ -464,7 +466,7 @@ fn update_delete_preview(
     let ray_dir = *camera_transform.forward();
 
     let Some(hit) =
-        cast_ray(origin, ray_dir, targets.iter().map(|(c, tr)| (*c, tr.translation)))
+        cast_ray(origin, ray_dir, targets.iter().map(|(c, tr, bh)| (*c, tr.translation, bh.y_aabb_half, bh.y_place_stride)))
     else {
         **vis = Visibility::Hidden;
         return;
