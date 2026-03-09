@@ -37,6 +37,27 @@ fn max_framerate(mut windows: Query<&mut Window, With<bevy::window::PrimaryWindo
 }
 
 fn setup(mut cmd: Commands) {
+    #[cfg(feature = "ui")]
+    {
+        use rand::Rng;
+        let mut rng = rand::thread_rng();
+        for x in -4..=4 {
+            for z in -4..=4 {
+                let item = if rng.gen_bool(0.5) {
+                    crate::core::Item::Rock
+                } else {
+                    crate::core::Item::Dirt
+                };
+                let entity = cmd.spawn_empty().id();
+                cmd.trigger(crate::core::PlaceBlock {
+                    entity,
+                    item,
+                    coords: (x, -1, z).into(),
+                    dir: HDir::North,
+                });
+            }
+        }
+    }
     let entity = cmd.spawn_empty().id();
     cmd.trigger(crate::core::PlaceBlock {
         entity,

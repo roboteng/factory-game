@@ -193,6 +193,8 @@ pub enum Item {
     Belt,
     Source,
     Sink,
+    Rock,
+    Dirt,
 }
 
 impl Item {
@@ -201,6 +203,8 @@ impl Item {
             Item::Belt => "Belt",
             Item::Source => "Source",
             Item::Sink => "Sink",
+            Item::Rock => "Rock",
+            Item::Dirt => "Dirt",
         }
     }
 }
@@ -264,6 +268,7 @@ fn on_place_block(
             .insert((Belt, ItemLanes::default(), AffectsBelts)),
         Item::Source => cmd.entity(event.entity).insert((Source, AffectsBelts)),
         Item::Sink => cmd.entity(event.entity).insert((Sink, AffectsBelts)),
+        Item::Rock | Item::Dirt => cmd.entity(event.entity).insert(()),
     };
 
     cmd.entity(event.entity).insert(event.to_bundle());

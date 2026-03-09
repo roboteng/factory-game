@@ -63,6 +63,8 @@ struct AllModels {
     belt_curve: ModelDef,
     source: ModelDef,
     sink: ModelDef,
+    rock: ModelDef,
+    dirt: ModelDef,
 }
 
 fn setup_models(
@@ -81,6 +83,8 @@ fn setup_models(
         ),
         source: ModelDef::Mesh(cuboid.clone(), materials.add(Color::srgb(0.2, 0.8, 0.2))),
         sink: ModelDef::Mesh(cuboid.clone(), materials.add(Color::srgb(0.8, 0.2, 0.2))),
+        rock: ModelDef::Mesh(cuboid.clone(), materials.add(Color::srgb(0.55, 0.55, 0.55))),
+        dirt: ModelDef::Mesh(cuboid.clone(), materials.add(Color::srgb(0.55, 0.35, 0.15))),
     });
 }
 
@@ -187,6 +191,8 @@ fn attach_models(
         let model = match item {
             Item::Source => &all_models.source,
             Item::Sink => &all_models.sink,
+            Item::Rock => &all_models.rock,
+            Item::Dirt => &all_models.dirt,
             Item::Belt => match shape {
                 Some(BeltShape::Straight(_)) => &all_models.belt_straight,
                 Some(BeltShape::Curve(_)) => &all_models.belt_curve,

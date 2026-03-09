@@ -7,6 +7,8 @@ impl Plugin for HotbarPlugin {
         hotbar[0] = Some(Item::Belt);
         hotbar[1] = Some(Item::Source);
         hotbar[2] = Some(Item::Sink);
+        hotbar[3] = Some(Item::Rock);
+        hotbar[4] = Some(Item::Dirt);
         app.insert_resource(Hotbar(hotbar));
         app.insert_resource(PlacementItem::None);
 
