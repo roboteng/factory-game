@@ -78,6 +78,7 @@ impl Plugin for CorePlugin {
                 transfer_items,
                 set_item_transforms,
                 source_places,
+                side_loading,
             ),
         );
 
@@ -327,6 +328,7 @@ fn transfer_items(mut invs: Query<(Entity, &mut ItemLanes, &WorldCoords, &HDir, 
                 if i.0 <= 0
                     && dest.1.0[side].last().map(|a| a.0).unwrap_or(0) + ITEM_SPACING
                         < dest.4.num_pos(side)
+                    && source.4.output() == dest.4.input()
                 {
                     transfers.push(Transfer {
                         source: source.0,
@@ -345,6 +347,67 @@ fn transfer_items(mut invs: Query<(Entity, &mut ItemLanes, &WorldCoords, &HDir, 
         let mut dest = invs.get_mut(transfer.dest).unwrap();
         let lane = &mut dest.1.0[transfer.lane];
         lane.push((dest.4.num_pos(transfer.lane), slot.1));
+    }
+}
+
+fn side_loading(mut invs: Query<(Entity, &mut ItemLanes, &WorldCoords, &HDir, &BeltShape)>) {
+    struct Transfer {
+        source: Entity,
+        dest: Entity,
+        source_lane: Side,
+        dest_lane: Side,
+        position: ItemPos,
+    }
+    let mut transfers = Vec::new();
+    for source in invs.iter() {
+        for dest in invs.iter() {
+            if source.2.step(*source.3) != *dest.2 {
+                continue;
+            }
+            if matches!(dest.4, BeltShape::Straight(_))
+                && (source.4.output() == dest.4.input().left()
+                    || source.4.output() == dest.4.input().right())
+            {
+                let dest_side = if source.4.output() == dest.4.input().right() {
+                    Side::Left
+                } else {
+                    Side::Right
+                };
+                for side in SIDES {
+                    let Some(item) = source.1.0[side].get(0) else {
+                        continue;
+                    };
+                    if item.0 <= 0
+                        && dest.1.0[dest_side].last().map(|a| a.0).unwrap_or(0) + ITEM_SPACING
+                            < dest.4.num_pos(dest_side)
+                    {
+                        const OFFSET: i32 =
+                            (POSITIONS_PER_BELT as f32 * LANE_OFFSET_FACTOR).round() as i32;
+                        let position = if side == dest_side {
+                            POSITIONS_PER_BELT / 2 - OFFSET
+                        } else {
+                            POSITIONS_PER_BELT / 2 + OFFSET
+                        };
+                        transfers.push(Transfer {
+                            source: source.0,
+                            dest: dest.0,
+                            source_lane: side,
+                            dest_lane: dest_side,
+                            position,
+                        });
+                    }
+                }
+            }
+        }
+    }
+    for transfer in transfers {
+        let mut source = invs.get_mut(transfer.source).unwrap();
+        let slot = source.1.0[transfer.source_lane].remove(0);
+        drop(source);
+
+        let mut dest = invs.get_mut(transfer.dest).unwrap();
+        let lane = &mut dest.1.0[transfer.dest_lane];
+        lane.push((transfer.position, slot.1));
     }
 }
 
