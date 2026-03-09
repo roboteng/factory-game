@@ -425,9 +425,8 @@ fn setup_delete_preview(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    let size = BLOCK_SIZE * 1.05;
     cmd.spawn((
-        Mesh3d(meshes.add(Cuboid::new(size, size, size))),
+        Mesh3d(meshes.add(Cuboid::new(1.0, 1.0, 1.0))),
         MeshMaterial3d(materials.add(StandardMaterial {
             base_color: Color::srgba(1.0, 0.1, 0.1, 0.4),
             alpha_mode: AlphaMode::Blend,
@@ -488,8 +487,14 @@ fn update_delete_preview(
         return;
     };
 
+    let Ok((_, _, rt)) = targets.get(target) else {
+        **vis = Visibility::Hidden;
+        return;
+    };
+
     **vis = Visibility::Visible;
     t.translation = Vec3::from(hit.hit_coords);
+    t.scale = rt.half_extents * 2.0 * 1.05;
 
     if mouse.just_pressed(MouseButton::Left) {
         cmd.trigger(RemoveBlock { entity: target });
