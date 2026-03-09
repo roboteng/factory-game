@@ -227,12 +227,36 @@ fn despawn_old_entities(mut cmd: Commands, q: Query<Entity, With<Delete>>) {
     }
 }
 
-fn on_place_block(event: On<PlaceBlock>, mut cmd: Commands, mut coord_map: ResMut<CoordMap>) {
+fn on_place_block(
+    event: On<PlaceBlock>,
+    mut cmd: Commands,
+    mut coord_map: ResMut<CoordMap>,
+    belts_q: Query<&ItemLanes, With<Belt>>,
+) {
     debug!(
         "Placing block {:?} at {:?} facing {:?}",
         event.entity, event.coords, event.dir
     );
-    // TODO: check existing blocks at this location
+
+    // Check for an existing block at this location.
+    if let Some(&existing) = coord_map.0.get(&event.coords) {
+        if event.item == Item::Belt {
+            if let Ok(old_lanes) = belts_q.get(existing) {
+                // Belt-on-belt: replace the old belt and transfer its items to the new one.
+                let transferred = old_lanes.0.clone();
+                cmd.entity(existing).despawn();
+                coord_map.0.remove(&event.coords);
+                cmd.entity(event.entity)
+                    .insert((Belt, ItemLanes(transferred), AffectsBelts));
+                cmd.entity(event.entity).insert(event.to_bundle());
+                coord_map.0.insert(event.coords, event.entity);
+                return;
+            }
+        }
+        // Any other collision: ignore the placement.
+        cmd.entity(event.entity).despawn();
+        return;
+    }
 
     match event.item {
         Item::Belt => cmd
@@ -268,12 +292,20 @@ fn on_place_item(
 fn on_remove_block(
     event: On<RemoveBlock>,
     coords_q: Query<&WorldCoords>,
+    lanes_q: Query<&ItemLanes>,
     mut coord_map: ResMut<CoordMap>,
+    mut cmd: Commands,
 ) {
     debug!("Removing {:?}", event.entity);
     if let Ok(coords) = coords_q.get(event.entity) {
         coord_map.0.remove(coords);
     }
+    if let Ok(lanes) = lanes_q.get(event.entity) {
+        for (_, item) in lanes.0.left.iter().chain(lanes.0.right.iter()) {
+            cmd.entity(*item).despawn();
+        }
+    }
+    cmd.entity(event.entity).despawn();
 }
 
 fn determine_belt_shape(

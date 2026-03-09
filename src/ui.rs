@@ -16,14 +16,23 @@ pub struct UiPlugin;
 impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(hotbar::HotbarPlugin);
+        app.init_resource::<DeleteMode>();
         app.insert_resource(ClearColor(Color::srgb(0.01, 0.01, 0.05))); // Dark night sky
         app.add_systems(Startup, setup);
         app.add_systems(Startup, setup_reticle);
         app.add_systems(Startup, setup_models);
+        app.add_systems(Startup, setup_delete_preview);
 
         // Systems that trigger events Must run in PreUpdate
         app.add_systems(PreUpdate, camera_movement);
-        app.add_systems(PreUpdate, handle_click_to_place);
+        app.add_systems(
+            PreUpdate,
+            (
+                handle_delete_mode_toggle,
+                update_delete_preview.after(handle_delete_mode_toggle),
+                handle_click_to_place.after(handle_delete_mode_toggle),
+            ),
+        );
 
         app.add_systems(Update, attach_models);
         app.add_systems(Update, camera_look);
@@ -32,6 +41,16 @@ impl Plugin for UiPlugin {
         app.add_observer(on_place_item);
     }
 }
+
+#[derive(Resource, Default, PartialEq, Eq)]
+enum DeleteMode {
+    #[default]
+    Off,
+    On,
+}
+
+#[derive(Component)]
+struct DeletePreview;
 
 enum ModelDef {
     Scene(Handle<Scene>),
@@ -254,6 +273,24 @@ fn camera_movement(
     }
 }
 
+fn camera_ray_to_world_coords(camera_transform: &Transform) -> Option<WorldCoords> {
+    let camera_pos = camera_transform.translation;
+    let camera_forward = camera_transform.forward();
+    if camera_forward.y.abs() < 0.001 {
+        return None;
+    }
+    let t = -camera_pos.y / camera_forward.y;
+    if t < 0.0 {
+        return None;
+    }
+    let intersection = camera_pos + camera_forward * t;
+    Some(WorldCoords {
+        x: (intersection.x / BLOCK_SIZE).round() as i32,
+        y: 0,
+        z: (intersection.z / BLOCK_SIZE).round() as i32,
+    })
+}
+
 fn handle_click_to_place(
     mouse: Res<ButtonInput<MouseButton>>,
     cursor_options: Single<&CursorOptions>,
@@ -263,7 +300,11 @@ fn handle_click_to_place(
     hotbar: Res<Hotbar>,
     mut invs: Query<&mut Inventory>,
     mut cmd: Commands,
+    mode: Res<DeleteMode>,
 ) {
+    if *mode == DeleteMode::On {
+        return;
+    }
     let Ok(_) = invs.get_mut(player.0) else {
         error!("Could not find the player");
         return;
@@ -284,42 +325,13 @@ fn handle_click_to_place(
 
     let camera_transform = camera_query.into_inner();
 
-    // Get camera position and forward direction
-    let camera_pos = camera_transform.translation;
-    let camera_forward = camera_transform.forward();
-
-    // Intersect ray with XZ plane (y = 0)
-    // Ray equation: P = camera_pos + t * camera_forward
-    // Plane equation: y = 0
-    // Solve for t: camera_pos.y + t * camera_forward.y = 0
-
-    if camera_forward.y.abs() < 0.001 {
-        // Ray is parallel to the plane, no intersection
+    let Some(coords) = camera_ray_to_world_coords(camera_transform) else {
         return;
-    }
-
-    let t = -camera_pos.y / camera_forward.y;
-
-    if t < 0.0 {
-        // Intersection is behind the camera
-        return;
-    }
-
-    let intersection = camera_pos + camera_forward * t;
-
-    // Convert world position to WorldCoords
-    // WorldCoords are discrete grid coordinates, world positions are multiplied by BLOCK_SIZE (2.0)
-    let world_x = (intersection.x / BLOCK_SIZE).round() as i32;
-    let world_z = (intersection.z / BLOCK_SIZE).round() as i32;
-
-    let coords = WorldCoords {
-        x: world_x,
-        y: 0,
-        z: world_z,
     };
 
     // Determine belt direction based on camera forward direction (belt faces away from camera)
     // Project camera forward onto XZ plane and calculate angle
+    let camera_forward = camera_transform.forward();
     let forward_xz = Vec3::new(camera_forward.x, 0.0, camera_forward.z).normalize();
     let angle = forward_xz.z.atan2(forward_xz.x);
 
@@ -336,6 +348,73 @@ fn handle_click_to_place(
     };
     debug!("Triggering: {event:?}");
     cmd.trigger(event);
+}
+
+fn setup_delete_preview(
+    mut cmd: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    let size = BLOCK_SIZE * 1.05;
+    cmd.spawn((
+        Mesh3d(meshes.add(Cuboid::new(size, size, size))),
+        MeshMaterial3d(materials.add(StandardMaterial {
+            base_color: Color::srgba(1.0, 0.1, 0.1, 0.4),
+            alpha_mode: AlphaMode::Blend,
+            ..default()
+        })),
+        Transform::default(),
+        Visibility::Hidden,
+        DeletePreview,
+    ));
+}
+
+fn handle_delete_mode_toggle(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut mode: ResMut<DeleteMode>,
+) {
+    if keys.just_pressed(KeyCode::KeyX) {
+        *mode = match *mode {
+            DeleteMode::Off => DeleteMode::On,
+            DeleteMode::On => DeleteMode::Off,
+        };
+    }
+}
+
+fn update_delete_preview(
+    mode: Res<DeleteMode>,
+    mouse: Res<ButtonInput<MouseButton>>,
+    cursor_options: Single<&CursorOptions>,
+    camera_q: Single<&Transform, With<FirstPersonCamera>>,
+    coord_map: Res<CoordMap>,
+    mut preview_q: Single<
+        (&mut Transform, &mut Visibility),
+        (With<DeletePreview>, Without<FirstPersonCamera>),
+    >,
+    mut cmd: Commands,
+) {
+    let (ref mut t, ref mut vis) = *preview_q;
+    let cursor_locked = cursor_options.grab_mode == CursorGrabMode::Locked;
+
+    if *mode == DeleteMode::Off || !cursor_locked {
+        **vis = Visibility::Hidden;
+        return;
+    }
+    let Some(coords) = camera_ray_to_world_coords(camera_q.into_inner()) else {
+        **vis = Visibility::Hidden;
+        return;
+    };
+    let Some(&target) = coord_map.0.get(&coords) else {
+        **vis = Visibility::Hidden;
+        return;
+    };
+
+    **vis = Visibility::Visible;
+    t.translation = Vec3::from(coords);
+
+    if mouse.just_pressed(MouseButton::Left) {
+        cmd.trigger(RemoveBlock { entity: target });
+    }
 }
 
 fn angle_to_hdir(angle: f32) -> HDir {
