@@ -77,7 +77,8 @@ impl Plugin for CorePlugin {
                 move_items_on_belts,
                 transfer_items,
                 set_item_transforms,
-                source_places,
+                sources_place,
+                sinks_destroy,
                 side_loading,
             ),
         );
@@ -427,7 +428,7 @@ fn set_item_transforms(
     }
 }
 
-fn source_places(
+fn sources_place(
     sources: Query<(&WorldCoords, &HDir), With<Source>>,
     belts: Query<(Entity, &ItemLanes, &WorldCoords)>,
     mut cmd: Commands,
@@ -445,6 +446,30 @@ fn source_places(
                     position: POSITIONS_PER_BELT,
                     on_error: Box::new(|_, _| {}),
                 })
+            }
+        }
+    }
+}
+
+fn sinks_destroy(
+    sinks: Query<&WorldCoords, With<Sink>>,
+    mut belts: Query<(Entity, &mut ItemLanes, &WorldCoords, &HDir)>,
+    mut cmd: Commands,
+) {
+    for coords in sinks {
+        for mut belt in belts.iter_mut() {
+            if belt.2.step(*belt.3) != *coords {
+                continue;
+            }
+            for side in SIDES {
+                let Some(lead_item) = belt.1.0[side].get(0) else {
+                    continue;
+                };
+                if lead_item.0 != 0 {
+                    continue;
+                }
+                cmd.entity(lead_item.1).despawn();
+                belt.1.0[side].remove(0);
             }
         }
     }
