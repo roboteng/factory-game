@@ -112,7 +112,7 @@ fn setup_models(
         )),
         belt_ramp_down: ModelDef::Scene(ramp_scene(
             straight_scene,
-            Transform::from_translation(Vec3::new(0.0, HALF_BLOCK_SIZE / 2.0, 0.0))
+            Transform::from_translation(Vec3::new(0.0, -HALF_BLOCK_SIZE / 2.0, 0.0))
                 .with_rotation(Quat::from_rotation_z(-ramp_angle))
                 .with_scale(Vec3::new(ramp_scale, 1.0, 1.0)),
             &mut scenes,

@@ -144,6 +144,13 @@ pub enum HDir {
     West,
 }
 
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BeltOutput {
+    Up(HDir),
+    Level(HDir),
+    Down(HDir),
+}
+
 #[derive(Component)]
 pub struct Belt;
 
@@ -389,12 +396,22 @@ fn on_remove_block(
 }
 
 fn determine_belt_shape(
-    mut belts: Query<(Entity, &WorldCoords, &HDir, Option<&mut BeltShape>), With<Belt>>,
+    mut belts: Query<
+        (
+            Entity,
+            &WorldCoords,
+            &HDir,
+            Option<&mut BeltShape>,
+            Option<&mut BeltOutput>,
+        ),
+        With<Belt>,
+    >,
     affecters: Query<&HDir, With<AffectsBelts>>,
     coord_map: Res<CoordMap>,
     mut cmd: Commands,
 ) {
-    for (entity, coords, dir, current_shape) in belts.iter_mut() {
+    for (entity, coords, dir, current_shape, current_output) in belts.iter_mut() {
+        // May need to look at Option<BeltShape> for up/down dirs
         let fed_from_behind = coord_map
             .0
             .get(&coords.step(dir.opposite()))
@@ -413,31 +430,58 @@ fn determine_belt_shape(
             .filter(|d| **d == dir.right())
             .copied();
         let desired = match (fed_from_left, fed_from_behind, fed_from_right) {
-            (None, _, None) | (Some(_), _, Some(_)) | (_, true, _) => {
-                let up = WorldCoords {
-                    y: coords.y + 1,
-                    ..*coords
-                };
-                if coord_map.0.contains_key(&up) {
-                    BeltShape::Straight(*dir)
-                } else if coord_map.0.contains_key(&up.step(*dir)) {
-                    BeltShape::RampUp(*dir)
-                } else {
-                    BeltShape::Straight(*dir)
-                }
-            }
             (Some(a), false, None) | (None, false, Some(a)) => {
                 let curve = Curve::from_input_output(a, *dir).unwrap();
                 assert_eq!(curve.output(), *dir);
                 BeltShape::Curve(curve)
             }
+            (None, _, None) => {
+                let up = WorldCoords {
+                    y: coords.y + 1,
+                    ..*coords
+                };
+                let down = WorldCoords {
+                    y: coords.y - 1,
+                    ..*coords
+                };
+                if let Some(forward) = coord_map.0.get(&coords.step(*dir))
+                    && let Ok(f) = affecters.get(*forward)
+                    && f.opposite() != *dir
+                {
+                    BeltShape::Straight(*dir)
+                } else if let Some(forward) = coord_map.0.get(&up.step(*dir))
+                    && coord_map.0.get(&up).is_none()
+                    && let Ok(f) = affecters.get(*forward)
+                    && f.opposite() != *dir
+                {
+                    BeltShape::RampUp(*dir)
+                } else if let Some(forward) = coord_map.0.get(&down.step(*dir))
+                    && coord_map.0.get(&down).is_none()
+                    && let Ok(f) = affecters.get(*forward)
+                    && f.opposite() != *dir
+                {
+                    BeltShape::RampDown(*dir)
+                } else {
+                    BeltShape::Straight(*dir)
+                }
+            }
+            (Some(_), _, Some(_)) | (_, true, _) => BeltShape::Straight(*dir),
         };
+        let desired_output = desired.belt_output();
         match current_shape {
             Some(mut shape) => {
                 shape.set_if_neq(desired);
             }
             None => {
                 cmd.entity(entity).insert(desired);
+            }
+        }
+        match current_output {
+            Some(mut output) => {
+                output.set_if_neq(desired_output);
+            }
+            None => {
+                cmd.entity(entity).insert(desired_output);
             }
         }
     }
@@ -461,7 +505,13 @@ fn move_items_on_belts(mut belts: Query<(&mut ItemLanes, &BeltShape)>) {
 }
 
 fn transfer_items(
-    mut invs: Query<(Entity, &mut ItemLanes, &WorldCoords, &HDir, &BeltShape)>,
+    mut invs: Query<(
+        Entity,
+        &mut ItemLanes,
+        &WorldCoords,
+        &BeltOutput,
+        &BeltShape,
+    )>,
     coord_map: Res<CoordMap>,
 ) {
     struct Transfer {
@@ -653,28 +703,22 @@ fn sinks_destroy(
 // -----------
 
 impl WorldCoords {
-    pub const fn step(&self, dir: HDir) -> Self {
-        match dir {
-            HDir::North => Self {
-                x: self.x + 1,
-                y: self.y,
-                z: self.z,
-            },
-            HDir::East => Self {
-                x: self.x,
-                y: self.y,
-                z: self.z + 1,
-            },
-            HDir::South => Self {
-                x: self.x - 1,
-                y: self.y,
-                z: self.z,
-            },
-            HDir::West => Self {
-                x: self.x,
-                y: self.y,
-                z: self.z - 1,
-            },
+    pub fn step(&self, dir: impl Into<BeltOutput>) -> Self {
+        let (hdir, dy) = match dir.into() {
+            BeltOutput::Up(d) => (d, 1),
+            BeltOutput::Level(d) => (d, 0),
+            BeltOutput::Down(d) => (d, -1),
+        };
+        let (dx, dz) = match hdir {
+            HDir::North => (1, 0),
+            HDir::South => (-1, 0),
+            HDir::East => (0, 1),
+            HDir::West => (0, -1),
+        };
+        Self {
+            x: self.x + dx,
+            y: self.y + dy,
+            z: self.z + dz,
         }
     }
 }
@@ -718,6 +762,14 @@ impl HDir {
 }
 
 impl BeltShape {
+    pub fn belt_output(&self) -> BeltOutput {
+        match self {
+            Self::Straight(dir) | Self::RampDown(dir) => BeltOutput::Level(*dir),
+            Self::Curve(curve) => BeltOutput::Level(curve.output()),
+            Self::RampUp(dir) => BeltOutput::Up(*dir),
+        }
+    }
+
     pub const fn output(&self) -> HDir {
         match self {
             Self::Straight(dir) | Self::RampUp(dir) | Self::RampDown(dir) => *dir,
@@ -856,6 +908,12 @@ impl From<(i32, i32, i32)> for WorldCoords {
             y: coords.1,
             z: coords.2,
         }
+    }
+}
+
+impl From<HDir> for BeltOutput {
+    fn from(value: HDir) -> Self {
+        Self::Level(value)
     }
 }
 
