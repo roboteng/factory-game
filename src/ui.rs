@@ -16,21 +16,122 @@ pub struct UiPlugin;
 impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(hotbar::HotbarPlugin);
+        app.init_resource::<InteractionMode>();
         app.insert_resource(ClearColor(Color::srgb(0.01, 0.01, 0.05))); // Dark night sky
         app.add_systems(Startup, setup);
         app.add_systems(Startup, setup_reticle);
+        app.add_systems(Startup, setup_models);
+        app.add_systems(Startup, setup_delete_preview);
 
         // Systems that trigger events Must run in PreUpdate
         app.add_systems(PreUpdate, camera_movement);
-        app.add_systems(PreUpdate, handle_click_to_place);
-        app.add_systems(PreUpdate, handle_place_item_on_belt);
+        app.add_systems(
+            PreUpdate,
+            (
+                handle_mode_inputs,
+                update_delete_preview.after(handle_mode_inputs),
+                handle_click_to_place.after(handle_mode_inputs),
+            ),
+        );
 
+        app.add_systems(Update, attach_models);
         app.add_systems(Update, camera_look);
         app.add_systems(Update, cursor_grab.after(handle_click_to_place));
 
-        app.add_observer(on_belt_shape_insert);
         app.add_observer(on_place_item);
-        app.add_observer(on_placed_block);
+    }
+}
+
+#[derive(Resource, Default, PartialEq, Eq)]
+pub(super) enum InteractionMode {
+    #[default]
+    None,
+    Placing,
+    Deleting,
+}
+
+#[derive(Component)]
+struct DeletePreview;
+
+enum ModelDef {
+    Scene(Handle<Scene>),
+    Mesh(Handle<Mesh>, Handle<StandardMaterial>),
+}
+
+#[derive(Resource)]
+struct AllModels {
+    belt_straight: ModelDef,
+    belt_curve: ModelDef,
+    belt_ramp_up: ModelDef,
+    belt_ramp_down: ModelDef,
+    source: ModelDef,
+    sink: ModelDef,
+    rock: ModelDef,
+    dirt: ModelDef,
+}
+
+/// Creates a scene asset that renders `inner` with `transform` applied.
+/// When instantiated, the scene root contains one entity (the transformed inner scene),
+/// so the ramp shape is entirely self-contained in the asset.
+fn ramp_scene(
+    inner: Handle<Scene>,
+    transform: Transform,
+    scenes: &mut Assets<Scene>,
+) -> Handle<Scene> {
+    let mut world = World::new();
+    world.spawn((SceneRoot(inner), transform));
+    scenes.add(Scene::new(world))
+}
+
+fn setup_models(
+    mut cmd: Commands,
+    asset_server: Res<AssetServer>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut scenes: ResMut<Assets<Scene>>,
+) {
+    let cuboid = meshes.add(Cuboid::new(BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE));
+    let straight_scene =
+        asset_server.load(GltfAssetLabel::Scene(1).from_asset("models/Untitled.glb"));
+
+    let ramp_angle = (HALF_BLOCK_SIZE / BLOCK_SIZE).atan();
+    let ramp_scale =
+        (BLOCK_SIZE * BLOCK_SIZE + HALF_BLOCK_SIZE * HALF_BLOCK_SIZE).sqrt() / BLOCK_SIZE;
+
+    cmd.insert_resource(AllModels {
+        belt_straight: ModelDef::Scene(straight_scene.clone()),
+        belt_curve: ModelDef::Scene(
+            asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Untitled.glb")),
+        ),
+        belt_ramp_up: ModelDef::Scene(ramp_scene(
+            straight_scene.clone(),
+            Transform::from_translation(Vec3::new(0.0, HALF_BLOCK_SIZE / 2.0, 0.0))
+                .with_rotation(Quat::from_rotation_z(ramp_angle))
+                .with_scale(Vec3::new(ramp_scale, 1.0, 1.0)),
+            &mut scenes,
+        )),
+        belt_ramp_down: ModelDef::Scene(ramp_scene(
+            straight_scene,
+            Transform::from_translation(Vec3::new(0.0, -HALF_BLOCK_SIZE / 2.0, 0.0))
+                .with_rotation(Quat::from_rotation_z(-ramp_angle))
+                .with_scale(Vec3::new(ramp_scale, 1.0, 1.0)),
+            &mut scenes,
+        )),
+        source: ModelDef::Mesh(cuboid.clone(), materials.add(Color::srgb(0.2, 0.8, 0.2))),
+        sink: ModelDef::Mesh(cuboid.clone(), materials.add(Color::srgb(0.8, 0.2, 0.2))),
+        rock: ModelDef::Mesh(cuboid.clone(), materials.add(Color::srgb(0.55, 0.55, 0.55))),
+        dirt: ModelDef::Mesh(cuboid.clone(), materials.add(Color::srgb(0.55, 0.35, 0.15))),
+    });
+}
+
+fn apply_model(cmd: &mut EntityCommands, model: &ModelDef) {
+    match model {
+        ModelDef::Scene(handle) => {
+            cmd.insert(SceneRoot(handle.clone()));
+        }
+        ModelDef::Mesh(mesh, material) => {
+            cmd.insert((Mesh3d(mesh.clone()), MeshMaterial3d(material.clone())));
+        }
     }
 }
 
@@ -40,7 +141,6 @@ struct FirstPersonCamera {
     yaw: f32,
     sensitivity: f32,
     speed: f32,
-    fixed_y: f32,
 }
 
 fn setup(
@@ -61,7 +161,6 @@ fn setup(
             yaw: 0.0,
             sensitivity: 0.002,
             speed: 5.0,
-            fixed_y: camera_transform.translation.y,
         },
         AmbientLight {
             color: Color::WHITE,
@@ -117,44 +216,27 @@ fn spawn_stars(
     }
 }
 
-fn on_placed_block(
-    trigger: On<Insert, WorldCoords>,
-    query: Query<&Item>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+fn attach_models(
+    world_items: Query<(Entity, &Item, Option<&BeltShape>), Or<(Added<Item>, Changed<BeltShape>)>>,
+    all_models: Res<AllModels>,
     mut cmd: Commands,
 ) {
-    let entity = trigger.event_target();
-    let Ok(item) = query.get(entity) else { return };
-    let color = match item {
-        Item::Belt => return,
-        Item::Source => Color::srgb(0.2, 0.8, 0.2),
-        Item::Sink => Color::srgb(0.8, 0.2, 0.2),
-    };
-    cmd.entity(entity).insert((
-        Mesh3d(meshes.add(Cuboid::new(BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE))),
-        MeshMaterial3d(materials.add(color)),
-    ));
-}
-
-fn on_belt_shape_insert(
-    trigger: On<Insert, BeltShape>,
-    query: Query<&BeltShape, With<Belt>>,
-    mut cmd: Commands,
-    asset_server: Res<AssetServer>,
-) {
-    let entity = trigger.event_target();
-    let Ok(shape) = query.get(entity) else {
-        return;
-    };
-    let scene = match shape {
-        BeltShape::Straight(_) => 1usize,
-        BeltShape::Curve(_) => 0usize,
-        BeltShape::Fragment(_) => return,
-    };
-    cmd.entity(entity).insert(SceneRoot(
-        asset_server.load(GltfAssetLabel::Scene(scene).from_asset("models/Untitled.glb")),
-    ));
+    for (entity, item, shape) in &world_items {
+        let model = match item {
+            Item::Source => &all_models.source,
+            Item::Sink => &all_models.sink,
+            Item::Rock => &all_models.rock,
+            Item::Dirt => &all_models.dirt,
+            Item::Belt => match shape {
+                Some(BeltShape::Straight(_)) => &all_models.belt_straight,
+                Some(BeltShape::Curve(_)) => &all_models.belt_curve,
+                Some(BeltShape::RampUp(_)) => &all_models.belt_ramp_up,
+                Some(BeltShape::RampDown(_)) => &all_models.belt_ramp_down,
+                None => continue,
+            },
+        };
+        apply_model(&mut cmd.entity(entity), model);
+    }
 }
 
 fn on_place_item(event: On<PlaceItem>, mut cmd: Commands, asset_server: Res<AssetServer>) {
@@ -167,6 +249,7 @@ fn cursor_grab(
     mut cursor_options: Single<&mut CursorOptions>,
     mouse: Res<ButtonInput<MouseButton>>,
     key: Res<ButtonInput<KeyCode>>,
+    mut mode: ResMut<InteractionMode>,
 ) {
     // Only grab cursor on left click if not already grabbed
     if mouse.just_pressed(MouseButton::Left) && cursor_options.grab_mode != CursorGrabMode::Locked {
@@ -175,8 +258,12 @@ fn cursor_grab(
     }
 
     if key.just_pressed(KeyCode::Escape) {
-        cursor_options.visible = true;
-        cursor_options.grab_mode = CursorGrabMode::None;
+        if *mode != InteractionMode::None {
+            *mode = InteractionMode::None;
+        } else {
+            cursor_options.visible = true;
+            cursor_options.grab_mode = CursorGrabMode::None;
+        }
     }
 }
 
@@ -228,9 +315,91 @@ fn camera_movement(
 
         transform.translation += direction * camera.speed * time.delta_secs();
 
-        // Keep Y position fixed
-        transform.translation.y = camera.fixed_y;
+        if keys.pressed(KeyCode::Space) {
+            transform.translation.y += camera.speed * time.delta_secs();
+        }
+        if keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight) {
+            transform.translation.y -= camera.speed * time.delta_secs();
+        }
     }
+}
+
+struct RayHit {
+    hit_coords: WorldCoords,
+    place_coords: WorldCoords,
+}
+
+fn cast_ray(
+    origin: Vec3,
+    dir: Vec3,
+    targets: impl Iterator<Item = (WorldCoords, Vec3, Vec3)>,
+) -> Option<RayHit> {
+    let mut best: Option<(f32, WorldCoords, [i32; 3])> = None;
+
+    'outer: for (coords, center, half_extents) in targets {
+        let mut t_enter = f32::NEG_INFINITY;
+        let mut t_leave = f32::INFINITY;
+        let mut enter_axis = 0usize;
+
+        for axis in 0..3usize {
+            let half = half_extents[axis];
+            let d = dir[axis];
+            let o = origin[axis];
+            let c = center[axis];
+
+            if d.abs() < 1e-9 {
+                if (o - c).abs() > half {
+                    continue 'outer; // parallel and outside slab → miss
+                }
+                continue; // parallel and inside slab → unconstrained on this axis
+            }
+
+            let t_a = (c - half - o) / d;
+            let t_b = (c + half - o) / d;
+            let (t0, t1) = if d > 0.0 { (t_a, t_b) } else { (t_b, t_a) };
+
+            if t0 > t_enter {
+                t_enter = t0;
+                enter_axis = axis;
+            }
+            t_leave = t_leave.min(t1);
+        }
+
+        if t_enter >= t_leave || t_leave <= 0.0 {
+            continue; // miss
+        }
+
+        if best.map_or(true, |(best_t, _, _)| t_enter < best_t) {
+            let mut offset = [0i32; 3];
+            // How many half-block y-slots does this block occupy?
+            let y_slots = (2.0 * half_extents.y / HALF_BLOCK_SIZE).round() as i32;
+            if enter_axis == 1 {
+                // Top/bottom face: step past all occupied y slots.
+                offset[1] = if dir[1] > 0.0 { -y_slots } else { y_slots };
+            } else {
+                // Side face: snap Y to whichever half-block slot the ray actually
+                // hit, clamped to the block's own occupied slots.
+                let hit_world_y = origin[1] + t_enter * dir[1];
+                let raw_y = (hit_world_y / HALF_BLOCK_SIZE).round() as i32;
+                let snapped_y = raw_y.clamp(coords.y, coords.y + y_slots - 1);
+                offset[1] = snapped_y - coords.y;
+                offset[enter_axis] = if dir[enter_axis] > 0.0 { -1 } else { 1 };
+            }
+            best = Some((t_enter, coords, offset));
+        }
+    }
+
+    best.map(|(_, hit_coords, offset)| {
+        let place_coords = WorldCoords {
+            x: hit_coords.x + offset[0],
+            y: hit_coords.y + offset[1],
+            z: hit_coords.z + offset[2],
+        };
+        RayHit {
+            hit_coords,
+            place_coords,
+        }
+    })
 }
 
 fn handle_click_to_place(
@@ -242,7 +411,12 @@ fn handle_click_to_place(
     hotbar: Res<Hotbar>,
     mut invs: Query<&mut Inventory>,
     mut cmd: Commands,
+    mode: Res<InteractionMode>,
+    targets: Query<(&WorldCoords, &Transform, &RaycastTarget)>,
 ) {
+    if *mode != InteractionMode::Placing {
+        return;
+    }
     let Ok(_) = invs.get_mut(player.0) else {
         error!("Could not find the player");
         return;
@@ -262,43 +436,22 @@ fn handle_click_to_place(
     }
 
     let camera_transform = camera_query.into_inner();
+    let origin = camera_transform.translation;
+    let ray_dir = *camera_transform.forward();
 
-    // Get camera position and forward direction
-    let camera_pos = camera_transform.translation;
-    let camera_forward = camera_transform.forward();
-
-    // Intersect ray with XZ plane (y = 0)
-    // Ray equation: P = camera_pos + t * camera_forward
-    // Plane equation: y = 0
-    // Solve for t: camera_pos.y + t * camera_forward.y = 0
-
-    if camera_forward.y.abs() < 0.001 {
-        // Ray is parallel to the plane, no intersection
+    let Some(hit) = cast_ray(
+        origin,
+        ray_dir,
+        targets
+            .iter()
+            .map(|(c, t, rt)| (*c, t.translation, rt.half_extents)),
+    ) else {
         return;
-    }
-
-    let t = -camera_pos.y / camera_forward.y;
-
-    if t < 0.0 {
-        // Intersection is behind the camera
-        return;
-    }
-
-    let intersection = camera_pos + camera_forward * t;
-
-    // Convert world position to WorldCoords
-    // WorldCoords are discrete grid coordinates, world positions are multiplied by BLOCK_SIZE (2.0)
-    let world_x = (intersection.x / BLOCK_SIZE).round() as i32;
-    let world_z = (intersection.z / BLOCK_SIZE).round() as i32;
-
-    let coords = WorldCoords {
-        x: world_x,
-        y: 0,
-        z: world_z,
     };
 
     // Determine belt direction based on camera forward direction (belt faces away from camera)
     // Project camera forward onto XZ plane and calculate angle
+    let camera_forward = camera_transform.forward();
     let forward_xz = Vec3::new(camera_forward.x, 0.0, camera_forward.z).normalize();
     let angle = forward_xz.z.atan2(forward_xz.x);
 
@@ -310,11 +463,90 @@ fn handle_click_to_place(
     let event = PlaceBlock {
         entity,
         item,
-        coords,
+        coords: hit.place_coords,
         dir,
     };
     debug!("Triggering: {event:?}");
     cmd.trigger(event);
+}
+
+fn setup_delete_preview(
+    mut cmd: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    cmd.spawn((
+        Mesh3d(meshes.add(Cuboid::new(1.0, 1.0, 1.0))),
+        MeshMaterial3d(materials.add(StandardMaterial {
+            base_color: Color::srgba(1.0, 0.1, 0.1, 0.4),
+            alpha_mode: AlphaMode::Blend,
+            ..default()
+        })),
+        Transform::default(),
+        Visibility::Hidden,
+        DeletePreview,
+    ));
+}
+
+fn handle_mode_inputs(keys: Res<ButtonInput<KeyCode>>, mut mode: ResMut<InteractionMode>) {
+    if keys.just_pressed(KeyCode::KeyX) {
+        *mode = InteractionMode::Deleting;
+    }
+}
+
+fn update_delete_preview(
+    mode: Res<InteractionMode>,
+    mouse: Res<ButtonInput<MouseButton>>,
+    cursor_options: Single<&CursorOptions>,
+    camera_q: Single<&Transform, With<FirstPersonCamera>>,
+    coord_map: Res<CoordMap>,
+    mut preview_q: Single<
+        (&mut Transform, &mut Visibility),
+        (With<DeletePreview>, Without<FirstPersonCamera>),
+    >,
+    mut cmd: Commands,
+    targets: Query<(&WorldCoords, &Transform, &RaycastTarget), Without<DeletePreview>>,
+) {
+    let (ref mut t, ref mut vis) = *preview_q;
+    let cursor_locked = cursor_options.grab_mode == CursorGrabMode::Locked;
+
+    if *mode != InteractionMode::Deleting || !cursor_locked {
+        **vis = Visibility::Hidden;
+        return;
+    }
+
+    let camera_transform = camera_q.into_inner();
+    let origin = camera_transform.translation;
+    let ray_dir = *camera_transform.forward();
+
+    let Some(hit) = cast_ray(
+        origin,
+        ray_dir,
+        targets
+            .iter()
+            .map(|(c, tr, rt)| (*c, tr.translation, rt.half_extents)),
+    ) else {
+        **vis = Visibility::Hidden;
+        return;
+    };
+
+    let Some(&target) = coord_map.0.get(&hit.hit_coords) else {
+        **vis = Visibility::Hidden;
+        return;
+    };
+
+    let Ok((_, _, rt)) = targets.get(target) else {
+        **vis = Visibility::Hidden;
+        return;
+    };
+
+    **vis = Visibility::Visible;
+    t.translation = Vec3::from(hit.hit_coords);
+    t.scale = rt.half_extents * 2.0 * 1.05;
+
+    if mouse.just_pressed(MouseButton::Left) {
+        cmd.trigger(RemoveBlock { entity: target });
+    }
 }
 
 fn angle_to_hdir(angle: f32) -> HDir {
@@ -351,148 +583,6 @@ fn angle_to_hdir(angle: f32) -> HDir {
     } else {
         HDir::East
     }
-}
-
-fn handle_place_item_on_belt(
-    keys: Res<ButtonInput<KeyCode>>,
-    cursor_options: Single<&CursorOptions>,
-    camera_query: Single<&Transform, With<FirstPersonCamera>>,
-    belt_coords: Res<WorldPlacements>,
-    mut cmd: Commands,
-) {
-    // Only handle spacebar when cursor is grabbed (game mode)
-    if !keys.just_pressed(KeyCode::Space) || cursor_options.grab_mode != CursorGrabMode::Locked {
-        return;
-    }
-
-    let camera_transform = camera_query.into_inner();
-    let ray_origin = camera_transform.translation;
-    let ray_dir = camera_transform.forward().as_vec3();
-
-    // Find the closest belt that the ray intersects
-    let mut closest_hit: Option<(f32, Entity, BeltShape, WorldCoords, Vec3)> = None;
-
-    for (coords, (entity, belt_shape)) in belt_coords
-        .iter()
-        .filter_map(|(coords, b)| b.1.is_belt().map(|belt| (coords, (b.0, belt))))
-    {
-        // Get belt center in world space
-        let belt_center = Vec3::from(*coords);
-
-        // Ray-AABB intersection test
-        if let Some((t, hit_point)) =
-            ray_box_intersection(ray_origin, ray_dir, belt_center, Vec3::splat(BLOCK_SIZE))
-        {
-            if closest_hit.is_none() || t < closest_hit.as_ref().unwrap().0 {
-                closest_hit = Some((t, entity, *belt_shape, *coords, hit_point));
-            }
-        }
-    }
-
-    if let Some((_t, belt_entity, belt_shape, coords, hit_point)) = closest_hit {
-        // Convert hit point to belt local space
-        let belt_center = Vec3::from(coords);
-        let local_hit = hit_point - belt_center;
-
-        // Rotate hit point to belt's local coordinate system
-        let belt_angle = match belt_shape {
-            BeltShape::Straight(dir) | BeltShape::Fragment(dir) => dir.angle(),
-            BeltShape::Curve(curve) => curve.input().angle(),
-        };
-        let rotation = Quat::from_rotation_y(-belt_angle);
-        let local_rotated = rotation * local_hit;
-
-        // Determine lane based on z coordinate
-        // Left lane is at z = -LANE_OFFSET, Right lane is at z = LANE_OFFSET
-        let lane = if local_rotated.z < 0.0 {
-            LaneSide::Left
-        } else {
-            LaneSide::Right
-        };
-
-        // Determine position based on x coordinate (for straight belts)
-        // Position 0 is at x = HALF_BLOCK_SIZE, position POSITIONS_PER_BELT is at x = -HALF_BLOCK_SIZE
-        let position = match belt_shape {
-            BeltShape::Straight(_) | BeltShape::Fragment(_) => {
-                let t = (HALF_BLOCK_SIZE - local_rotated.x) / BLOCK_SIZE;
-                let pos = (t * POSITIONS_PER_BELT as f32).round() as i32;
-                pos.clamp(0, POSITIONS_PER_BELT - 1)
-            }
-            BeltShape::Curve(_) => {
-                // For curves, use a simpler approach - just use middle position for now
-                let num_pos = belt_shape.num_pos(lane);
-                num_pos / 2
-            }
-        };
-
-        // Create item entity and trigger PlaceItem event
-        let item_entity = cmd.spawn_empty().id();
-        let event = PlaceItem {
-            entity: item_entity,
-            item: Item::Belt,
-            belt: belt_entity,
-            lane,
-            position,
-            on_error: Box::new(|_, error| {
-                warn!("Failed to place item: {:?}", error);
-            }),
-        };
-        debug!("triggering: {event:?}");
-        cmd.trigger(event);
-    }
-}
-
-// Ray-AABB intersection test
-// Returns Some((t, hit_point)) if ray intersects the box, where t is the distance along the ray
-fn ray_box_intersection(
-    ray_origin: Vec3,
-    ray_dir: Vec3,
-    box_center: Vec3,
-    box_size: Vec3,
-) -> Option<(f32, Vec3)> {
-    let box_min = box_center - box_size / 2.0;
-    let box_max = box_center + box_size / 2.0;
-
-    let mut tmin = f32::NEG_INFINITY;
-    let mut tmax = f32::INFINITY;
-
-    for i in 0..3 {
-        let dir_component = ray_dir[i];
-        let origin_component = ray_origin[i];
-        let min_component = box_min[i];
-        let max_component = box_max[i];
-
-        if dir_component.abs() < 0.0001 {
-            // Ray is parallel to slab
-            if origin_component < min_component || origin_component > max_component {
-                return None;
-            }
-        } else {
-            let inv_d = 1.0 / dir_component;
-            let mut t1 = (min_component - origin_component) * inv_d;
-            let mut t2 = (max_component - origin_component) * inv_d;
-
-            if t1 > t2 {
-                std::mem::swap(&mut t1, &mut t2);
-            }
-
-            tmin = tmin.max(t1);
-            tmax = tmax.min(t2);
-
-            if tmin > tmax {
-                return None;
-            }
-        }
-    }
-
-    if tmax < 0.0 {
-        return None;
-    }
-
-    let t = if tmin >= 0.0 { tmin } else { tmax };
-    let hit_point = ray_origin + ray_dir * t;
-
-    Some((t, hit_point))
 }
 
 fn setup_reticle(mut cmd: Commands) {

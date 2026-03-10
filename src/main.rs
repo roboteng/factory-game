@@ -1,13 +1,8 @@
-use std::env;
-
 use crate::core::*;
 
 use bevy::prelude::*;
 
 mod core;
-#[cfg(feature = "ui")]
-mod manual_sim;
-mod sim;
 #[cfg(feature = "ui")]
 mod ui;
 
@@ -15,14 +10,6 @@ fn main() {
     let mut app = App::new();
 
     app.add_plugins((DefaultPlugins, core::CorePlugin));
-
-    let args = env::args().collect::<Vec<String>>();
-    if args.get(1).map(|s| s.as_str()).unwrap_or_default() == "--debug" {
-        #[cfg(feature = "ui")]
-        app.add_plugins(manual_sim::ManualSimPlugin);
-    } else {
-        app.add_plugins(sim::SimPlugin);
-    }
 
     #[cfg(feature = "dev")]
     app.add_plugins((
@@ -50,11 +37,32 @@ fn max_framerate(mut windows: Query<&mut Window, With<bevy::window::PrimaryWindo
 }
 
 fn setup(mut cmd: Commands) {
+    #[cfg(feature = "ui")]
+    {
+        use rand::Rng;
+        let mut rng = rand::thread_rng();
+        for x in -4..=4 {
+            for z in -4..=4 {
+                let item = if rng.gen_bool(0.5) {
+                    crate::core::Item::Rock
+                } else {
+                    crate::core::Item::Dirt
+                };
+                let entity = cmd.spawn_empty().id();
+                cmd.trigger(crate::core::PlaceBlock {
+                    entity,
+                    item,
+                    coords: (x, -2, z).into(),
+                    dir: HDir::North,
+                });
+            }
+        }
+    }
     let entity = cmd.spawn_empty().id();
     cmd.trigger(crate::core::PlaceBlock {
         entity,
         item: crate::core::Item::Belt,
-        coords: (1, 0, 0).into(),
+        coords: (1, 1, 0).into(),
         dir: HDir::North,
     });
     let entity = cmd.spawn_empty().id();
@@ -64,9 +72,9 @@ fn setup(mut cmd: Commands) {
         coords: (0, 0, 0).into(),
         dir: HDir::North,
     });
-    let entity = cmd.spawn_empty().id();
+    let belt_entity = cmd.spawn_empty().id();
     cmd.trigger(crate::core::PlaceBlock {
-        entity,
+        entity: belt_entity,
         item: crate::core::Item::Belt,
         coords: (-1, 0, 0).into(),
         dir: HDir::North,

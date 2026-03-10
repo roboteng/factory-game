@@ -7,6 +7,8 @@ impl Plugin for HotbarPlugin {
         hotbar[0] = Some(Item::Belt);
         hotbar[1] = Some(Item::Source);
         hotbar[2] = Some(Item::Sink);
+        hotbar[3] = Some(Item::Rock);
+        hotbar[4] = Some(Item::Dirt);
         app.insert_resource(Hotbar(hotbar));
         app.insert_resource(PlacementItem::None);
 
@@ -130,27 +132,30 @@ const DIGITS: [KeyCode; 10] = [
     KeyCode::Digit0,
 ];
 
-fn handle_tool_selection(keys: Res<ButtonInput<KeyCode>>, mut tool: ResMut<PlacementItem>) {
+fn handle_tool_selection(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut tool: ResMut<PlacementItem>,
+    mut mode: ResMut<InteractionMode>,
+) {
     for (index, key) in DIGITS.iter().enumerate() {
         if keys.just_pressed(*key) {
             *tool = PlacementItem::HotbarSlot(index as u16);
+            *mode = InteractionMode::Placing;
         }
     }
 }
 
 fn update_hotbar_selection(
     tool: Res<PlacementItem>,
+    mode: Res<InteractionMode>,
     mut slots: Query<(&HotbarSlot, &mut BorderColor)>,
 ) {
-    let PlacementItem::HotbarSlot(selected_slot) = *tool else {
-        for (_, mut border) in slots.iter_mut() {
-            let target = HOTBAR_BORDER_NORMAL;
-            *border = BorderColor::all(target);
-        }
-        return;
+    let selected_slot = match (&*mode, *tool) {
+        (InteractionMode::Placing, PlacementItem::HotbarSlot(slot)) => Some(slot),
+        _ => None,
     };
     for (slot, mut border) in slots.iter_mut() {
-        let target = BorderColor::all(if selected_slot == slot.0 {
+        let target = BorderColor::all(if selected_slot == Some(slot.0) {
             HOTBAR_BORDER_SELECTED
         } else {
             HOTBAR_BORDER_NORMAL
