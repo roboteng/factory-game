@@ -15,7 +15,6 @@ mod proptest_actions;
 mod proptests;
 
 pub const BLOCK_SIZE: f32 = 2.0;
-#[allow(unused)]
 pub const HALF_BLOCK_SIZE: f32 = BLOCK_SIZE / 2.0;
 #[allow(unused)]
 pub const ITEM_SIZE: f32 = BLOCK_SIZE / 4.0;
@@ -191,6 +190,8 @@ pub struct Delete;
 pub enum BeltShape {
     Straight(HDir),
     Curve(Curve),
+    RampUp(HDir),
+    RampDown(HDir),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -388,12 +389,12 @@ fn on_remove_block(
 }
 
 fn determine_belt_shape(
-    belts: Query<(Entity, &WorldCoords, &HDir), With<Belt>>,
+    mut belts: Query<(Entity, &WorldCoords, &HDir, Option<&mut BeltShape>), With<Belt>>,
     affecters: Query<&HDir, With<AffectsBelts>>,
     coord_map: Res<CoordMap>,
     mut cmd: Commands,
 ) {
-    for (entity, coords, dir) in belts.iter() {
+    for (entity, coords, dir, current_shape) in belts.iter_mut() {
         let fed_from_behind = coord_map
             .0
             .get(&coords.step(dir.opposite()))
@@ -411,14 +412,32 @@ fn determine_belt_shape(
             .and_then(|&e| affecters.get(e).ok())
             .filter(|d| **d == dir.right())
             .copied();
-        match (fed_from_left, fed_from_behind, fed_from_right) {
+        let desired = match (fed_from_left, fed_from_behind, fed_from_right) {
             (None, _, None) | (Some(_), _, Some(_)) | (_, true, _) => {
-                cmd.entity(entity).insert(BeltShape::Straight(*dir));
+                let up = WorldCoords {
+                    y: coords.y + 1,
+                    ..*coords
+                };
+                if coord_map.0.contains_key(&up) {
+                    BeltShape::Straight(*dir)
+                } else if coord_map.0.contains_key(&up.step(*dir)) {
+                    BeltShape::RampUp(*dir)
+                } else {
+                    BeltShape::Straight(*dir)
+                }
             }
             (Some(a), false, None) | (None, false, Some(a)) => {
                 let curve = Curve::from_input_output(a, *dir).unwrap();
                 assert_eq!(curve.output(), *dir);
-                cmd.entity(entity).insert(BeltShape::Curve(curve));
+                BeltShape::Curve(curve)
+            }
+        };
+        match current_shape {
+            Some(mut shape) => {
+                shape.set_if_neq(desired);
+            }
+            None => {
+                cmd.entity(entity).insert(desired);
             }
         }
     }
@@ -701,13 +720,13 @@ impl HDir {
 impl BeltShape {
     pub const fn output(&self) -> HDir {
         match self {
-            Self::Straight(dir) => *dir,
+            Self::Straight(dir) | Self::RampUp(dir) | Self::RampDown(dir) => *dir,
             Self::Curve(curve) => curve.output(),
         }
     }
     pub const fn input(&self) -> HDir {
         match self {
-            Self::Straight(dir) => *dir,
+            Self::Straight(dir) | Self::RampUp(dir) | Self::RampDown(dir) => *dir,
             Self::Curve(curve) => curve.input(),
         }
     }
@@ -721,7 +740,7 @@ impl BeltShape {
 
     pub const fn left_num_pos(&self) -> i32 {
         match self {
-            Self::Straight(_) => POSITIONS_PER_BELT,
+            Self::Straight(_) | Self::RampUp(_) | Self::RampDown(_) => POSITIONS_PER_BELT,
             Self::Curve(curve) => {
                 if curve.is_clockwise() {
                     POSITIONS_PER_OUTER_CURVE
@@ -733,7 +752,7 @@ impl BeltShape {
     }
     pub const fn right_num_pos(&self) -> i32 {
         match self {
-            Self::Straight(_) => POSITIONS_PER_BELT,
+            Self::Straight(_) | Self::RampUp(_) | Self::RampDown(_) => POSITIONS_PER_BELT,
             Self::Curve(curve) => {
                 if curve.is_clockwise() {
                     POSITIONS_PER_INNER_CURVE
@@ -948,6 +967,40 @@ pub fn item_position(
                 ) + Vec3::from(coords.into()),
             )
             .with_rotation(Quat::from_rotation_y(angle + PI / 2.0))
+        }
+        BeltShape::RampUp(dir) => {
+            let coords = coords.into();
+            let mut lower = item_position(BeltShape::Straight(dir), coords, lane, pos);
+            let upper = item_position(
+                BeltShape::Straight(dir),
+                WorldCoords {
+                    y: coords.y + 1,
+                    ..coords
+                },
+                lane,
+                pos,
+            );
+            let t = (POSITIONS_PER_BELT - pos) as f32 / POSITIONS_PER_BELT as f32;
+            let translation = lower.translation * (1.0 - t) + upper.translation * t;
+            lower.translation = translation;
+            lower
+        }
+        BeltShape::RampDown(dir) => {
+            let coords = coords.into();
+            let mut upper = item_position(BeltShape::Straight(dir), coords, lane, pos);
+            let lower = item_position(
+                BeltShape::Straight(dir),
+                WorldCoords {
+                    y: coords.y - 1,
+                    ..coords
+                },
+                lane,
+                pos,
+            );
+            let t = (POSITIONS_PER_BELT - pos) as f32 / POSITIONS_PER_BELT as f32;
+            let translation = upper.translation * (1.0 - t) + lower.translation * t;
+            upper.translation = translation;
+            upper
         }
     }
 }

@@ -62,10 +62,25 @@ enum ModelDef {
 struct AllModels {
     belt_straight: ModelDef,
     belt_curve: ModelDef,
+    belt_ramp_up: ModelDef,
+    belt_ramp_down: ModelDef,
     source: ModelDef,
     sink: ModelDef,
     rock: ModelDef,
     dirt: ModelDef,
+}
+
+/// Creates a scene asset that renders `inner` with `transform` applied.
+/// When instantiated, the scene root contains one entity (the transformed inner scene),
+/// so the ramp shape is entirely self-contained in the asset.
+fn ramp_scene(
+    inner: Handle<Scene>,
+    transform: Transform,
+    scenes: &mut Assets<Scene>,
+) -> Handle<Scene> {
+    let mut world = World::new();
+    world.spawn((SceneRoot(inner), transform));
+    scenes.add(Scene::new(world))
 }
 
 fn setup_models(
@@ -73,15 +88,35 @@ fn setup_models(
     asset_server: Res<AssetServer>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut scenes: ResMut<Assets<Scene>>,
 ) {
     let cuboid = meshes.add(Cuboid::new(BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE));
+    let straight_scene =
+        asset_server.load(GltfAssetLabel::Scene(1).from_asset("models/Untitled.glb"));
+
+    let ramp_angle = (HALF_BLOCK_SIZE / BLOCK_SIZE).atan();
+    let ramp_scale =
+        (BLOCK_SIZE * BLOCK_SIZE + HALF_BLOCK_SIZE * HALF_BLOCK_SIZE).sqrt() / BLOCK_SIZE;
+
     cmd.insert_resource(AllModels {
-        belt_straight: ModelDef::Scene(
-            asset_server.load(GltfAssetLabel::Scene(1).from_asset("models/Untitled.glb")),
-        ),
+        belt_straight: ModelDef::Scene(straight_scene.clone()),
         belt_curve: ModelDef::Scene(
             asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Untitled.glb")),
         ),
+        belt_ramp_up: ModelDef::Scene(ramp_scene(
+            straight_scene.clone(),
+            Transform::from_translation(Vec3::new(0.0, HALF_BLOCK_SIZE / 2.0, 0.0))
+                .with_rotation(Quat::from_rotation_z(ramp_angle))
+                .with_scale(Vec3::new(ramp_scale, 1.0, 1.0)),
+            &mut scenes,
+        )),
+        belt_ramp_down: ModelDef::Scene(ramp_scene(
+            straight_scene,
+            Transform::from_translation(Vec3::new(0.0, HALF_BLOCK_SIZE / 2.0, 0.0))
+                .with_rotation(Quat::from_rotation_z(-ramp_angle))
+                .with_scale(Vec3::new(ramp_scale, 1.0, 1.0)),
+            &mut scenes,
+        )),
         source: ModelDef::Mesh(cuboid.clone(), materials.add(Color::srgb(0.2, 0.8, 0.2))),
         sink: ModelDef::Mesh(cuboid.clone(), materials.add(Color::srgb(0.8, 0.2, 0.2))),
         rock: ModelDef::Mesh(cuboid.clone(), materials.add(Color::srgb(0.55, 0.55, 0.55))),
@@ -106,7 +141,6 @@ struct FirstPersonCamera {
     yaw: f32,
     sensitivity: f32,
     speed: f32,
-    fixed_y: f32,
 }
 
 fn setup(
@@ -127,7 +161,6 @@ fn setup(
             yaw: 0.0,
             sensitivity: 0.002,
             speed: 5.0,
-            fixed_y: camera_transform.translation.y,
         },
         AmbientLight {
             color: Color::WHITE,
@@ -184,7 +217,7 @@ fn spawn_stars(
 }
 
 fn attach_models(
-    world_items: Query<(Entity, &Item, Option<&BeltShape>)>,
+    world_items: Query<(Entity, &Item, Option<&BeltShape>), Or<(Added<Item>, Changed<BeltShape>)>>,
     all_models: Res<AllModels>,
     mut cmd: Commands,
 ) {
@@ -197,6 +230,8 @@ fn attach_models(
             Item::Belt => match shape {
                 Some(BeltShape::Straight(_)) => &all_models.belt_straight,
                 Some(BeltShape::Curve(_)) => &all_models.belt_curve,
+                Some(BeltShape::RampUp(_)) => &all_models.belt_ramp_up,
+                Some(BeltShape::RampDown(_)) => &all_models.belt_ramp_down,
                 None => continue,
             },
         };
@@ -280,8 +315,12 @@ fn camera_movement(
 
         transform.translation += direction * camera.speed * time.delta_secs();
 
-        // Keep Y position fixed
-        transform.translation.y = camera.fixed_y;
+        if keys.pressed(KeyCode::Space) {
+            transform.translation.y += camera.speed * time.delta_secs();
+        }
+        if keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight) {
+            transform.translation.y -= camera.speed * time.delta_secs();
+        }
     }
 }
 
