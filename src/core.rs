@@ -28,12 +28,11 @@ pub const BELT_HEIGHT_FROM_CENTER: f32 = -(HALF_BLOCK_SIZE / 2.0) + BELT_HEIGHT;
 /// Amount of a unit voxel of how far a lane is offset from center.
 pub const LANE_OFFSET_FACTOR: f32 = 0.25;
 /// How far from center each lane is.
-#[allow(unused)]
 pub const LANE_OFFSET: f32 = LANE_OFFSET_FACTOR * BLOCK_SIZE;
 
 pub const POSITIONS_PER_BELT: i32 = 256;
 pub const ITEM_SPACING: i32 = POSITIONS_PER_BELT / 4;
-pub const BASE_BELT_SPEED: i32 = 8; // Items move 8 positions per frame
+pub const BASE_BELT_SPEED: i32 = 2;
 #[allow(unused)]
 pub const BASE_ITEM_MOVEMENT: f32 = BLOCK_SIZE * BASE_BELT_SPEED as f32 / POSITIONS_PER_BELT as f32;
 #[allow(unused)]
@@ -163,6 +162,9 @@ pub struct Sink;
 #[derive(Component)]
 pub struct AffectsBelts;
 
+#[derive(Component)]
+struct DirtyBelt;
+
 /// Marks an entity as a target for block-placement raycasts.
 /// `half_extents` is the AABB half-size on each axis, centred on the entity's
 /// `Transform` translation.
@@ -264,6 +266,23 @@ fn despawn_old_entities(mut cmd: Commands, q: Query<Entity, With<Delete>>) {
     }
 }
 
+fn mark_belt_neighbors_dirty(center: WorldCoords, coord_map: &CoordMap, cmd: &mut Commands) {
+    for dx in -1i32..=1 {
+        for dy in -1i32..=1 {
+            for dz in -1i32..=1 {
+                let pos = WorldCoords {
+                    x: center.x + dx,
+                    y: center.y + dy,
+                    z: center.z + dz,
+                };
+                if let Some(&e) = coord_map.0.get(&pos) {
+                    cmd.entity(e).insert(DirtyBelt);
+                }
+            }
+        }
+    }
+}
+
 fn on_place_block(
     event: On<PlaceBlock>,
     mut cmd: Commands,
@@ -317,6 +336,7 @@ fn on_place_block(
                     .insert((Belt, ItemLanes(transferred), AffectsBelts, rt));
                 cmd.entity(event.entity).insert(place.to_bundle());
                 coord_map.0.insert(coords, event.entity);
+                mark_belt_neighbors_dirty(coords, &coord_map, &mut cmd);
                 return;
             }
         }
@@ -347,6 +367,7 @@ fn on_place_block(
             event.entity,
         );
     }
+    mark_belt_neighbors_dirty(coords, &coord_map, &mut cmd);
 }
 
 fn on_place_item(
@@ -377,6 +398,7 @@ fn on_remove_block(
 ) {
     debug!("Removing {:?}", event.entity);
     if let Ok(coords) = coords_q.get(event.entity) {
+        mark_belt_neighbors_dirty(*coords, &coord_map, &mut cmd);
         coord_map.0.remove(coords);
         // Remove the top slot if this entity registered it (full-height blocks).
         let top = WorldCoords {
@@ -404,31 +426,195 @@ fn determine_belt_shape(
             Option<&mut BeltShape>,
             Option<&mut BeltOutput>,
         ),
-        With<Belt>,
+        (With<Belt>, Or<(Added<Belt>, With<DirtyBelt>)>),
     >,
     affecters: Query<&HDir, With<AffectsBelts>>,
     coord_map: Res<CoordMap>,
     mut cmd: Commands,
 ) {
     for (entity, coords, dir, current_shape, current_output) in belts.iter_mut() {
-        // May need to look at Option<BeltShape> for up/down dirs
         let fed_from_behind = coord_map
             .0
             .get(&coords.step(dir.opposite()))
             .and_then(|&e| affecters.get(e).ok())
             .is_some_and(|d| *d == *dir);
+
+        // Candidate RampUp belt feeding into us from below:
+        //   X at {y-1, ..behind} facing dir
+        // X must not be Straight → {y-1, ..coords} (X's forward same-level) is empty
+        // X must not be RampDown → {y-2, ..coords} (X's forward-down) is empty
+        let behind_below = WorldCoords {
+            y: coords.y - 1,
+            ..coords.step(dir.opposite())
+        };
+        let fed_from_ramp_below = !fed_from_behind
+            && coord_map
+                .0
+                .get(&behind_below)
+                .and_then(|&e| affecters.get(e).ok())
+                .is_some_and(|d| *d == *dir)
+            && coord_map
+                .0
+                .get(&WorldCoords {
+                    y: coords.y - 1,
+                    ..*coords
+                })
+                .is_none()
+            && coord_map
+                .0
+                .get(&WorldCoords {
+                    y: coords.y - 2,
+                    ..*coords
+                })
+                .is_none();
+
+        // Candidate RampDown belt feeding into us from above:
+        //   X at {y+1, ..behind} facing dir
+        // X must not be Straight → {y+1, ..coords} (X's forward same-level) is empty
+        // X must not be RampUp   → {y+2, ..coords} (X's forward-up) is empty
+        let behind_above = WorldCoords {
+            y: coords.y + 1,
+            ..coords.step(dir.opposite())
+        };
+        let fed_from_ramp_above = !fed_from_behind
+            && coord_map
+                .0
+                .get(&behind_above)
+                .and_then(|&e| affecters.get(e).ok())
+                .is_some_and(|d| *d == *dir)
+            && coord_map
+                .0
+                .get(&WorldCoords {
+                    y: coords.y + 1,
+                    ..*coords
+                })
+                .is_none()
+            && coord_map
+                .0
+                .get(&WorldCoords {
+                    y: coords.y + 2,
+                    ..*coords
+                })
+                .is_none();
+
+        let fed_from_behind = fed_from_behind || fed_from_ramp_below || fed_from_ramp_above;
+        let left_pos = coords.step(dir.right());
         let fed_from_left = coord_map
             .0
-            .get(&coords.step(dir.right()))
+            .get(&left_pos)
             .and_then(|&e| affecters.get(e).ok())
             .filter(|d| **d == dir.left())
-            .copied();
+            .copied()
+            .or_else(|| {
+                let from_above = coord_map
+                    .0
+                    .get(&WorldCoords {
+                        y: coords.y + 1,
+                        ..left_pos
+                    })
+                    .and_then(|&e| affecters.get(e).ok())
+                    .is_some_and(|d| *d == dir.left())
+                    && coord_map
+                        .0
+                        .get(&WorldCoords {
+                            y: coords.y + 1,
+                            ..*coords
+                        })
+                        .is_none()
+                    && coord_map
+                        .0
+                        .get(&WorldCoords {
+                            y: coords.y + 2,
+                            ..*coords
+                        })
+                        .is_none();
+                let from_below = coord_map
+                    .0
+                    .get(&WorldCoords {
+                        y: coords.y - 1,
+                        ..left_pos
+                    })
+                    .and_then(|&e| affecters.get(e).ok())
+                    .is_some_and(|d| *d == dir.left())
+                    && coord_map
+                        .0
+                        .get(&WorldCoords {
+                            y: coords.y - 1,
+                            ..*coords
+                        })
+                        .is_none()
+                    && coord_map
+                        .0
+                        .get(&WorldCoords {
+                            y: coords.y - 2,
+                            ..*coords
+                        })
+                        .is_none();
+                if from_above || from_below {
+                    Some(dir.left())
+                } else {
+                    None
+                }
+            });
+
+        let right_pos = coords.step(dir.left());
         let fed_from_right = coord_map
             .0
-            .get(&coords.step(dir.left()))
+            .get(&right_pos)
             .and_then(|&e| affecters.get(e).ok())
             .filter(|d| **d == dir.right())
-            .copied();
+            .copied()
+            .or_else(|| {
+                let from_above = coord_map
+                    .0
+                    .get(&WorldCoords {
+                        y: coords.y + 1,
+                        ..right_pos
+                    })
+                    .and_then(|&e| affecters.get(e).ok())
+                    .is_some_and(|d| *d == dir.right())
+                    && coord_map
+                        .0
+                        .get(&WorldCoords {
+                            y: coords.y + 1,
+                            ..*coords
+                        })
+                        .is_none()
+                    && coord_map
+                        .0
+                        .get(&WorldCoords {
+                            y: coords.y + 2,
+                            ..*coords
+                        })
+                        .is_none();
+                let from_below = coord_map
+                    .0
+                    .get(&WorldCoords {
+                        y: coords.y - 1,
+                        ..right_pos
+                    })
+                    .and_then(|&e| affecters.get(e).ok())
+                    .is_some_and(|d| *d == dir.right())
+                    && coord_map
+                        .0
+                        .get(&WorldCoords {
+                            y: coords.y - 1,
+                            ..*coords
+                        })
+                        .is_none()
+                    && coord_map
+                        .0
+                        .get(&WorldCoords {
+                            y: coords.y - 2,
+                            ..*coords
+                        })
+                        .is_none();
+                if from_above || from_below {
+                    Some(dir.right())
+                } else {
+                    None
+                }
+            });
         let desired = match (fed_from_left, fed_from_behind, fed_from_right) {
             (Some(a), false, None) | (None, false, Some(a)) => {
                 let curve = Curve::from_input_output(a, *dir).unwrap();
@@ -484,6 +670,7 @@ fn determine_belt_shape(
                 cmd.entity(entity).insert(desired_output);
             }
         }
+        cmd.entity(entity).remove::<DirtyBelt>();
     }
 }
 
@@ -764,9 +951,10 @@ impl HDir {
 impl BeltShape {
     pub fn belt_output(&self) -> BeltOutput {
         match self {
-            Self::Straight(dir) | Self::RampDown(dir) => BeltOutput::Level(*dir),
+            Self::Straight(dir) => BeltOutput::Level(*dir),
             Self::Curve(curve) => BeltOutput::Level(curve.output()),
             Self::RampUp(dir) => BeltOutput::Up(*dir),
+            Self::RampDown(dir) => BeltOutput::Down(*dir),
         }
     }
 
@@ -1266,7 +1454,13 @@ impl AppExtension for App {
 
     fn remove_belt_at(&mut self, coords: impl Into<WorldCoords>) -> bool {
         let coords = coords.into();
-        todo!();
+        let entity = self.world().resource::<CoordMap>().0.get(&coords).copied();
+        if let Some(entity) = entity {
+            self.world_mut().trigger(RemoveBlock { entity });
+            true
+        } else {
+            false
+        }
     }
 
     fn has_placement_errors(&self) -> bool {
