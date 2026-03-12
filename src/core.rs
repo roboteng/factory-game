@@ -149,7 +149,7 @@ pub enum HDir {
     West,
 }
 
-#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BeltOutput {
     Up(HDir),
     Level(HDir),
@@ -432,20 +432,14 @@ fn on_incline(event: On<Incline>, mut belts: Query<&mut BeltShape>) {
 
 fn determine_belt_shape(
     mut belts: Query<
-        (
-            Entity,
-            &WorldCoords,
-            &HDir,
-            Option<&mut BeltShape>,
-            Option<&mut BeltOutput>,
-        ),
+        (Entity, &WorldCoords, &HDir, Option<&mut BeltShape>),
         (With<Belt>, Or<(Added<Belt>, With<DirtyBelt>)>),
     >,
     affecters: Query<&HDir, With<AffectsBelts>>,
     coord_map: Res<CoordsMap>,
     mut cmd: Commands,
 ) {
-    for (entity, coords, &dir, current_shape, current_output) in belts.iter_mut() {
+    for (entity, coords, &dir, current_shape) in belts.iter_mut() {
         let fed_from_left = coord_map
             .0
             .get(&coords.step(dir.left()))
@@ -484,23 +478,13 @@ fn determine_belt_shape(
             (false, false, false) => BeltShape::Straight(dir),
             (_, true, _) => BeltShape::Straight(dir),
             (true, _, true) => BeltShape::Straight(dir),
-            _ => todo!(),
         };
-        let desired_output = desired.belt_output();
         match current_shape {
             Some(mut shape) => {
                 shape.set_if_neq(desired);
             }
             None => {
                 cmd.entity(entity).insert(desired);
-            }
-        }
-        match current_output {
-            Some(mut output) => {
-                output.set_if_neq(desired_output);
-            }
-            None => {
-                cmd.entity(entity).insert(desired_output);
             }
         }
         cmd.entity(entity).remove::<DirtyBelt>();
@@ -525,13 +509,7 @@ fn move_items_on_belts(mut belts: Query<(&mut ItemLanes, &BeltShape)>) {
 }
 
 fn transfer_items(
-    mut invs: Query<(
-        Entity,
-        &mut ItemLanes,
-        &WorldCoords,
-        &BeltOutput,
-        &BeltShape,
-    )>,
+    mut invs: Query<(Entity, &mut ItemLanes, &WorldCoords, &BeltShape)>,
     coord_map: Res<CoordsMap>,
 ) {
     struct Transfer {
@@ -541,7 +519,7 @@ fn transfer_items(
     }
     let mut transfers = Vec::new();
     for source in invs.iter() {
-        let next = source.2.step(*source.3);
+        let next = source.2.step(source.3.belt_output());
         let Some(&dest_entity) = coord_map.0.get(&next) else {
             continue;
         };
@@ -554,8 +532,8 @@ fn transfer_items(
             };
             if i.0 <= 0
                 && dest.1.0[side].last().map(|a| a.0).unwrap_or(0) + ITEM_SPACING
-                    < dest.4.num_pos(side)
-                && source.4.output() == dest.4.input()
+                    < dest.3.num_pos(side)
+                && source.3.output() == dest.3.input()
             {
                 transfers.push(Transfer {
                     source: source.0,
@@ -572,18 +550,12 @@ fn transfer_items(
 
         let mut dest = invs.get_mut(transfer.dest).unwrap();
         let lane = &mut dest.1.0[transfer.lane];
-        lane.push((dest.4.num_pos(transfer.lane), slot.1));
+        lane.push((dest.3.num_pos(transfer.lane), slot.1));
     }
 }
 
 fn side_loading(
-    mut invs: Query<(
-        Entity,
-        &mut ItemLanes,
-        &WorldCoords,
-        &BeltOutput,
-        &BeltShape,
-    )>,
+    mut invs: Query<(Entity, &mut ItemLanes, &WorldCoords, &BeltShape)>,
     coord_map: Res<CoordsMap>,
 ) {
     struct Transfer {
@@ -595,7 +567,7 @@ fn side_loading(
     }
     let mut transfers = Vec::new();
     for source in invs.iter() {
-        let next = source.2.step(*source.3);
+        let next = source.2.step(source.3.belt_output());
         let Some(&dest_entity) = coord_map.0.get(&next) else {
             continue;
         };
@@ -603,12 +575,12 @@ fn side_loading(
             continue;
         };
         if matches!(
-            dest.4,
+            dest.3,
             BeltShape::Straight(_) | BeltShape::RampUp(_) | BeltShape::RampDown(_)
-        ) && (source.4.output() == dest.4.input().left()
-            || source.4.output() == dest.4.input().right())
+        ) && (source.3.output() == dest.3.input().left()
+            || source.3.output() == dest.3.input().right())
         {
-            let dest_side = if source.4.output() == dest.4.input().right() {
+            let dest_side = if source.3.output() == dest.3.input().right() {
                 Side::Left
             } else {
                 Side::Right
@@ -619,7 +591,7 @@ fn side_loading(
                 };
                 if item.0 <= 0
                     && dest.1.0[dest_side].last().map(|a| a.0).unwrap_or(0) + ITEM_SPACING
-                        < dest.4.num_pos(dest_side)
+                        < dest.3.num_pos(dest_side)
                 {
                     const OFFSET: i32 =
                         (POSITIONS_PER_BELT as f32 * LANE_OFFSET_FACTOR).round() as i32;
