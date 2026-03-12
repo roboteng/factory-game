@@ -22,6 +22,7 @@ impl Plugin for UiPlugin {
         app.add_systems(Startup, setup_reticle);
         app.add_systems(Startup, setup_models);
         app.add_systems(Startup, setup_delete_preview);
+        app.add_systems(Startup, setup_incline_preview);
 
         // Systems that trigger events Must run in PreUpdate
         app.add_systems(PreUpdate, camera_movement);
@@ -30,6 +31,7 @@ impl Plugin for UiPlugin {
             (
                 handle_mode_inputs,
                 update_delete_preview.after(handle_mode_inputs),
+                handle_change_incline.after(handle_mode_inputs),
                 handle_click_to_place.after(handle_mode_inputs),
             ),
         );
@@ -48,10 +50,14 @@ pub(super) enum InteractionMode {
     None,
     Placing,
     Deleting,
+    ChangingIncline,
 }
 
 #[derive(Component)]
 struct DeletePreview;
+
+#[derive(Component)]
+struct InclinePreview;
 
 enum ModelDef {
     Scene(Handle<Scene>),
@@ -488,9 +494,38 @@ fn setup_delete_preview(
     ));
 }
 
+fn setup_incline_preview(
+    mut cmd: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    cmd.spawn((
+        Mesh3d(meshes.add(Cuboid::new(1.0, 1.0, 1.0))),
+        MeshMaterial3d(materials.add(StandardMaterial {
+            base_color: Color::srgba(0.1, 1.0, 0.1, 0.4),
+            alpha_mode: AlphaMode::Blend,
+            ..default()
+        })),
+        Transform::default(),
+        Visibility::Hidden,
+        InclinePreview,
+    ));
+}
+
 fn handle_mode_inputs(keys: Res<ButtonInput<KeyCode>>, mut mode: ResMut<InteractionMode>) {
     if keys.just_pressed(KeyCode::KeyX) {
-        *mode = InteractionMode::Deleting;
+        if *mode == InteractionMode::Deleting {
+            *mode = InteractionMode::None;
+        } else {
+            *mode = InteractionMode::Deleting;
+        }
+    }
+    if keys.just_pressed(KeyCode::KeyC) {
+        if *mode == InteractionMode::ChangingIncline {
+            *mode = InteractionMode::None;
+        } else {
+            *mode = InteractionMode::ChangingIncline;
+        }
     }
 }
 
@@ -546,6 +581,61 @@ fn update_delete_preview(
 
     if mouse.just_pressed(MouseButton::Left) {
         cmd.trigger(RemoveBlock { entity: target });
+    }
+}
+
+fn handle_change_incline(
+    mode: Res<InteractionMode>,
+    mouse: Res<ButtonInput<MouseButton>>,
+    cursor_options: Single<&CursorOptions>,
+    camera_q: Single<&Transform, With<FirstPersonCamera>>,
+    coord_map: Res<CoordsMap>,
+    mut preview_q: Single<
+        (&mut Transform, &mut Visibility),
+        (With<InclinePreview>, Without<FirstPersonCamera>),
+    >,
+    mut cmd: Commands,
+    targets: Query<(&WorldCoords, &Transform, &RaycastTarget), (Without<InclinePreview>, With<Belt>)>,
+) {
+    let (ref mut t, ref mut vis) = *preview_q;
+    let cursor_locked = cursor_options.grab_mode == CursorGrabMode::Locked;
+
+    if *mode != InteractionMode::ChangingIncline || !cursor_locked {
+        **vis = Visibility::Hidden;
+        return;
+    }
+
+    let camera_transform = camera_q.into_inner();
+    let origin = camera_transform.translation;
+    let ray_dir = *camera_transform.forward();
+
+    let Some(hit) = cast_ray(
+        origin,
+        ray_dir,
+        targets
+            .iter()
+            .map(|(c, tr, rt)| (*c, tr.translation, rt.half_extents)),
+    ) else {
+        **vis = Visibility::Hidden;
+        return;
+    };
+
+    let Some(&target) = coord_map.0.get(&hit.hit_coords) else {
+        **vis = Visibility::Hidden;
+        return;
+    };
+
+    let Ok((_, _, rt)) = targets.get(target) else {
+        **vis = Visibility::Hidden;
+        return;
+    };
+
+    **vis = Visibility::Visible;
+    t.translation = Vec3::from(hit.hit_coords);
+    t.scale = rt.half_extents * 2.0 * 1.05;
+
+    if mouse.just_pressed(MouseButton::Left) {
+        cmd.trigger(Incline { entity: target });
     }
 }
 

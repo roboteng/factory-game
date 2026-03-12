@@ -62,6 +62,7 @@ impl Plugin for CorePlugin {
         app.add_observer(on_place_block);
         app.add_observer(on_place_item);
         app.add_observer(on_remove_block);
+        app.add_observer(on_incline);
 
         let mut inv = Inventory::new();
         inv.insert(Stack::new(Item::Belt, 15.try_into().unwrap()))
@@ -96,6 +97,11 @@ pub struct PlaceBlock {
     pub item: Item,
     pub coords: WorldCoords,
     pub dir: HDir,
+}
+
+#[derive(EntityEvent, Debug, Clone, Copy)]
+pub struct Incline {
+    pub entity: Entity,
 }
 
 impl PlaceBlock {
@@ -415,6 +421,13 @@ fn on_remove_block(
         }
     }
     cmd.entity(event.entity).despawn();
+}
+
+fn on_incline(event: On<Incline>, mut belts: Query<&mut BeltShape>) {
+    let Ok(mut belt) = belts.get_mut(event.entity) else {
+        return;
+    };
+    belt.set_if_neq(BeltShape::RampUp(HDir::North));
 }
 
 fn determine_belt_shape(
@@ -1364,5 +1377,18 @@ mod tests {
 
         let belt = app.find_belt(belt).unwrap();
         assert_eq!(belt.0, BeltShape::Curve(Curve::NorthToWest));
+    }
+
+    #[test]
+    fn incline_belt() {
+        let mut app = test_app();
+        let belt = app.add_belt((0, 0, 0), HDir::North);
+        app.update();
+
+        app.world_mut().trigger(Incline { entity: belt });
+        app.update();
+
+        let belt = app.find_belt(belt).unwrap();
+        assert_eq!(belt.0, BeltShape::RampUp(HDir::North));
     }
 }
