@@ -499,7 +499,7 @@ fn update_delete_preview(
     mouse: Res<ButtonInput<MouseButton>>,
     cursor_options: Single<&CursorOptions>,
     camera_q: Single<&Transform, With<FirstPersonCamera>>,
-    coord_map: Res<CoordMap>,
+    coord_map: Res<CoordsMap>,
     mut preview_q: Single<
         (&mut Transform, &mut Visibility),
         (With<DeletePreview>, Without<FirstPersonCamera>),

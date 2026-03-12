@@ -57,7 +57,7 @@ impl Plugin for CorePlugin {
         #[cfg(feature = "invariant-check")]
         app.add_plugins(crate::core::invariants::InvariantsPlugin);
 
-        app.init_resource::<CoordMap>();
+        app.init_resource::<CoordsMap>();
 
         app.add_observer(on_place_block);
         app.add_observer(on_place_item);
@@ -254,7 +254,7 @@ pub struct Sided<T> {
 pub struct Player(pub Entity);
 
 #[derive(Resource, Default)]
-pub struct CoordMap(pub HashMap<WorldCoords, Entity>);
+pub struct CoordsMap(pub HashMap<WorldCoords, Entity>);
 
 // -------
 // Systems
@@ -266,7 +266,7 @@ fn despawn_old_entities(mut cmd: Commands, q: Query<Entity, With<Delete>>) {
     }
 }
 
-fn mark_belt_neighbors_dirty(center: WorldCoords, coord_map: &CoordMap, cmd: &mut Commands) {
+fn mark_belt_neighbors_dirty(center: WorldCoords, coord_map: &CoordsMap, cmd: &mut Commands) {
     for dx in -1i32..=1 {
         for dy in -1i32..=1 {
             for dz in -1i32..=1 {
@@ -286,7 +286,7 @@ fn mark_belt_neighbors_dirty(center: WorldCoords, coord_map: &CoordMap, cmd: &mu
 fn on_place_block(
     event: On<PlaceBlock>,
     mut cmd: Commands,
-    mut coord_map: ResMut<CoordMap>,
+    mut coord_map: ResMut<CoordsMap>,
     belts_q: Query<&ItemLanes, With<Belt>>,
 ) {
     let rt = event.item.raycast_target();
@@ -393,7 +393,7 @@ fn on_remove_block(
     event: On<RemoveBlock>,
     coords_q: Query<&WorldCoords>,
     lanes_q: Query<&ItemLanes>,
-    mut coord_map: ResMut<CoordMap>,
+    mut coord_map: ResMut<CoordsMap>,
     mut cmd: Commands,
 ) {
     debug!("Removing {:?}", event.entity);
@@ -429,229 +429,49 @@ fn determine_belt_shape(
         (With<Belt>, Or<(Added<Belt>, With<DirtyBelt>)>),
     >,
     affecters: Query<&HDir, With<AffectsBelts>>,
-    coord_map: Res<CoordMap>,
+    coord_map: Res<CoordsMap>,
     mut cmd: Commands,
 ) {
-    for (entity, coords, dir, current_shape, current_output) in belts.iter_mut() {
+    for (entity, coords, &dir, current_shape, current_output) in belts.iter_mut() {
+        let fed_from_left = coord_map
+            .0
+            .get(&coords.step(dir.left()))
+            .map(|&e| affecters.get(e).ok())
+            .flatten()
+            .is_some_and(|&d| d == dir.right());
+        let fed_from_right = coord_map
+            .0
+            .get(&coords.step(dir.right()))
+            .map(|&e| affecters.get(e).ok())
+            .flatten()
+            .is_some_and(|&d| d == dir.left());
         let fed_from_behind = coord_map
             .0
             .get(&coords.step(dir.opposite()))
-            .and_then(|&e| affecters.get(e).ok())
-            .is_some_and(|d| *d == *dir);
-
-        // Candidate RampUp belt feeding into us from below:
-        //   X at {y-1, ..behind} facing dir
-        // X must not be Straight → {y-1, ..coords} (X's forward same-level) is empty
-        // X must not be RampDown → {y-2, ..coords} (X's forward-down) is empty
-        let behind_below = WorldCoords {
-            y: coords.y - 1,
-            ..coords.step(dir.opposite())
-        };
-        let fed_from_ramp_below = !fed_from_behind
-            && coord_map
-                .0
-                .get(&behind_below)
-                .and_then(|&e| affecters.get(e).ok())
-                .is_some_and(|d| *d == *dir)
-            && coord_map
-                .0
-                .get(&WorldCoords {
-                    y: coords.y - 1,
-                    ..*coords
-                })
-                .is_none()
-            && coord_map
-                .0
-                .get(&WorldCoords {
-                    y: coords.y - 2,
-                    ..*coords
-                })
-                .is_none();
-
-        // Candidate RampDown belt feeding into us from above:
-        //   X at {y+1, ..behind} facing dir
-        // X must not be Straight → {y+1, ..coords} (X's forward same-level) is empty
-        // X must not be RampUp   → {y+2, ..coords} (X's forward-up) is empty
-        let behind_above = WorldCoords {
-            y: coords.y + 1,
-            ..coords.step(dir.opposite())
-        };
-        let fed_from_ramp_above = !fed_from_behind
-            && coord_map
-                .0
-                .get(&behind_above)
-                .and_then(|&e| affecters.get(e).ok())
-                .is_some_and(|d| *d == *dir)
-            && coord_map
-                .0
-                .get(&WorldCoords {
-                    y: coords.y + 1,
-                    ..*coords
-                })
-                .is_none()
-            && coord_map
-                .0
-                .get(&WorldCoords {
-                    y: coords.y + 2,
-                    ..*coords
-                })
-                .is_none();
-
-        let fed_from_behind = fed_from_behind || fed_from_ramp_below || fed_from_ramp_above;
-        let left_pos = coords.step(dir.right());
-        let fed_from_left = coord_map
+            .map(|&e| affecters.get(e).ok())
+            .flatten()
+            .is_some_and(|&d| d == dir);
+        let fed_from_above_behind = coord_map
             .0
-            .get(&left_pos)
-            .and_then(|&e| affecters.get(e).ok())
-            .filter(|d| **d == dir.left())
-            .copied()
-            .or_else(|| {
-                let from_above = coord_map
-                    .0
-                    .get(&WorldCoords {
-                        y: coords.y + 1,
-                        ..left_pos
-                    })
-                    .and_then(|&e| affecters.get(e).ok())
-                    .is_some_and(|d| *d == dir.left())
-                    && coord_map
-                        .0
-                        .get(&WorldCoords {
-                            y: coords.y + 1,
-                            ..*coords
-                        })
-                        .is_none()
-                    && coord_map
-                        .0
-                        .get(&WorldCoords {
-                            y: coords.y + 2,
-                            ..*coords
-                        })
-                        .is_none();
-                let from_below = coord_map
-                    .0
-                    .get(&WorldCoords {
-                        y: coords.y - 1,
-                        ..left_pos
-                    })
-                    .and_then(|&e| affecters.get(e).ok())
-                    .is_some_and(|d| *d == dir.left())
-                    && coord_map
-                        .0
-                        .get(&WorldCoords {
-                            y: coords.y - 1,
-                            ..*coords
-                        })
-                        .is_none()
-                    && coord_map
-                        .0
-                        .get(&WorldCoords {
-                            y: coords.y - 2,
-                            ..*coords
-                        })
-                        .is_none();
-                if from_above || from_below {
-                    Some(dir.left())
-                } else {
-                    None
-                }
-            });
-
-        let right_pos = coords.step(dir.left());
-        let fed_from_right = coord_map
-            .0
-            .get(&right_pos)
-            .and_then(|&e| affecters.get(e).ok())
-            .filter(|d| **d == dir.right())
-            .copied()
-            .or_else(|| {
-                let from_above = coord_map
-                    .0
-                    .get(&WorldCoords {
-                        y: coords.y + 1,
-                        ..right_pos
-                    })
-                    .and_then(|&e| affecters.get(e).ok())
-                    .is_some_and(|d| *d == dir.right())
-                    && coord_map
-                        .0
-                        .get(&WorldCoords {
-                            y: coords.y + 1,
-                            ..*coords
-                        })
-                        .is_none()
-                    && coord_map
-                        .0
-                        .get(&WorldCoords {
-                            y: coords.y + 2,
-                            ..*coords
-                        })
-                        .is_none();
-                let from_below = coord_map
-                    .0
-                    .get(&WorldCoords {
-                        y: coords.y - 1,
-                        ..right_pos
-                    })
-                    .and_then(|&e| affecters.get(e).ok())
-                    .is_some_and(|d| *d == dir.right())
-                    && coord_map
-                        .0
-                        .get(&WorldCoords {
-                            y: coords.y - 1,
-                            ..*coords
-                        })
-                        .is_none()
-                    && coord_map
-                        .0
-                        .get(&WorldCoords {
-                            y: coords.y - 2,
-                            ..*coords
-                        })
-                        .is_none();
-                if from_above || from_below {
-                    Some(dir.right())
-                } else {
-                    None
-                }
-            });
+            .get(&coords.step(dir.opposite()))
+            .map(|&e| affecters.get(e).ok())
+            .flatten()
+            .is_some_and(|&d| d == dir);
         let desired = match (fed_from_left, fed_from_behind, fed_from_right) {
-            (Some(a), false, None) | (None, false, Some(a)) => {
-                let curve = Curve::from_input_output(a, *dir).unwrap();
-                assert_eq!(curve.output(), *dir);
+            (true, false, false) => {
+                let curve = Curve::from_input_output(dir.right(), dir).unwrap();
+                assert_eq!(curve.output(), dir);
                 BeltShape::Curve(curve)
             }
-            (None, _, None) => {
-                let up = WorldCoords {
-                    y: coords.y + 1,
-                    ..*coords
-                };
-                let down = WorldCoords {
-                    y: coords.y - 1,
-                    ..*coords
-                };
-                if let Some(forward) = coord_map.0.get(&coords.step(*dir))
-                    && let Ok(f) = affecters.get(*forward)
-                    && f.opposite() != *dir
-                {
-                    BeltShape::Straight(*dir)
-                } else if let Some(forward) = coord_map.0.get(&up.step(*dir))
-                    && coord_map.0.get(&up).is_none()
-                    && let Ok(f) = affecters.get(*forward)
-                    && f.opposite() != *dir
-                {
-                    BeltShape::RampUp(*dir)
-                } else if let Some(forward) = coord_map.0.get(&down.step(*dir))
-                    && coord_map.0.get(&down).is_none()
-                    && let Ok(f) = affecters.get(*forward)
-                    && f.opposite() != *dir
-                {
-                    BeltShape::RampDown(*dir)
-                } else {
-                    BeltShape::Straight(*dir)
-                }
+            (false, false, true) => {
+                let curve = Curve::from_input_output(dir.left(), dir).unwrap();
+                assert_eq!(curve.output(), dir);
+                BeltShape::Curve(curve)
             }
-            (Some(_), _, Some(_)) | (_, true, _) => BeltShape::Straight(*dir),
+            (false, false, false) => BeltShape::Straight(dir),
+            (_, true, _) => BeltShape::Straight(dir),
+            (true, _, true) => BeltShape::Straight(dir),
+            _ => todo!(),
         };
         let desired_output = desired.belt_output();
         match current_shape {
@@ -699,7 +519,7 @@ fn transfer_items(
         &BeltOutput,
         &BeltShape,
     )>,
-    coord_map: Res<CoordMap>,
+    coord_map: Res<CoordsMap>,
 ) {
     struct Transfer {
         source: Entity,
@@ -744,8 +564,14 @@ fn transfer_items(
 }
 
 fn side_loading(
-    mut invs: Query<(Entity, &mut ItemLanes, &WorldCoords, &HDir, &BeltShape)>,
-    coord_map: Res<CoordMap>,
+    mut invs: Query<(
+        Entity,
+        &mut ItemLanes,
+        &WorldCoords,
+        &BeltOutput,
+        &BeltShape,
+    )>,
+    coord_map: Res<CoordsMap>,
 ) {
     struct Transfer {
         source: Entity,
@@ -763,9 +589,11 @@ fn side_loading(
         let Ok(dest) = invs.get(dest_entity) else {
             continue;
         };
-        if matches!(dest.4, BeltShape::Straight(_))
-            && (source.4.output() == dest.4.input().left()
-                || source.4.output() == dest.4.input().right())
+        if matches!(
+            dest.4,
+            BeltShape::Straight(_) | BeltShape::RampUp(_) | BeltShape::RampDown(_)
+        ) && (source.4.output() == dest.4.input().left()
+            || source.4.output() == dest.4.input().right())
         {
             let dest_side = if source.4.output() == dest.4.input().right() {
                 Side::Left
@@ -828,7 +656,7 @@ fn set_item_transforms(
 fn sources_place(
     sources: Query<(&WorldCoords, &HDir), With<Source>>,
     belts: Query<(Entity, &ItemLanes), With<Belt>>,
-    coord_map: Res<CoordMap>,
+    coord_map: Res<CoordsMap>,
     mut cmd: Commands,
 ) {
     for (source_coords, source_dir) in sources {
@@ -856,7 +684,7 @@ fn sources_place(
 fn sinks_destroy(
     sinks: Query<&WorldCoords, With<Sink>>,
     mut belts: Query<(Entity, &mut ItemLanes, &HDir)>,
-    coord_map: Res<CoordMap>,
+    coord_map: Res<CoordsMap>,
     mut cmd: Commands,
 ) {
     for sink_coords in sinks {
@@ -1454,7 +1282,7 @@ impl AppExtension for App {
 
     fn remove_belt_at(&mut self, coords: impl Into<WorldCoords>) -> bool {
         let coords = coords.into();
-        let entity = self.world().resource::<CoordMap>().0.get(&coords).copied();
+        let entity = self.world().resource::<CoordsMap>().0.get(&coords).copied();
         if let Some(entity) = entity {
             self.world_mut().trigger(RemoveBlock { entity });
             true
@@ -1494,4 +1322,47 @@ mod tests {
     use super::*;
     #[allow(unused_imports)]
     use pretty_assertions::{assert_eq, assert_ne};
+
+    #[test]
+    fn single_belt_is_straight_north() {
+        single_belt_is_straight(HDir::North);
+    }
+
+    #[test]
+    fn single_belt_is_straight_south() {
+        single_belt_is_straight(HDir::South);
+    }
+
+    #[test]
+    fn single_belt_is_straight_east() {
+        single_belt_is_straight(HDir::East);
+    }
+
+    #[test]
+    fn single_belt_is_straight_west() {
+        single_belt_is_straight(HDir::West);
+    }
+
+    fn single_belt_is_straight(dir: HDir) {
+        let mut app = test_app();
+
+        let belt = app.add_belt((0, 0, 0), dir);
+        app.update();
+
+        let belt = app.find_belt(belt).unwrap();
+        assert_eq!(belt.0, BeltShape::Straight(dir));
+    }
+
+    #[test]
+    fn flat_belt_curves() {
+        let mut app = test_app();
+        app.add_belt((-1, 0, 0), HDir::North);
+        app.update();
+
+        let belt = app.add_belt((0, 0, 0), HDir::West);
+        app.update();
+
+        let belt = app.find_belt(belt).unwrap();
+        assert_eq!(belt.0, BeltShape::Curve(Curve::NorthToWest));
+    }
 }
