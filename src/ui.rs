@@ -342,19 +342,50 @@ fn camera_movement(
     }
 }
 
+struct RayTarget {
+    coords: WorldCoords,
+    center: Vec3,
+    half_extents: Vec3,
+}
+
 struct RayHit {
     hit_coords: WorldCoords,
     place_coords: WorldCoords,
 }
 
+/// Cast a ray from the camera and look up the hit entity in the coord map.
+struct ResolvedHit {
+    coords: WorldCoords,
+    entity: Entity,
+    half_extents: Vec3,
+}
+
+fn raycast_and_resolve(
+    camera_transform: &Transform,
+    targets: impl Iterator<Item = RayTarget>,
+    coord_map: &CoordsMap,
+    find_entity: impl Fn(Entity) -> Option<(WorldCoords, Vec3)>,
+) -> Option<ResolvedHit> {
+    let origin = camera_transform.translation;
+    let ray_dir = *camera_transform.forward();
+    let hit = cast_ray(origin, ray_dir, targets)?;
+    let &entity = coord_map.0.get(&hit.hit_coords)?;
+    let (coords, half_extents) = find_entity(entity)?;
+    Some(ResolvedHit {
+        coords,
+        entity,
+        half_extents,
+    })
+}
+
 fn cast_ray(
     origin: Vec3,
     dir: Vec3,
-    targets: impl Iterator<Item = (WorldCoords, Vec3, Vec3)>,
+    targets: impl Iterator<Item = RayTarget>,
 ) -> Option<RayHit> {
     let mut best: Option<(f32, WorldCoords, [i32; 3])> = None;
 
-    'outer: for (coords, center, half_extents) in targets {
+    'outer: for RayTarget { coords, center, half_extents } in targets {
         // Bottom-align the AABB within the voxel slot
         let center = Vec3::new(
             center.x,
@@ -469,7 +500,7 @@ fn handle_click_to_place(
         ray_dir,
         targets
             .iter()
-            .map(|(c, t, rt)| (*c, t.translation, rt.half_extents)),
+            .map(|(c, t, rt)| RayTarget { coords: *c, center: t.translation, half_extents: rt.half_extents }),
     ) else {
         return;
     };
@@ -569,39 +600,33 @@ fn update_delete_preview(
         return;
     }
 
-    let camera_transform = camera_q.into_inner();
-    let origin = camera_transform.translation;
-    let ray_dir = *camera_transform.forward();
-
-    let Some(hit) = cast_ray(
-        origin,
-        ray_dir,
+    let Some(resolved) = raycast_and_resolve(
+        camera_q.into_inner(),
         targets
             .iter()
-            .map(|(c, tr, rt)| (*c, tr.translation, rt.half_extents)),
+            .map(|(c, tr, rt)| RayTarget { coords: *c, center: tr.translation, half_extents: rt.half_extents }),
+        &coord_map,
+        |e| {
+            targets
+                .get(e)
+                .ok()
+                .map(|(wc, _, rt)| (*wc, rt.half_extents))
+        },
     ) else {
         **vis = Visibility::Hidden;
         return;
     };
 
-    let Some(&target) = coord_map.0.get(&hit.hit_coords) else {
-        **vis = Visibility::Hidden;
-        return;
-    };
-
-    let Ok((wc, _, rt)) = targets.get(target) else {
-        **vis = Visibility::Hidden;
-        return;
-    };
-
     **vis = Visibility::Visible;
-    let mut pos = Vec3::from(*wc);
-    pos.y = pos.y - HALF_BLOCK_SIZE / 2.0 + rt.half_extents.y.min(HALF_BLOCK_SIZE / 2.0);
+    let mut pos = Vec3::from(resolved.coords);
+    pos.y = pos.y - HALF_BLOCK_SIZE / 2.0 + resolved.half_extents.y.min(HALF_BLOCK_SIZE / 2.0);
     t.translation = pos;
-    t.scale = rt.half_extents * 2.0 * 1.05;
+    t.scale = resolved.half_extents * 2.0 * 1.05;
 
     if mouse.just_pressed(MouseButton::Left) {
-        cmd.trigger(RemoveBlock { entity: target });
+        cmd.trigger(RemoveBlock {
+            entity: resolved.entity,
+        });
     }
 }
 
@@ -629,39 +654,33 @@ fn handle_change_incline(
         return;
     }
 
-    let camera_transform = camera_q.into_inner();
-    let origin = camera_transform.translation;
-    let ray_dir = *camera_transform.forward();
-
-    let Some(hit) = cast_ray(
-        origin,
-        ray_dir,
+    let Some(resolved) = raycast_and_resolve(
+        camera_q.into_inner(),
         targets
             .iter()
-            .map(|(c, tr, rt)| (*c, tr.translation, rt.half_extents)),
+            .map(|(c, tr, rt)| RayTarget { coords: *c, center: tr.translation, half_extents: rt.half_extents }),
+        &coord_map,
+        |e| {
+            targets
+                .get(e)
+                .ok()
+                .map(|(wc, _, rt)| (*wc, rt.half_extents))
+        },
     ) else {
         **vis = Visibility::Hidden;
         return;
     };
 
-    let Some(&target) = coord_map.0.get(&hit.hit_coords) else {
-        **vis = Visibility::Hidden;
-        return;
-    };
-
-    let Ok((wc, _, rt)) = targets.get(target) else {
-        **vis = Visibility::Hidden;
-        return;
-    };
-
     **vis = Visibility::Visible;
-    let mut pos = Vec3::from(*wc);
-    pos.y = pos.y - HALF_BLOCK_SIZE / 2.0 + rt.half_extents.y.min(HALF_BLOCK_SIZE / 2.0);
+    let mut pos = Vec3::from(resolved.coords);
+    pos.y = pos.y - HALF_BLOCK_SIZE / 2.0 + resolved.half_extents.y.min(HALF_BLOCK_SIZE / 2.0);
     t.translation = pos;
-    t.scale = rt.half_extents * 2.0 * 1.05;
+    t.scale = resolved.half_extents * 2.0 * 1.05;
 
     if mouse.just_pressed(MouseButton::Left) {
-        cmd.trigger(Incline { entity: target });
+        cmd.trigger(Incline {
+            entity: resolved.entity,
+        });
     }
 }
 
@@ -676,31 +695,25 @@ fn draw_crosshair_gizmo(
         return;
     }
 
-    let camera_transform = camera_q.into_inner();
-    let origin = camera_transform.translation;
-    let ray_dir = *camera_transform.forward();
-
-    let Some(hit) = cast_ray(
-        origin,
-        ray_dir,
+    let Some(resolved) = raycast_and_resolve(
+        camera_q.into_inner(),
         targets
             .iter()
-            .map(|(c, t, rt)| (*c, t.translation, rt.half_extents)),
+            .map(|(c, t, rt)| RayTarget { coords: *c, center: t.translation, half_extents: rt.half_extents }),
+        &coord_map,
+        |e| {
+            targets
+                .get(e)
+                .ok()
+                .map(|(wc, _, rt)| (*wc, rt.half_extents))
+        },
     ) else {
         return;
     };
 
-    let Some(&target) = coord_map.0.get(&hit.hit_coords) else {
-        return;
-    };
-
-    let Ok((wc, _, rt)) = targets.get(target) else {
-        return;
-    };
-
-    let mut pos = Vec3::from(*wc);
-    pos.y = pos.y - HALF_BLOCK_SIZE / 2.0 + rt.half_extents.y.min(HALF_BLOCK_SIZE / 2.0);
-    let size = rt.half_extents * 2.0;
+    let mut pos = Vec3::from(resolved.coords);
+    pos.y = pos.y - HALF_BLOCK_SIZE / 2.0 + resolved.half_extents.y.min(HALF_BLOCK_SIZE / 2.0);
+    let size = resolved.half_extents * 2.0;
 
     gizmos.cube(
         Transform::from_translation(pos).with_scale(size),
@@ -729,7 +742,7 @@ fn draw_placement_preview(
         ray_dir,
         targets
             .iter()
-            .map(|(c, t, rt)| (*c, t.translation, rt.half_extents)),
+            .map(|(c, t, rt)| RayTarget { coords: *c, center: t.translation, half_extents: rt.half_extents }),
     ) else {
         return;
     };
@@ -754,9 +767,16 @@ fn setup_reticle(mut cmd: Commands) {
     let color = Color::srgba(1.0, 1.0, 1.0, 0.8);
     let thickness = 2.0;
     let length = 12.0;
-    let gap = 4.0; // Gap in the center
+    let gap = 4.0;
 
-    // Container centered on screen
+    // (width, height, left, top) for each crosshair segment
+    let segments = [
+        (length, thickness, -length - gap, -thickness / 2.0), // left
+        (length, thickness, gap, -thickness / 2.0),           // right
+        (thickness, length, -thickness / 2.0, -length - gap), // top
+        (thickness, length, -thickness / 2.0, gap),           // bottom
+    ];
+
     cmd.spawn(Node {
         position_type: PositionType::Absolute,
         left: Val::Percent(50.0),
@@ -764,53 +784,18 @@ fn setup_reticle(mut cmd: Commands) {
         ..default()
     })
     .with_children(|parent| {
-        // Horizontal left
-        parent.spawn((
-            Node {
-                position_type: PositionType::Absolute,
-                width: Val::Px(length),
-                height: Val::Px(thickness),
-                left: Val::Px(-length - gap),
-                top: Val::Px(-thickness / 2.0),
-                ..default()
-            },
-            BackgroundColor(color),
-        ));
-        // Horizontal right
-        parent.spawn((
-            Node {
-                position_type: PositionType::Absolute,
-                width: Val::Px(length),
-                height: Val::Px(thickness),
-                left: Val::Px(gap),
-                top: Val::Px(-thickness / 2.0),
-                ..default()
-            },
-            BackgroundColor(color),
-        ));
-        // Vertical top
-        parent.spawn((
-            Node {
-                position_type: PositionType::Absolute,
-                width: Val::Px(thickness),
-                height: Val::Px(length),
-                left: Val::Px(-thickness / 2.0),
-                top: Val::Px(-length - gap),
-                ..default()
-            },
-            BackgroundColor(color),
-        ));
-        // Vertical bottom
-        parent.spawn((
-            Node {
-                position_type: PositionType::Absolute,
-                width: Val::Px(thickness),
-                height: Val::Px(length),
-                left: Val::Px(-thickness / 2.0),
-                top: Val::Px(gap),
-                ..default()
-            },
-            BackgroundColor(color),
-        ));
+        for (w, h, l, t) in segments {
+            parent.spawn((
+                Node {
+                    position_type: PositionType::Absolute,
+                    width: Val::Px(w),
+                    height: Val::Px(h),
+                    left: Val::Px(l),
+                    top: Val::Px(t),
+                    ..default()
+                },
+                BackgroundColor(color),
+            ));
+        }
     });
 }

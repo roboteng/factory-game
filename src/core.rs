@@ -16,9 +16,7 @@ mod proptests;
 
 pub const BLOCK_SIZE: f32 = 2.0;
 pub const HALF_BLOCK_SIZE: f32 = BLOCK_SIZE / 2.0;
-#[allow(unused)]
 pub const ITEM_SIZE: f32 = BLOCK_SIZE / 4.0;
-#[allow(unused)]
 pub const HALF_ITEM_SIZE: f32 = ITEM_SIZE / 2.0;
 /// How far from the bottom of the voxel the belt surface is.
 pub const BELT_HEIGHT: f32 = 0.25 * BLOCK_SIZE;
@@ -31,7 +29,6 @@ pub const LANE_OFFSET: f32 = LANE_OFFSET_FACTOR * BLOCK_SIZE;
 pub const POSITIONS_PER_BELT: i32 = 256;
 pub const ITEM_SPACING: i32 = POSITIONS_PER_BELT / 4;
 pub const BASE_BELT_SPEED: i32 = 8;
-#[allow(unused)]
 pub const BASE_ITEM_MOVEMENT: f32 = BLOCK_SIZE * BASE_BELT_SPEED as f32 / POSITIONS_PER_BELT as f32;
 pub const POSITIONS_PER_INNER_CURVE: i32 =
     ((0.5 - LANE_OFFSET_FACTOR) * POSITIONS_PER_BELT as f32 * PI / 2.0).round() as i32;
@@ -455,30 +452,16 @@ fn determine_belt_shape(
     mut cmd: Commands,
 ) {
     for (entity, coords, &dir, current_shape) in belts.iter_mut() {
-        let fed_from_left = coord_map
-            .0
-            .get(&coords.step(dir.left()))
-            .map(|&e| affecters.get(e).ok())
-            .flatten()
-            .is_some_and(|&d| d == dir.right());
-        let fed_from_right = coord_map
-            .0
-            .get(&coords.step(dir.right()))
-            .map(|&e| affecters.get(e).ok())
-            .flatten()
-            .is_some_and(|&d| d == dir.left());
-        let fed_from_behind = coord_map
-            .0
-            .get(&coords.step(dir.opposite()))
-            .map(|&e| affecters.get(e).ok())
-            .flatten()
-            .is_some_and(|&d| d == dir);
-        let fed_from_above_behind = coord_map
-            .0
-            .get(&coords.step(dir.opposite()))
-            .map(|&e| affecters.get(e).ok())
-            .flatten()
-            .is_some_and(|&d| d == dir);
+        let feeds_from = |step: WorldCoords, expected: HDir| {
+            coord_map
+                .0
+                .get(&step)
+                .and_then(|&e| affecters.get(e).ok())
+                .is_some_and(|&d| d == expected)
+        };
+        let fed_from_left = feeds_from(coords.step(dir.left()), dir.right());
+        let fed_from_right = feeds_from(coords.step(dir.right()), dir.left());
+        let fed_from_behind = feeds_from(coords.step(dir.opposite()), dir);
         let desired = match (fed_from_left, fed_from_behind, fed_from_right) {
             (true, false, false) => {
                 let curve = Curve::from_input_output(dir.right(), dir).unwrap();
@@ -894,7 +877,7 @@ impl Curve {
         }
     }
     #[expect(unused)]
-    pub const fn outet_lane(&self) -> Side {
+    pub const fn outer_lane(&self) -> Side {
         if self.is_clockwise() {
             Side::Left
         } else {
