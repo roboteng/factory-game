@@ -269,16 +269,14 @@ fn despawn_old_entities(mut cmd: Commands, q: Query<Entity, With<Delete>>) {
 
 fn mark_belt_neighbors_dirty(center: WorldCoords, coord_map: &CoordsMap, cmd: &mut Commands) {
     for dx in -1i32..=1 {
-        for dy in -1i32..=1 {
-            for dz in -1i32..=1 {
-                let pos = WorldCoords {
-                    x: center.x + dx,
-                    y: center.y + dy,
-                    z: center.z + dz,
-                };
-                if let Some(&e) = coord_map.0.get(&pos) {
-                    cmd.entity(e).insert(DirtyBelt);
-                }
+        for dz in -1i32..=1 {
+            let pos = WorldCoords {
+                x: center.x + dx,
+                y: center.y,
+                z: center.z + dz,
+            };
+            if let Some(&e) = coord_map.0.get(&pos) {
+                cmd.entity(e).insert(DirtyBelt);
             }
         }
     }
