@@ -4,9 +4,9 @@ use std::f32::consts::PI;
 
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct WorldCoords {
-    pub x: i32,
-    pub y: i32,
-    pub z: i32,
+    x: i32,
+    y: i32,
+    z: i32,
 }
 
 /// Horizontal direction
@@ -30,9 +30,9 @@ pub enum Dir {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WorldCoordsDelta {
-    pub x: i32,
-    pub y: i32,
-    pub z: i32,
+    x: i32,
+    y: i32,
+    z: i32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -67,6 +67,25 @@ pub enum Curve {
 // -----------
 
 impl WorldCoords {
+    pub const ORIGIN: Self = Self { x: 0, y: 0, z: 0 };
+
+    pub fn snap_height_even(self) -> Self {
+        Self {
+            y: self.y & !1,
+            ..self
+        }
+    }
+
+    pub fn height(&self) -> i32 {
+        self.y
+    }
+
+    pub fn horizontal_neighbors(self) -> impl Iterator<Item = Self> {
+        (-1..=1i32).flat_map(move |dx| {
+            (-1..=1i32).map(move |dz| self + WorldCoordsDelta::new(dx, 0, dz))
+        })
+    }
+
     pub fn step(&self, dir: impl Into<WorldCoordsDelta>) -> Self {
         let d: WorldCoordsDelta = dir.into();
         Self {
@@ -85,6 +104,40 @@ impl std::ops::Add<WorldCoordsDelta> for WorldCoords {
             y: self.y + rhs.y,
             z: self.z + rhs.z,
         }
+    }
+}
+
+impl WorldCoordsDelta {
+    pub const ZERO: Self = Self { x: 0, y: 0, z: 0 };
+
+    const fn new(x: i32, y: i32, z: i32) -> Self {
+        Self { x, y, z }
+    }
+
+    /// Construct from raw axis values (x, y, z). Use only at rendering/physics
+    /// boundaries where axis indices are unavoidable.
+    pub const fn from_axes(x: i32, y: i32, z: i32) -> Self {
+        Self { x, y, z }
+    }
+
+    pub const fn north(self, n: i32) -> Self {
+        Self { x: self.x + n, ..self }
+    }
+
+    pub const fn south(self, n: i32) -> Self {
+        Self { x: self.x - n, ..self }
+    }
+
+    pub const fn east(self, n: i32) -> Self {
+        Self { z: self.z + n, ..self }
+    }
+
+    pub const fn west(self, n: i32) -> Self {
+        Self { z: self.z - n, ..self }
+    }
+
+    pub const fn height(self, h: i32) -> Self {
+        Self { y: self.y + h, ..self }
     }
 }
 

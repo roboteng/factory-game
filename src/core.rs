@@ -229,16 +229,9 @@ fn despawn_old_entities(mut cmd: Commands, q: Query<Entity, With<Delete>>) {
 }
 
 fn mark_belt_neighbors_dirty(center: WorldCoords, coord_map: &CoordsMap, cmd: &mut Commands) {
-    for dx in -1i32..=1 {
-        for dz in -1i32..=1 {
-            let pos = WorldCoords {
-                x: center.x + dx,
-                y: center.y,
-                z: center.z + dz,
-            };
-            if let Some(&e) = coord_map.0.get(&pos) {
-                cmd.entity(e).insert(DirtyBelt);
-            }
+    for pos in center.horizontal_neighbors() {
+        if let Some(&e) = coord_map.0.get(&pos) {
+            cmd.entity(e).insert(DirtyBelt);
         }
     }
 }
@@ -255,10 +248,7 @@ fn on_place_block(
     // Full-height blocks must sit at an even y coordinate. If the ray lands
     // on an odd slot (e.g. top face of a belt), snap down to the nearest even.
     let coords = if is_full {
-        WorldCoords {
-            y: event.coords.y & !1,
-            ..event.coords
-        }
+        event.coords.snap_height_even()
     } else {
         event.coords
     };
@@ -1076,7 +1066,7 @@ mod tests {
     fn single_belt_is_straight(dir: HDir) {
         let mut app = test_app();
 
-        let belt = app.add_belt((0, 0, 0), dir);
+        let belt = app.add_belt(WorldCoords::ORIGIN, dir);
         app.update();
 
         let belt = app.find_belt(belt).unwrap();
@@ -1086,10 +1076,11 @@ mod tests {
     #[test]
     fn flat_belt_curves() {
         let mut app = test_app();
-        app.add_belt((-1, 0, 0), HDir::North);
+        let o = WorldCoords::ORIGIN;
+        app.add_belt(o.step(HDir::South), HDir::North);
         app.update();
 
-        let belt = app.add_belt((0, 0, 0), HDir::West);
+        let belt = app.add_belt(o, HDir::West);
         app.update();
 
         let belt = app.find_belt(belt).unwrap();
@@ -1099,7 +1090,7 @@ mod tests {
     #[test]
     fn incline_belt() {
         let mut app = test_app();
-        let belt = app.add_belt((0, 0, 0), HDir::North);
+        let belt = app.add_belt(WorldCoords::ORIGIN, HDir::North);
         app.update();
 
         app.world_mut().trigger(Incline { entity: belt });
@@ -1112,8 +1103,9 @@ mod tests {
     #[test]
     fn incline_belt_with_belt_in_front() {
         let mut app = test_app();
-        let belt = app.add_belt((0, 0, 0), HDir::North);
-        app.add_belt((1, 0, 0), HDir::North);
+        let o = WorldCoords::ORIGIN;
+        let belt = app.add_belt(o, HDir::North);
+        app.add_belt(o.step(HDir::North), HDir::North);
         app.update();
 
         app.world_mut().trigger(Incline { entity: belt });
@@ -1126,10 +1118,11 @@ mod tests {
     #[test]
     fn incline_belt_on_placement() {
         let mut app = test_app();
-        app.add_belt((1, 1, 0), HDir::North);
+        let o = WorldCoords::ORIGIN;
+        app.add_belt(o.step(HDir::North).step(Dir::Up), HDir::North);
         app.update();
 
-        let belt = app.add_belt((0, 0, 0), HDir::North);
+        let belt = app.add_belt(o, HDir::North);
         app.update();
 
         let belt = app.find_belt(belt).unwrap();
@@ -1139,11 +1132,12 @@ mod tests {
     #[test]
     fn not_incline_belt_on_placement_in_front() {
         let mut app = test_app();
-        app.add_belt((1, 1, 0), HDir::North);
-        app.add_belt((1, 0, 0), HDir::North);
+        let o = WorldCoords::ORIGIN;
+        app.add_belt(o.step(HDir::North).step(Dir::Up), HDir::North);
+        app.add_belt(o.step(HDir::North), HDir::North);
         app.update();
 
-        let belt = app.add_belt((0, 0, 0), HDir::North);
+        let belt = app.add_belt(o, HDir::North);
         app.update();
 
         let belt = app.find_belt(belt).unwrap();
@@ -1153,11 +1147,12 @@ mod tests {
     #[test]
     fn not_incline_belt_on_placement_above() {
         let mut app = test_app();
-        app.add_belt((1, 1, 0), HDir::North);
-        app.add_belt((0, 1, 0), HDir::North);
+        let o = WorldCoords::ORIGIN;
+        app.add_belt(o.step(HDir::North).step(Dir::Up), HDir::North);
+        app.add_belt(o.step(Dir::Up), HDir::North);
         app.update();
 
-        let belt = app.add_belt((0, 0, 0), HDir::North);
+        let belt = app.add_belt(o, HDir::North);
         app.update();
 
         let belt = app.find_belt(belt).unwrap();
@@ -1167,8 +1162,9 @@ mod tests {
     #[test]
     fn incline_with_above_filled_becomes_ramp_down() {
         let mut app = test_app();
-        let belt = app.add_belt((0, 0, 0), HDir::North);
-        app.add_belt((0, 1, 0), HDir::North);
+        let o = WorldCoords::ORIGIN;
+        let belt = app.add_belt(o, HDir::North);
+        app.add_belt(o.step(Dir::Up), HDir::North);
         app.update();
 
         app.world_mut().trigger(Incline { entity: belt });
@@ -1181,8 +1177,9 @@ mod tests {
     #[test]
     fn incline_ramp_down_becomes_straight() {
         let mut app = test_app();
-        let belt = app.add_belt((0, 0, 0), HDir::North);
-        app.add_belt((0, 1, 0), HDir::North);
+        let o = WorldCoords::ORIGIN;
+        let belt = app.add_belt(o, HDir::North);
+        app.add_belt(o.step(Dir::Up), HDir::North);
         app.update();
 
         // First incline: Straight -> RampDown (above filled)
@@ -1199,8 +1196,9 @@ mod tests {
     #[test]
     fn incline_ramp_up_with_below_filled_becomes_straight() {
         let mut app = test_app();
-        let belt = app.add_belt((0, 1, 0), HDir::North);
-        app.add_belt((0, 0, 0), HDir::North);
+        let o = WorldCoords::ORIGIN;
+        let belt = app.add_belt(o.step(Dir::Up), HDir::North);
+        app.add_belt(o, HDir::North);
         app.update();
 
         // First incline: Straight -> RampUp (nothing above)

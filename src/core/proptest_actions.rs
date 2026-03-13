@@ -117,7 +117,7 @@ impl TestState {
 // Proptest strategies
 
 pub fn arb_coords() -> impl Strategy<Value = WorldCoords> {
-    (-3..=3i32, -3..=3i32, 0..=0i32).prop_map(|(x, y, z)| WorldCoords { x, y, z })
+    (-3..=3i32, -3..=3i32, 0..=0i32).prop_map(|(x, y, z)| WorldCoords::from((x, y, z)))
 }
 
 pub fn arb_dir() -> impl Strategy<Value = HDir> {

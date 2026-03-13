@@ -436,8 +436,8 @@ fn cast_ray(
                 // hit, clamped to the block's own occupied slots.
                 let hit_world_y = origin[1] + t_enter * dir[1];
                 let raw_y = (hit_world_y / HALF_BLOCK_SIZE).round() as i32;
-                let snapped_y = raw_y.clamp(coords.y, coords.y + y_slots - 1);
-                offset[1] = snapped_y - coords.y;
+                let snapped_y = raw_y.clamp(coords.height(), coords.height() + y_slots - 1);
+                offset[1] = snapped_y - coords.height();
                 offset[enter_axis] = if dir[enter_axis] > 0.0 { -1 } else { 1 };
             }
             best = Some((t_enter, coords, offset));
@@ -445,11 +445,7 @@ fn cast_ray(
     }
 
     best.map(|(_, hit_coords, offset)| {
-        let place_coords = WorldCoords {
-            x: hit_coords.x + offset[0],
-            y: hit_coords.y + offset[1],
-            z: hit_coords.z + offset[2],
-        };
+        let place_coords = hit_coords + WorldCoordsDelta::from_axes(offset[0], offset[1], offset[2]);
         RayHit {
             hit_coords,
             place_coords,

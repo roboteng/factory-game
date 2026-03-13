@@ -37,12 +37,15 @@ fn max_framerate(mut windows: Query<&mut Window, With<bevy::window::PrimaryWindo
 }
 
 fn setup(mut cmd: Commands) {
+    let o = WorldCoords::ORIGIN;
+
     #[cfg(feature = "ui")]
     {
         use rand::Rng;
         let mut rng = rand::thread_rng();
-        for x in -4..=4 {
-            for z in -4..=4 {
+        let ground_height = WorldCoordsDelta::ZERO.height(-2);
+        for ns in -4..=4 {
+            for ew in -4..=4 {
                 let item = if rng.gen_bool(0.5) {
                     crate::core::Item::Rock
                 } else {
@@ -52,7 +55,7 @@ fn setup(mut cmd: Commands) {
                 cmd.trigger(crate::core::PlaceBlock {
                     entity,
                     item,
-                    coords: (x, -2, z).into(),
+                    coords: o + ground_height + WorldCoordsDelta::ZERO.north(ns).east(ew),
                     dir: HDir::North,
                 });
             }
@@ -62,21 +65,21 @@ fn setup(mut cmd: Commands) {
     cmd.trigger(crate::core::PlaceBlock {
         entity,
         item: crate::core::Item::Belt,
-        coords: (1, 1, 0).into(),
+        coords: o.step(HDir::North).step(Dir::Up),
         dir: HDir::North,
     });
     let entity = cmd.spawn_empty().id();
     cmd.trigger(crate::core::PlaceBlock {
         entity,
         item: crate::core::Item::Belt,
-        coords: (0, 0, 0).into(),
+        coords: o,
         dir: HDir::North,
     });
     let belt_entity = cmd.spawn_empty().id();
     cmd.trigger(crate::core::PlaceBlock {
         entity: belt_entity,
         item: crate::core::Item::Belt,
-        coords: (-1, 0, 0).into(),
+        coords: o.step(HDir::South),
         dir: HDir::North,
     });
 }
