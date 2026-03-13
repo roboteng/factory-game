@@ -423,11 +423,33 @@ fn on_remove_block(
     cmd.entity(event.entity).despawn();
 }
 
-fn on_incline(event: On<Incline>, mut belts: Query<&mut BeltShape>) {
-    let Ok(mut belt) = belts.get_mut(event.entity) else {
+fn on_incline(
+    event: On<Incline>,
+    mut belts: Query<(&mut BeltShape, &WorldCoords)>,
+    coords_map: Res<CoordsMap>,
+) {
+    let Ok((mut belt, &coords)) = belts.get_mut(event.entity) else {
         return;
     };
-    belt.set_if_neq(BeltShape::RampUp(HDir::North));
+    match (
+        belt.as_ref().clone(),
+        coords_map.0.get(&WorldCoords {
+            y: coords.y - 1,
+            ..coords
+        }),
+        coords_map.0.get(&WorldCoords {
+            y: coords.y + 1,
+            ..coords
+        }),
+    ) {
+        (BeltShape::Straight(dir), _, None) => belt.set_if_neq(BeltShape::RampUp(dir)),
+        (BeltShape::Straight(dir), None, Some(_)) => belt.set_if_neq(BeltShape::RampDown(dir)),
+        (BeltShape::Straight(_), Some(_), Some(_)) => false,
+        (BeltShape::RampUp(dir), None, _) => belt.set_if_neq(BeltShape::RampDown(dir)),
+        (BeltShape::RampUp(dir), Some(_), _) => belt.set_if_neq(BeltShape::Straight(dir)),
+        (BeltShape::RampDown(dir), _, _) => belt.set_if_neq(BeltShape::Straight(dir)),
+        (BeltShape::Curve(_), _, _) => false,
+    };
 }
 
 fn determine_belt_shape(
