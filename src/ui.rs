@@ -17,6 +17,7 @@ impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(hotbar::HotbarPlugin);
         app.init_resource::<InteractionMode>();
+        app.init_resource::<PlacementDirection>();
         app.insert_resource(ClearColor(Color::srgb(0.01, 0.01, 0.05))); // Dark night sky
         app.add_systems(Startup, setup);
         app.add_systems(Startup, setup_reticle);
@@ -37,6 +38,7 @@ impl Plugin for UiPlugin {
         );
 
         app.add_systems(Update, draw_crosshair_gizmo);
+        app.add_systems(Update, draw_placement_preview);
         app.add_systems(Update, attach_models);
         app.add_systems(Update, camera_look);
         app.add_systems(Update, cursor_grab.after(handle_click_to_place));
@@ -52,6 +54,15 @@ pub(super) enum InteractionMode {
     Placing,
     Deleting,
     ChangingIncline,
+}
+
+#[derive(Resource)]
+struct PlacementDirection(HDir);
+
+impl Default for PlacementDirection {
+    fn default() -> Self {
+        Self(HDir::North)
+    }
 }
 
 #[derive(Component)]
@@ -426,6 +437,7 @@ fn handle_click_to_place(
     mut cmd: Commands,
     mode: Res<InteractionMode>,
     targets: Query<(&WorldCoords, &Transform, &RaycastTarget)>,
+    placement_dir: Res<PlacementDirection>,
 ) {
     if *mode != InteractionMode::Placing {
         return;
@@ -462,14 +474,7 @@ fn handle_click_to_place(
         return;
     };
 
-    // Determine belt direction based on camera forward direction (belt faces away from camera)
-    // Project camera forward onto XZ plane and calculate angle
-    let camera_forward = camera_transform.forward();
-    let forward_xz = Vec3::new(camera_forward.x, 0.0, camera_forward.z).normalize();
-    let angle = forward_xz.z.atan2(forward_xz.x);
-
-    // HDir angle mapping: North=0, East=-PI/2, South=PI, West=PI/2
-    let dir = angle_to_hdir(angle);
+    let dir = placement_dir.0;
 
     let entity = cmd.spawn_empty().id();
 
@@ -519,7 +524,11 @@ fn setup_incline_preview(
     ));
 }
 
-fn handle_mode_inputs(keys: Res<ButtonInput<KeyCode>>, mut mode: ResMut<InteractionMode>) {
+fn handle_mode_inputs(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut mode: ResMut<InteractionMode>,
+    mut placement_dir: ResMut<PlacementDirection>,
+) {
     if keys.just_pressed(KeyCode::KeyX) {
         if *mode == InteractionMode::Deleting {
             *mode = InteractionMode::None;
@@ -533,6 +542,9 @@ fn handle_mode_inputs(keys: Res<ButtonInput<KeyCode>>, mut mode: ResMut<Interact
         } else {
             *mode = InteractionMode::ChangingIncline;
         }
+    }
+    if keys.just_pressed(KeyCode::KeyR) {
+        placement_dir.0 = placement_dir.0.right();
     }
 }
 
@@ -604,7 +616,10 @@ fn handle_change_incline(
         (With<InclinePreview>, Without<FirstPersonCamera>),
     >,
     mut cmd: Commands,
-    targets: Query<(&WorldCoords, &Transform, &RaycastTarget), (Without<InclinePreview>, With<Belt>)>,
+    targets: Query<
+        (&WorldCoords, &Transform, &RaycastTarget),
+        (Without<InclinePreview>, With<Belt>),
+    >,
 ) {
     let (ref mut t, ref mut vis) = *preview_q;
     let cursor_locked = cursor_options.grab_mode == CursorGrabMode::Locked;
@@ -693,40 +708,46 @@ fn draw_crosshair_gizmo(
     );
 }
 
-fn angle_to_hdir(angle: f32) -> HDir {
-    use std::f32::consts::PI;
-
-    // angle is from atan2(z, x)
-    // We need to map this to HDir angles where:
-    // North=0 (facing +X), East=-PI/2 (facing +Z), South=PI (facing -X), West=PI/2 (facing -Z)
-
-    // atan2(z, x) gives:
-    // +Z direction (East): atan2(1, 0) = PI/2
-    // +X direction (North): atan2(0, 1) = 0
-    // -Z direction (West): atan2(-1, 0) = -PI/2
-    // -X direction (South): atan2(0, -1) = PI
-
-    // Negate to align with HDir coordinate system
-    let hdir_angle = -angle;
-
-    // Normalize to [-PI, PI]
-    let mut normalized = hdir_angle;
-    if normalized > PI {
-        normalized -= 2.0 * PI;
-    } else if normalized < -PI {
-        normalized += 2.0 * PI;
+fn draw_placement_preview(
+    mut gizmos: Gizmos,
+    mode: Res<InteractionMode>,
+    placement_dir: Res<PlacementDirection>,
+    cursor_options: Single<&CursorOptions>,
+    camera_q: Single<&Transform, With<FirstPersonCamera>>,
+    targets: Query<(&WorldCoords, &Transform, &RaycastTarget)>,
+) {
+    if *mode != InteractionMode::Placing || cursor_options.grab_mode != CursorGrabMode::Locked {
+        return;
     }
 
-    // Find closest HDir based on angle
-    if normalized.abs() < PI / 4.0 {
-        HDir::North
-    } else if normalized > 3.0 * PI / 4.0 || normalized < -3.0 * PI / 4.0 {
-        HDir::South
-    } else if normalized > 0.0 {
-        HDir::West
-    } else {
-        HDir::East
-    }
+    let camera_transform = camera_q.into_inner();
+    let origin = camera_transform.translation;
+    let ray_dir = *camera_transform.forward();
+
+    let Some(hit) = cast_ray(
+        origin,
+        ray_dir,
+        targets
+            .iter()
+            .map(|(c, t, rt)| (*c, t.translation, rt.half_extents)),
+    ) else {
+        return;
+    };
+
+    let pos = Vec3::from(hit.place_coords);
+    let dir = placement_dir.0;
+    let angle = dir.angle();
+
+    // Arrow direction vector on XZ plane (North = +X)
+    let forward = Vec3::new(angle.cos(), 0.0, -angle.sin());
+    let arrow_len = BLOCK_SIZE * 0.8;
+    let start = pos - forward * arrow_len * 0.5;
+    let end = pos + forward * arrow_len * 0.5;
+
+    let color = Color::srgba(0.2, 0.8, 1.0, 0.9);
+    gizmos
+        .arrow(start, end, color)
+        .with_tip_length(BLOCK_SIZE * 0.2);
 }
 
 fn setup_reticle(mut cmd: Commands) {
