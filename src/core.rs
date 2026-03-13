@@ -4,10 +4,15 @@ use derivative::Derivative;
 use std::collections::HashMap;
 use std::f32::consts::PI;
 
+pub mod dir;
 pub mod inventory;
 
 #[cfg(feature = "invariant-check")]
 pub mod invariants;
+
+// Re-export direction types; explicit `use` for `Curve` to shadow `bevy::prelude::Curve`.
+pub use dir::*;
+use dir::Curve;
 
 #[cfg(all(test, feature = "proptests"))]
 mod proptest_actions;
@@ -125,28 +130,6 @@ pub struct RemoveBlock {
     pub entity: Entity,
 }
 
-#[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct WorldCoords {
-    pub x: i32,
-    pub y: i32,
-    pub z: i32,
-}
-
-/// Horizontal direction
-#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
-pub enum HDir {
-    North,
-    South,
-    East,
-    West,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BeltOutput {
-    Up(HDir),
-    Level(HDir),
-    Down(HDir),
-}
 
 #[derive(Component)]
 pub struct Belt;
@@ -193,25 +176,6 @@ pub struct ItemLanes(Sided<Vec<(ItemPos, Entity)>>);
 #[derive(Component)]
 pub struct Delete;
 
-#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BeltShape {
-    Straight(HDir),
-    Curve(Curve),
-    RampUp(HDir),
-    RampDown(HDir),
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Curve {
-    NorthToEast,
-    EastToSouth,
-    SouthToWest,
-    WestToNorth,
-    NorthToWest,
-    WestToSouth,
-    SouthToEast,
-    EastToNorth,
-}
 
 /// Item type.
 #[derive(Component, Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord, Hash)]
@@ -311,10 +275,7 @@ fn on_place_block(
 
     // For full-height blocks, also check the top slot.
     if is_full
-        && coord_map.0.contains_key(&WorldCoords {
-            y: coords.y + 1,
-            ..coords
-        })
+        && coord_map.0.contains_key(&coords.step(Dir::Up))
     {
         cmd.entity(event.entity).despawn();
         return;
@@ -355,13 +316,7 @@ fn on_place_block(
     coord_map.0.insert(coords, event.entity);
     // Register the second slot for full-height blocks.
     if is_full {
-        coord_map.0.insert(
-            WorldCoords {
-                y: coords.y + 1,
-                ..coords
-            },
-            event.entity,
-        );
+        coord_map.0.insert(coords.step(Dir::Up), event.entity);
     }
     mark_belt_neighbors_dirty(coords, &coord_map, &mut cmd);
 }
@@ -397,10 +352,7 @@ fn on_remove_block(
         mark_belt_neighbors_dirty(*coords, &coord_map, &mut cmd);
         coord_map.0.remove(coords);
         // Remove the top slot if this entity registered it (full-height blocks).
-        let top = WorldCoords {
-            y: coords.y + 1,
-            ..*coords
-        };
+        let top = coords.step(Dir::Up);
         if coord_map.0.get(&top) == Some(&event.entity) {
             coord_map.0.remove(&top);
         }
@@ -415,33 +367,19 @@ fn on_remove_block(
 
 /// Whether the geometry permits ramping up: nothing directly above.
 fn can_ramp_up(coords: WorldCoords, coord_map: &CoordsMap) -> bool {
-    let above = WorldCoords {
-        y: coords.y + 1,
-        ..coords
-    };
-    !coord_map.0.contains_key(&above)
+    !coord_map.0.contains_key(&coords.step(Dir::Up))
 }
 
 /// Whether the geometry permits ramping down: nothing directly below.
 fn can_ramp_down(coords: WorldCoords, coord_map: &CoordsMap) -> bool {
-    let below = WorldCoords {
-        y: coords.y - 1,
-        ..coords
-    };
-    !coord_map.0.contains_key(&below)
+    !coord_map.0.contains_key(&coords.step(Dir::Down))
 }
 
 /// Whether a belt should automatically become a ramp based on neighboring belts.
 fn should_ramp(dir: HDir, coords: WorldCoords, coord_map: &CoordsMap) -> Option<BeltShape> {
     let forward = coords.step(dir);
-    let forward_up = WorldCoords {
-        y: forward.y + 1,
-        ..forward
-    };
-    let forward_down = WorldCoords {
-        y: forward.y - 1,
-        ..forward
-    };
+    let forward_up = forward.step(Dir::Up);
+    let forward_down = forward.step(Dir::Down);
 
     let forward_clear = !coord_map.0.contains_key(&forward);
 
@@ -748,243 +686,6 @@ fn sinks_destroy(
     }
 }
 
-// -----------
-// Model impls
-// -----------
-
-impl WorldCoords {
-    pub fn step(&self, dir: impl Into<BeltOutput>) -> Self {
-        let (hdir, dy) = match dir.into() {
-            BeltOutput::Up(d) => (d, 1),
-            BeltOutput::Level(d) => (d, 0),
-            BeltOutput::Down(d) => (d, -1),
-        };
-        let (dx, dz) = match hdir {
-            HDir::North => (1, 0),
-            HDir::South => (-1, 0),
-            HDir::East => (0, 1),
-            HDir::West => (0, -1),
-        };
-        Self {
-            x: self.x + dx,
-            y: self.y + dy,
-            z: self.z + dz,
-        }
-    }
-}
-
-impl HDir {
-    pub const fn angle(&self) -> f32 {
-        match self {
-            Self::North => 0.0,
-            Self::East => -PI / 2.0,
-            Self::South => PI,
-            Self::West => PI / 2.0,
-        }
-    }
-
-    pub const fn opposite(&self) -> Self {
-        match self {
-            Self::North => Self::South,
-            Self::East => Self::West,
-            Self::South => Self::North,
-            Self::West => Self::East,
-        }
-    }
-
-    pub const fn left(&self) -> Self {
-        match self {
-            Self::North => Self::West,
-            Self::East => Self::North,
-            Self::South => Self::East,
-            Self::West => Self::South,
-        }
-    }
-
-    pub const fn right(&self) -> Self {
-        match self {
-            Self::North => Self::East,
-            Self::East => Self::South,
-            Self::South => Self::West,
-            Self::West => Self::North,
-        }
-    }
-}
-
-impl BeltShape {
-    pub fn belt_output(&self) -> BeltOutput {
-        match self {
-            Self::Straight(dir) => BeltOutput::Level(*dir),
-            Self::Curve(curve) => BeltOutput::Level(curve.output()),
-            Self::RampUp(dir) => BeltOutput::Up(*dir),
-            Self::RampDown(dir) => BeltOutput::Down(*dir),
-        }
-    }
-
-    pub const fn output(&self) -> HDir {
-        match self {
-            Self::Straight(dir) | Self::RampUp(dir) | Self::RampDown(dir) => *dir,
-            Self::Curve(curve) => curve.output(),
-        }
-    }
-    pub const fn input(&self) -> HDir {
-        match self {
-            Self::Straight(dir) | Self::RampUp(dir) | Self::RampDown(dir) => *dir,
-            Self::Curve(curve) => curve.input(),
-        }
-    }
-
-    pub const fn num_pos(&self, side: Side) -> i32 {
-        match side {
-            Side::Left => self.left_num_pos(),
-            Side::Right => self.right_num_pos(),
-        }
-    }
-
-    pub const fn left_num_pos(&self) -> i32 {
-        match self {
-            Self::Straight(_) | Self::RampUp(_) | Self::RampDown(_) => POSITIONS_PER_BELT,
-            Self::Curve(curve) => {
-                if curve.is_clockwise() {
-                    POSITIONS_PER_OUTER_CURVE
-                } else {
-                    POSITIONS_PER_INNER_CURVE
-                }
-            }
-        }
-    }
-    pub const fn right_num_pos(&self) -> i32 {
-        match self {
-            Self::Straight(_) | Self::RampUp(_) | Self::RampDown(_) => POSITIONS_PER_BELT,
-            Self::Curve(curve) => {
-                if curve.is_clockwise() {
-                    POSITIONS_PER_INNER_CURVE
-                } else {
-                    POSITIONS_PER_OUTER_CURVE
-                }
-            }
-        }
-    }
-}
-
-impl Curve {
-    pub const fn from_input_output(input: HDir, output: HDir) -> Option<Self> {
-        use HDir::*;
-        match (input, output) {
-            (North, East) => Some(Self::NorthToEast),
-            (North, West) => Some(Self::NorthToWest),
-            (South, East) => Some(Self::SouthToEast),
-            (South, West) => Some(Self::SouthToWest),
-            (East, North) => Some(Self::EastToNorth),
-            (East, South) => Some(Self::EastToSouth),
-            (West, North) => Some(Self::WestToNorth),
-            (West, South) => Some(Self::WestToSouth),
-            _ => None,
-        }
-    }
-    pub const fn input(&self) -> HDir {
-        match self {
-            Self::NorthToEast => HDir::North,
-            Self::EastToSouth => HDir::East,
-            Self::SouthToWest => HDir::South,
-            Self::WestToNorth => HDir::West,
-            Self::NorthToWest => HDir::North,
-            Self::EastToNorth => HDir::East,
-            Self::SouthToEast => HDir::South,
-            Self::WestToSouth => HDir::West,
-        }
-    }
-
-    pub const fn output(&self) -> HDir {
-        match self {
-            Self::NorthToEast => HDir::East,
-            Self::EastToSouth => HDir::South,
-            Self::SouthToWest => HDir::West,
-            Self::WestToNorth => HDir::North,
-            Self::NorthToWest => HDir::West,
-            Self::EastToNorth => HDir::North,
-            Self::SouthToEast => HDir::East,
-            Self::WestToSouth => HDir::South,
-        }
-    }
-
-    pub const fn is_clockwise(&self) -> bool {
-        match self {
-            Self::NorthToEast => true,
-            Self::EastToSouth => true,
-            Self::SouthToWest => true,
-            Self::WestToNorth => true,
-            Self::NorthToWest => false,
-            Self::EastToNorth => false,
-            Self::SouthToEast => false,
-            Self::WestToSouth => false,
-        }
-    }
-
-    pub const fn inner_lane(&self) -> Side {
-        if self.is_clockwise() {
-            Side::Right
-        } else {
-            Side::Left
-        }
-    }
-    #[expect(unused)]
-    pub const fn outer_lane(&self) -> Side {
-        if self.is_clockwise() {
-            Side::Left
-        } else {
-            Side::Right
-        }
-    }
-}
-
-// -----------
-// Trait impls
-// -----------
-
-impl From<WorldCoords> for Vec3 {
-    fn from(coords: WorldCoords) -> Self {
-        Vec3::new(
-            coords.x as f32 * BLOCK_SIZE,
-            coords.y as f32 * HALF_BLOCK_SIZE,
-            coords.z as f32 * BLOCK_SIZE,
-        )
-    }
-}
-
-impl From<(i32, i32, i32)> for WorldCoords {
-    fn from(coords: (i32, i32, i32)) -> Self {
-        WorldCoords {
-            x: coords.0,
-            y: coords.1,
-            z: coords.2,
-        }
-    }
-}
-
-impl From<HDir> for BeltOutput {
-    fn from(value: HDir) -> Self {
-        Self::Level(value)
-    }
-}
-
-impl From<HDir> for Vec3 {
-    fn from(value: HDir) -> Vec3 {
-        match value {
-            HDir::North => Vec3::X,
-            HDir::South => Vec3::NEG_X,
-            HDir::East => Vec3::Z,
-            HDir::West => Vec3::NEG_Z,
-        }
-    }
-}
-
-impl From<HDir> for Vec2 {
-    fn from(value: HDir) -> Self {
-        Vec3::from(value).zx()
-    }
-}
-
 impl<T> std::ops::Index<Side> for Sided<T> {
     type Output = T;
 
@@ -1082,10 +783,7 @@ pub fn item_position(
             let mut lower = item_position(BeltShape::Straight(dir), coords, lane, pos);
             let upper = item_position(
                 BeltShape::Straight(dir),
-                WorldCoords {
-                    y: coords.y + 1,
-                    ..coords
-                },
+                coords.step(Dir::Up),
                 lane,
                 pos,
             );
@@ -1099,10 +797,7 @@ pub fn item_position(
             let mut upper = item_position(BeltShape::Straight(dir), coords, lane, pos);
             let lower = item_position(
                 BeltShape::Straight(dir),
-                WorldCoords {
-                    y: coords.y - 1,
-                    ..coords
-                },
+                coords.step(Dir::Down),
                 lane,
                 pos,
             );
