@@ -21,10 +21,8 @@ pub const ITEM_SIZE: f32 = BLOCK_SIZE / 4.0;
 #[allow(unused)]
 pub const HALF_ITEM_SIZE: f32 = ITEM_SIZE / 2.0;
 /// How far from the bottom of the voxel the belt surface is.
-#[allow(unused)]
-pub const BELT_HEIGHT: f32 = 0.25 * HALF_BLOCK_SIZE;
-#[allow(unused)]
-pub const BELT_HEIGHT_FROM_CENTER: f32 = -(HALF_BLOCK_SIZE / 2.0) + BELT_HEIGHT;
+pub const BELT_HEIGHT: f32 = 0.25 * BLOCK_SIZE;
+pub const BELT_HEIGHT_FROM_CENTER: f32 = -(BLOCK_SIZE / 2.0) + BELT_HEIGHT;
 /// Amount of a unit voxel of how far a lane is offset from center.
 pub const LANE_OFFSET_FACTOR: f32 = 0.25;
 /// How far from center each lane is.
@@ -32,16 +30,13 @@ pub const LANE_OFFSET: f32 = LANE_OFFSET_FACTOR * BLOCK_SIZE;
 
 pub const POSITIONS_PER_BELT: i32 = 256;
 pub const ITEM_SPACING: i32 = POSITIONS_PER_BELT / 4;
-pub const BASE_BELT_SPEED: i32 = 2;
+pub const BASE_BELT_SPEED: i32 = 8;
 #[allow(unused)]
 pub const BASE_ITEM_MOVEMENT: f32 = BLOCK_SIZE * BASE_BELT_SPEED as f32 / POSITIONS_PER_BELT as f32;
-#[allow(unused)]
 pub const POSITIONS_PER_INNER_CURVE: i32 =
     ((0.5 - LANE_OFFSET_FACTOR) * POSITIONS_PER_BELT as f32 * PI / 2.0).round() as i32;
-#[allow(unused)]
 pub const POSITIONS_PER_OUTER_CURVE: i32 =
     ((0.5 + LANE_OFFSET_FACTOR) * POSITIONS_PER_BELT as f32 * PI / 2.0).round() as i32;
-#[allow(unused)]
 pub const ITEMS_PER_BELT: i32 = POSITIONS_PER_BELT / ITEM_SPACING;
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
@@ -181,7 +176,7 @@ pub struct RaycastTarget {
 impl RaycastTarget {
     /// Half-block tall (belts).
     pub const HALF_BLOCK: Self = Self {
-        half_extents: Vec3::new(BLOCK_SIZE / 2.0, HALF_BLOCK_SIZE / 2.0, BLOCK_SIZE / 2.0),
+        half_extents: Vec3::new(BLOCK_SIZE / 2.0, BELT_HEIGHT / 2.0, BLOCK_SIZE / 2.0),
     };
     /// Full-block tall (Rock / Dirt / Source / Sink).
     pub const FULL_BLOCK: Self = Self {

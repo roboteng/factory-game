@@ -36,6 +36,7 @@ impl Plugin for UiPlugin {
             ),
         );
 
+        app.add_systems(Update, draw_crosshair_gizmo);
         app.add_systems(Update, attach_models);
         app.add_systems(Update, camera_look);
         app.add_systems(Update, cursor_grab.after(handle_click_to_place));
@@ -343,6 +344,12 @@ fn cast_ray(
     let mut best: Option<(f32, WorldCoords, [i32; 3])> = None;
 
     'outer: for (coords, center, half_extents) in targets {
+        // Bottom-align the AABB within the voxel slot
+        let center = Vec3::new(
+            center.x,
+            center.y - HALF_BLOCK_SIZE / 2.0 + half_extents.y.min(HALF_BLOCK_SIZE / 2.0),
+            center.z,
+        );
         let mut t_enter = f32::NEG_INFINITY;
         let mut t_leave = f32::INFINITY;
         let mut enter_axis = 0usize;
@@ -570,13 +577,15 @@ fn update_delete_preview(
         return;
     };
 
-    let Ok((_, _, rt)) = targets.get(target) else {
+    let Ok((wc, _, rt)) = targets.get(target) else {
         **vis = Visibility::Hidden;
         return;
     };
 
     **vis = Visibility::Visible;
-    t.translation = Vec3::from(hit.hit_coords);
+    let mut pos = Vec3::from(*wc);
+    pos.y = pos.y - HALF_BLOCK_SIZE / 2.0 + rt.half_extents.y.min(HALF_BLOCK_SIZE / 2.0);
+    t.translation = pos;
     t.scale = rt.half_extents * 2.0 * 1.05;
 
     if mouse.just_pressed(MouseButton::Left) {
@@ -625,18 +634,63 @@ fn handle_change_incline(
         return;
     };
 
-    let Ok((_, _, rt)) = targets.get(target) else {
+    let Ok((wc, _, rt)) = targets.get(target) else {
         **vis = Visibility::Hidden;
         return;
     };
 
     **vis = Visibility::Visible;
-    t.translation = Vec3::from(hit.hit_coords);
+    let mut pos = Vec3::from(*wc);
+    pos.y = pos.y - HALF_BLOCK_SIZE / 2.0 + rt.half_extents.y.min(HALF_BLOCK_SIZE / 2.0);
+    t.translation = pos;
     t.scale = rt.half_extents * 2.0 * 1.05;
 
     if mouse.just_pressed(MouseButton::Left) {
         cmd.trigger(Incline { entity: target });
     }
+}
+
+fn draw_crosshair_gizmo(
+    mut gizmos: Gizmos,
+    cursor_options: Single<&CursorOptions>,
+    camera_q: Single<&Transform, With<FirstPersonCamera>>,
+    targets: Query<(&WorldCoords, &Transform, &RaycastTarget)>,
+    coord_map: Res<CoordsMap>,
+) {
+    if cursor_options.grab_mode != CursorGrabMode::Locked {
+        return;
+    }
+
+    let camera_transform = camera_q.into_inner();
+    let origin = camera_transform.translation;
+    let ray_dir = *camera_transform.forward();
+
+    let Some(hit) = cast_ray(
+        origin,
+        ray_dir,
+        targets
+            .iter()
+            .map(|(c, t, rt)| (*c, t.translation, rt.half_extents)),
+    ) else {
+        return;
+    };
+
+    let Some(&target) = coord_map.0.get(&hit.hit_coords) else {
+        return;
+    };
+
+    let Ok((wc, _, rt)) = targets.get(target) else {
+        return;
+    };
+
+    let mut pos = Vec3::from(*wc);
+    pos.y = pos.y - HALF_BLOCK_SIZE / 2.0 + rt.half_extents.y.min(HALF_BLOCK_SIZE / 2.0);
+    let size = rt.half_extents * 2.0;
+
+    gizmos.cube(
+        Transform::from_translation(pos).with_scale(size),
+        Color::srgba(1.0, 1.0, 1.0, 0.6),
+    );
 }
 
 fn angle_to_hdir(angle: f32) -> HDir {
