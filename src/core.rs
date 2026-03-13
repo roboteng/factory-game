@@ -413,6 +413,50 @@ fn on_remove_block(
     cmd.entity(event.entity).despawn();
 }
 
+/// Whether the geometry permits ramping up: nothing directly above.
+fn can_ramp_up(coords: WorldCoords, coord_map: &CoordsMap) -> bool {
+    let above = WorldCoords {
+        y: coords.y + 1,
+        ..coords
+    };
+    !coord_map.0.contains_key(&above)
+}
+
+/// Whether the geometry permits ramping down: nothing directly below.
+fn can_ramp_down(coords: WorldCoords, coord_map: &CoordsMap) -> bool {
+    let below = WorldCoords {
+        y: coords.y - 1,
+        ..coords
+    };
+    !coord_map.0.contains_key(&below)
+}
+
+/// Whether a belt should automatically become a ramp based on neighboring belts.
+fn should_ramp(dir: HDir, coords: WorldCoords, coord_map: &CoordsMap) -> Option<BeltShape> {
+    let forward = coords.step(dir);
+    let forward_up = WorldCoords {
+        y: forward.y + 1,
+        ..forward
+    };
+    let forward_down = WorldCoords {
+        y: forward.y - 1,
+        ..forward
+    };
+
+    let forward_clear = !coord_map.0.contains_key(&forward);
+
+    if coord_map.0.contains_key(&forward_up) && forward_clear && can_ramp_up(coords, coord_map) {
+        Some(BeltShape::RampUp(dir))
+    } else if coord_map.0.contains_key(&forward_down)
+        && forward_clear
+        && can_ramp_down(coords, coord_map)
+    {
+        Some(BeltShape::RampDown(dir))
+    } else {
+        None
+    }
+}
+
 fn on_incline(
     event: On<Incline>,
     mut belts: Query<(&mut BeltShape, &WorldCoords)>,
@@ -421,24 +465,27 @@ fn on_incline(
     let Ok((mut belt, &coords)) = belts.get_mut(event.entity) else {
         return;
     };
-    match (
-        belt.as_ref().clone(),
-        coords_map.0.get(&WorldCoords {
-            y: coords.y - 1,
-            ..coords
-        }),
-        coords_map.0.get(&WorldCoords {
-            y: coords.y + 1,
-            ..coords
-        }),
-    ) {
-        (BeltShape::Straight(dir), _, None) => belt.set_if_neq(BeltShape::RampUp(dir)),
-        (BeltShape::Straight(dir), None, Some(_)) => belt.set_if_neq(BeltShape::RampDown(dir)),
-        (BeltShape::Straight(_), Some(_), Some(_)) => false,
-        (BeltShape::RampUp(dir), None, _) => belt.set_if_neq(BeltShape::RampDown(dir)),
-        (BeltShape::RampUp(dir), Some(_), _) => belt.set_if_neq(BeltShape::Straight(dir)),
-        (BeltShape::RampDown(dir), _, _) => belt.set_if_neq(BeltShape::Straight(dir)),
-        (BeltShape::Curve(_), _, _) => false,
+    match belt.as_ref().clone() {
+        BeltShape::Straight(dir) => {
+            if let Some(ramp) = should_ramp(dir, coords, &coords_map) {
+                belt.set_if_neq(ramp);
+            } else if can_ramp_up(coords, &coords_map) {
+                belt.set_if_neq(BeltShape::RampUp(dir));
+            } else if can_ramp_down(coords, &coords_map) {
+                belt.set_if_neq(BeltShape::RampDown(dir));
+            }
+        }
+        BeltShape::RampUp(dir) => {
+            if can_ramp_down(coords, &coords_map) {
+                belt.set_if_neq(BeltShape::RampDown(dir));
+            } else {
+                belt.set_if_neq(BeltShape::Straight(dir));
+            }
+        }
+        BeltShape::RampDown(dir) => {
+            belt.set_if_neq(BeltShape::Straight(dir));
+        }
+        BeltShape::Curve(_) => {}
     };
 }
 
@@ -476,6 +523,11 @@ fn determine_belt_shape(
             (false, false, false) => BeltShape::Straight(dir),
             (_, true, _) => BeltShape::Straight(dir),
             (true, _, true) => BeltShape::Straight(dir),
+        };
+        let desired = if matches!(desired, BeltShape::Straight(_)) {
+            should_ramp(dir, *coords, &coord_map).unwrap_or(desired)
+        } else {
+            desired
         };
         match current_shape {
             Some(mut shape) => {
@@ -1360,5 +1412,113 @@ mod tests {
 
         let belt = app.find_belt(belt).unwrap();
         assert_eq!(belt.0, BeltShape::RampUp(HDir::North));
+    }
+
+    #[test]
+    fn incline_belt_with_belt_in_front() {
+        let mut app = test_app();
+        let belt = app.add_belt((0, 0, 0), HDir::North);
+        app.add_belt((1, 0, 0), HDir::North);
+        app.update();
+
+        app.world_mut().trigger(Incline { entity: belt });
+        app.update();
+
+        let belt = app.find_belt(belt).unwrap();
+        assert_eq!(belt.0, BeltShape::RampUp(HDir::North));
+    }
+
+    #[test]
+    fn incline_belt_on_placement() {
+        let mut app = test_app();
+        app.add_belt((1, 1, 0), HDir::North);
+        app.update();
+
+        let belt = app.add_belt((0, 0, 0), HDir::North);
+        app.update();
+
+        let belt = app.find_belt(belt).unwrap();
+        assert_eq!(belt.0, BeltShape::RampUp(HDir::North));
+    }
+
+    #[test]
+    fn not_incline_belt_on_placement_in_front() {
+        let mut app = test_app();
+        app.add_belt((1, 1, 0), HDir::North);
+        app.add_belt((1, 0, 0), HDir::North);
+        app.update();
+
+        let belt = app.add_belt((0, 0, 0), HDir::North);
+        app.update();
+
+        let belt = app.find_belt(belt).unwrap();
+        assert_eq!(belt.0, BeltShape::Straight(HDir::North));
+    }
+
+    #[test]
+    fn not_incline_belt_on_placement_above() {
+        let mut app = test_app();
+        app.add_belt((1, 1, 0), HDir::North);
+        app.add_belt((0, 1, 0), HDir::North);
+        app.update();
+
+        let belt = app.add_belt((0, 0, 0), HDir::North);
+        app.update();
+
+        let belt = app.find_belt(belt).unwrap();
+        assert_eq!(belt.0, BeltShape::Straight(HDir::North));
+    }
+
+    #[test]
+    fn incline_with_above_filled_becomes_ramp_down() {
+        let mut app = test_app();
+        let belt = app.add_belt((0, 0, 0), HDir::North);
+        app.add_belt((0, 1, 0), HDir::North);
+        app.update();
+
+        app.world_mut().trigger(Incline { entity: belt });
+        app.update();
+
+        let belt = app.find_belt(belt).unwrap();
+        assert_eq!(belt.0, BeltShape::RampDown(HDir::North));
+    }
+
+    #[test]
+    fn incline_ramp_down_becomes_straight() {
+        let mut app = test_app();
+        let belt = app.add_belt((0, 0, 0), HDir::North);
+        app.add_belt((0, 1, 0), HDir::North);
+        app.update();
+
+        // First incline: Straight -> RampDown (above filled)
+        app.world_mut().trigger(Incline { entity: belt });
+        app.update();
+        // Second incline: RampDown -> Straight
+        app.world_mut().trigger(Incline { entity: belt });
+        app.update();
+
+        let belt = app.find_belt(belt).unwrap();
+        assert_eq!(belt.0, BeltShape::Straight(HDir::North));
+    }
+
+    #[test]
+    fn incline_ramp_up_with_below_filled_becomes_straight() {
+        let mut app = test_app();
+        let belt = app.add_belt((0, 1, 0), HDir::North);
+        app.add_belt((0, 0, 0), HDir::North);
+        app.update();
+
+        // First incline: Straight -> RampUp (nothing above)
+        app.world_mut().trigger(Incline { entity: belt });
+        app.update();
+        let b = app.find_belt(belt).unwrap();
+        assert_eq!(b.0, BeltShape::RampUp(HDir::North));
+
+        // Second incline: RampUp -> Straight (below filled, can't ramp down)
+        app.world_mut().trigger(Incline { entity: belt });
+        app.update();
+
+        let belt = app.find_belt(belt).unwrap();
+        assert_eq!(belt.0, BeltShape::Straight(HDir::North));
     }
 }
