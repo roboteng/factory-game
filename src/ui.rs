@@ -42,6 +42,7 @@ impl Plugin for UiPlugin {
         app.add_systems(Update, draw_crosshair_gizmo);
         app.add_systems(Update, draw_placement_preview);
         app.add_systems(Update, attach_models);
+        app.add_systems(Update, tint_ore_meshes);
         app.add_systems(Update, camera_look);
         app.add_systems(Update, cursor_grab.after(handle_click_to_place));
         app.add_systems(Update, update_inventory_pane.after(cursor_grab));
@@ -97,8 +98,13 @@ struct InclinePreview;
 
 enum ModelDef {
     Scene(Handle<Scene>),
+    TintedScene(Handle<Scene>, Color),
+    Random(Vec<ModelDef>),
     Mesh(Handle<Mesh>, Handle<StandardMaterial>),
 }
+
+#[derive(Component)]
+struct SceneTint(Color);
 
 #[derive(Resource)]
 struct AllModels {
@@ -110,6 +116,8 @@ struct AllModels {
     sink: ModelDef,
     rock: ModelDef,
     dirt: ModelDef,
+    iron_ore: ModelDef,
+    copper_ore: ModelDef,
 }
 
 /// Creates a scene asset that renders `inner` with `transform` applied.
@@ -163,6 +171,64 @@ fn setup_models(
         sink: ModelDef::Mesh(cuboid.clone(), materials.add(Color::srgb(0.8, 0.2, 0.2))),
         rock: ModelDef::Mesh(cuboid.clone(), materials.add(Color::srgb(0.55, 0.55, 0.55))),
         dirt: ModelDef::Mesh(cuboid.clone(), materials.add(Color::srgb(0.55, 0.35, 0.15))),
+        iron_ore: {
+            let ore_transform = Transform::from_translation(Vec3::new(0.0, -HALF_BLOCK_SIZE, 0.0))
+                .with_scale(Vec3::splat(2.0));
+            ModelDef::Random(
+                [
+                    "rock_largeA",
+                    "rock_largeB",
+                    "rock_largeC",
+                    "rock_largeD",
+                    "rock_largeE",
+                    "rock_largeF",
+                ]
+                .iter()
+                .map(|name| {
+                    ModelDef::TintedScene(
+                        ramp_scene(
+                            asset_server.load(
+                                GltfAssetLabel::Scene(0)
+                                    .from_asset(format!("models/kenney_nature_kit/{name}.glb")),
+                            ),
+                            ore_transform,
+                            &mut scenes,
+                        ),
+                        Color::srgb(0.6, 0.5, 0.45),
+                    )
+                })
+                .collect(),
+            )
+        },
+        copper_ore: {
+            let ore_transform = Transform::from_translation(Vec3::new(0.0, -HALF_BLOCK_SIZE, 0.0))
+                .with_scale(Vec3::splat(2.0));
+            ModelDef::Random(
+                [
+                    "rock_largeA",
+                    "rock_largeB",
+                    "rock_largeC",
+                    "rock_largeD",
+                    "rock_largeE",
+                    "rock_largeF",
+                ]
+                .iter()
+                .map(|name| {
+                    ModelDef::TintedScene(
+                        ramp_scene(
+                            asset_server.load(
+                                GltfAssetLabel::Scene(0)
+                                    .from_asset(format!("models/kenney_nature_kit/{name}.glb")),
+                            ),
+                            ore_transform,
+                            &mut scenes,
+                        ),
+                        Color::srgb(0.7, 0.4, 0.15),
+                    )
+                })
+                .collect(),
+            )
+        },
     });
 }
 
@@ -171,8 +237,53 @@ fn apply_model(cmd: &mut EntityCommands, model: &ModelDef) {
         ModelDef::Scene(handle) => {
             cmd.insert(SceneRoot(handle.clone()));
         }
+        ModelDef::TintedScene(handle, color) => {
+            cmd.insert((
+                SceneRoot(handle.clone()),
+                SceneTint(*color),
+                Visibility::Hidden,
+            ));
+        }
+        ModelDef::Random(options) => {
+            let chosen = &options[rand::random::<usize>() % options.len()];
+            apply_model(cmd, chosen);
+        }
         ModelDef::Mesh(mesh, material) => {
             cmd.insert((Mesh3d(mesh.clone()), MeshMaterial3d(material.clone())));
+        }
+    }
+}
+
+fn tint_ore_meshes(
+    mut cmd: Commands,
+    tinted: Query<(Entity, &SceneTint)>,
+    mut transforms: Query<&mut Transform>,
+    children_q: Query<&Children>,
+    mesh_mat_q: Query<&MeshMaterial3d<StandardMaterial>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    for (entity, SceneTint(color)) in &tinted {
+        let mut found_any = false;
+        for desc in children_q.iter_descendants(entity) {
+            let Ok(mat_handle) = mesh_mat_q.get(desc) else {
+                continue;
+            };
+            let Some(mat) = materials.get(mat_handle.id()) else {
+                continue;
+            };
+            let mut new_mat = mat.clone();
+            new_mat.base_color = *color;
+            let new_handle = materials.add(new_mat);
+            cmd.entity(desc).insert(MeshMaterial3d(new_handle));
+            found_any = true;
+        }
+        if found_any {
+            let angle = (rand::random::<u8>() % 4) as f32 * std::f32::consts::FRAC_PI_2;
+            if let Ok(mut transform) = transforms.get_mut(entity) {
+                transform.rotate_y(angle);
+            }
+            cmd.entity(entity).remove::<SceneTint>();
+            cmd.entity(entity).insert(Visibility::Inherited);
         }
     }
 }
@@ -269,6 +380,8 @@ fn attach_models(
             Item::Sink => &all_models.sink,
             Item::Rock => &all_models.rock,
             Item::Dirt => &all_models.dirt,
+            Item::IronOre => &all_models.iron_ore,
+            Item::CopperOre => &all_models.copper_ore,
             Item::Belt => match shape {
                 Some(BeltShape::Straight(_)) => &all_models.belt_straight,
                 Some(BeltShape::Curve(_)) => &all_models.belt_curve,

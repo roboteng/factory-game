@@ -183,6 +183,8 @@ pub enum Item {
     Sink,
     Rock,
     Dirt,
+    IronOre,
+    CopperOre,
 }
 
 impl Item {
@@ -193,13 +195,20 @@ impl Item {
             Item::Sink => "Sink",
             Item::Rock => "Rock",
             Item::Dirt => "Dirt",
+            Item::IronOre => "Iron Ore",
+            Item::CopperOre => "Copper Ore",
         }
     }
 
     pub fn raycast_target(self) -> RaycastTarget {
         match self {
             Item::Belt => RaycastTarget::HALF_BLOCK,
-            Item::Rock | Item::Dirt | Item::Source | Item::Sink => RaycastTarget::FULL_BLOCK,
+            Item::Rock
+            | Item::Dirt
+            | Item::Source
+            | Item::Sink
+            | Item::IronOre
+            | Item::CopperOre => RaycastTarget::FULL_BLOCK,
         }
     }
 }
@@ -295,7 +304,9 @@ fn on_place_block(
         }
         Item::Source => cmd.entity(event.entity).insert((Source, AffectsBelts, rt)),
         Item::Sink => cmd.entity(event.entity).insert((Sink, AffectsBelts, rt)),
-        Item::Rock | Item::Dirt => cmd.entity(event.entity).insert(rt),
+        Item::Rock | Item::Dirt | Item::IronOre | Item::CopperOre => {
+            cmd.entity(event.entity).insert(rt)
+        }
     };
 
     cmd.entity(event.entity).insert(place.to_bundle());
