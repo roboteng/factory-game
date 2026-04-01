@@ -51,7 +51,7 @@ impl Plugin for UiPlugin {
 pub(super) enum InteractionMode {
     #[default]
     None,
-    Placing,
+    Placing(PlacementItem),
     Deleting,
     ChangingIncline,
 }
@@ -459,7 +459,6 @@ fn handle_click_to_place(
     mouse: Res<ButtonInput<MouseButton>>,
     cursor_options: Single<&CursorOptions>,
     camera_query: Single<&Transform, With<FirstPersonCamera>>,
-    tool: Res<PlacementItem>,
     player: Res<Player>,
     hotbar: Res<Hotbar>,
     mut invs: Query<&mut Inventory>,
@@ -468,20 +467,19 @@ fn handle_click_to_place(
     targets: Query<(&WorldCoords, &Transform, &RaycastTarget)>,
     placement_dir: Res<PlacementDirection>,
 ) {
-    if *mode != InteractionMode::Placing {
+    let InteractionMode::Placing(tool) = *mode else {
         return;
-    }
+    };
     let Ok(_) = invs.get_mut(player.0) else {
         error!("Could not find the player");
         return;
     };
-    let item = match *tool {
+    let item = match tool {
         PlacementItem::HotbarSlot(slot) => match hotbar.0.get(slot as usize) {
             Some(Some(item)) => *item,
             _ => return,
         },
         PlacementItem::Custom(item) => item,
-        PlacementItem::None => return,
     };
     // Only handle clicks when cursor is grabbed (in game mode)
     if !mouse.just_pressed(MouseButton::Left) || cursor_options.grab_mode != CursorGrabMode::Locked
@@ -735,7 +733,9 @@ fn draw_placement_preview(
     camera_q: Single<&Transform, With<FirstPersonCamera>>,
     targets: Query<(&WorldCoords, &Transform, &RaycastTarget)>,
 ) {
-    if *mode != InteractionMode::Placing || cursor_options.grab_mode != CursorGrabMode::Locked {
+    if !matches!(*mode, InteractionMode::Placing(_))
+        || cursor_options.grab_mode != CursorGrabMode::Locked
+    {
         return;
     }
 

@@ -10,7 +10,6 @@ impl Plugin for HotbarPlugin {
         hotbar[3] = Some(Item::Rock);
         hotbar[4] = Some(Item::Dirt);
         app.insert_resource(Hotbar(hotbar));
-        app.insert_resource(PlacementItem::None);
 
         app.add_systems(Startup, setup_hotbar);
         app.add_systems(PreUpdate, handle_tool_selection);
@@ -19,12 +18,11 @@ impl Plugin for HotbarPlugin {
     }
 }
 
-#[derive(Resource, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlacementItem {
     HotbarSlot(u16),
     #[expect(dead_code)]
     Custom(Item),
-    None,
 }
 
 #[derive(Resource)]
@@ -132,30 +130,33 @@ const DIGITS: [KeyCode; 10] = [
     KeyCode::Digit0,
 ];
 
-fn handle_tool_selection(
-    keys: Res<ButtonInput<KeyCode>>,
-    mut tool: ResMut<PlacementItem>,
-    mut mode: ResMut<InteractionMode>,
-) {
+fn handle_tool_selection(keys: Res<ButtonInput<KeyCode>>, mut mode: ResMut<InteractionMode>) {
     for (index, key) in DIGITS.iter().enumerate() {
         if keys.just_pressed(*key) {
-            *tool = PlacementItem::HotbarSlot(index as u16);
-            *mode = InteractionMode::Placing;
+            match mode.as_ref() {
+                InteractionMode::Placing(PlacementItem::HotbarSlot(s))
+                    if (*s as usize) == index =>
+                {
+                    *mode = InteractionMode::None;
+                }
+                _ => {
+                    *mode = InteractionMode::Placing(PlacementItem::HotbarSlot(index as u16));
+                }
+            }
         }
     }
 }
 
 fn update_hotbar_selection(
-    tool: Res<PlacementItem>,
     mode: Res<InteractionMode>,
     mut slots: Query<(&HotbarSlot, &mut BorderColor)>,
 ) {
-    let selected_slot = match (&*mode, *tool) {
-        (InteractionMode::Placing, PlacementItem::HotbarSlot(slot)) => Some(slot),
+    let selected_slot = match &*mode {
+        InteractionMode::Placing(PlacementItem::HotbarSlot(slot)) => Some(slot),
         _ => None,
     };
     for (slot, mut border) in slots.iter_mut() {
-        let target = BorderColor::all(if selected_slot == Some(slot.0) {
+        let target = BorderColor::all(if selected_slot == Some(&slot.0) {
             HOTBAR_BORDER_SELECTED
         } else {
             HOTBAR_BORDER_NORMAL
