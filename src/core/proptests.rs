@@ -87,4 +87,3 @@ fn updates_only_no_belts() {
         Action::Update,
     ]);
 }
-

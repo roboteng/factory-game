@@ -11,8 +11,8 @@ pub mod inventory;
 pub mod invariants;
 
 // Re-export direction types; explicit `use` for `Curve` to shadow `bevy::prelude::Curve`.
-pub use dir::*;
 use dir::Curve;
+pub use dir::*;
 
 #[cfg(all(test, feature = "proptests"))]
 mod proptest_actions;
@@ -130,7 +130,6 @@ pub struct RemoveBlock {
     pub entity: Entity,
 }
 
-
 #[derive(Component)]
 pub struct Belt;
 
@@ -175,7 +174,6 @@ pub struct ItemLanes(Sided<Vec<(ItemPos, Entity)>>);
 /// Entities with this will get deleted in `PostUpdate'
 #[derive(Component)]
 pub struct Delete;
-
 
 /// Item type.
 #[derive(Component, Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord, Hash)]
@@ -264,9 +262,7 @@ fn on_place_block(
     );
 
     // For full-height blocks, also check the top slot.
-    if is_full
-        && coord_map.0.contains_key(&coords.step(Dir::Up))
-    {
+    if is_full && coord_map.0.contains_key(&coords.step(Dir::Up)) {
         cmd.entity(event.entity).despawn();
         return;
     }
@@ -459,7 +455,11 @@ fn determine_belt_shape(
         };
         match current_shape {
             Some(mut shape) => {
-                shape.set_if_neq(desired);
+                if matches!(coord_map.0.get(&coords.step(shape.clone())), Some(_)) {
+                    // I'd like to check if its really a belt here or not
+                } else {
+                    shape.set_if_neq(desired);
+                }
             }
             None => {
                 cmd.entity(entity).insert(desired);
@@ -771,12 +771,7 @@ pub fn item_position(
         BeltShape::RampUp(dir) => {
             let coords = coords.into();
             let mut lower = item_position(BeltShape::Straight(dir), coords, lane, pos);
-            let upper = item_position(
-                BeltShape::Straight(dir),
-                coords.step(Dir::Up),
-                lane,
-                pos,
-            );
+            let upper = item_position(BeltShape::Straight(dir), coords.step(Dir::Up), lane, pos);
             let t = (POSITIONS_PER_BELT - pos) as f32 / POSITIONS_PER_BELT as f32;
             let translation = lower.translation * (1.0 - t) + upper.translation * t;
             lower.translation = translation;
@@ -785,12 +780,7 @@ pub fn item_position(
         BeltShape::RampDown(dir) => {
             let coords = coords.into();
             let mut upper = item_position(BeltShape::Straight(dir), coords, lane, pos);
-            let lower = item_position(
-                BeltShape::Straight(dir),
-                coords.step(Dir::Down),
-                lane,
-                pos,
-            );
+            let lower = item_position(BeltShape::Straight(dir), coords.step(Dir::Down), lane, pos);
             let t = (POSITIONS_PER_BELT - pos) as f32 / POSITIONS_PER_BELT as f32;
             let translation = upper.translation * (1.0 - t) + lower.translation * t;
             upper.translation = translation;

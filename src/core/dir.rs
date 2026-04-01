@@ -81,9 +81,8 @@ impl WorldCoords {
     }
 
     pub fn horizontal_neighbors(self) -> impl Iterator<Item = Self> {
-        (-1..=1i32).flat_map(move |dx| {
-            (-1..=1i32).map(move |dz| self + WorldCoordsDelta::new(dx, 0, dz))
-        })
+        (-1..=1i32)
+            .flat_map(move |dx| (-1..=1i32).map(move |dz| self + WorldCoordsDelta::new(dx, 0, dz)))
     }
 
     pub fn step(&self, dir: impl Into<WorldCoordsDelta>) -> Self {
@@ -109,6 +108,8 @@ impl std::ops::Add<WorldCoordsDelta> for WorldCoords {
 
 impl WorldCoordsDelta {
     pub const ZERO: Self = Self { x: 0, y: 0, z: 0 };
+    pub const UP: Self = Self { x: 0, y: 1, z: 0 };
+    pub const DOWN: Self = Self { x: 0, y: -1, z: 0 };
 
     const fn new(x: i32, y: i32, z: i32) -> Self {
         Self { x, y, z }
@@ -121,23 +122,38 @@ impl WorldCoordsDelta {
     }
 
     pub const fn north(self, n: i32) -> Self {
-        Self { x: self.x + n, ..self }
+        Self {
+            x: self.x + n,
+            ..self
+        }
     }
 
     pub const fn south(self, n: i32) -> Self {
-        Self { x: self.x - n, ..self }
+        Self {
+            x: self.x - n,
+            ..self
+        }
     }
 
     pub const fn east(self, n: i32) -> Self {
-        Self { z: self.z + n, ..self }
+        Self {
+            z: self.z + n,
+            ..self
+        }
     }
 
     pub const fn west(self, n: i32) -> Self {
-        Self { z: self.z - n, ..self }
+        Self {
+            z: self.z - n,
+            ..self
+        }
     }
 
     pub const fn height(self, h: i32) -> Self {
-        Self { y: self.y + h, ..self }
+        Self {
+            y: self.y + h,
+            ..self
+        }
     }
 }
 
@@ -353,6 +369,30 @@ impl Curve {
 // Trait impls
 // -----------
 
+impl std::ops::Add for WorldCoordsDelta {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        Self::Output {
+            x: self.x + rhs.x,
+            y: self.y + rhs.y,
+            z: self.z + rhs.z,
+        }
+    }
+}
+
+impl From<BeltShape> for WorldCoordsDelta {
+    fn from(value: BeltShape) -> Self {
+        match value {
+            BeltShape::Straight(dir) => dir.into(),
+            BeltShape::Curve(curve) => curve.output().into(),
+            BeltShape::RampUp(dir) => Into::<WorldCoordsDelta>::into(dir) + WorldCoordsDelta::UP,
+            BeltShape::RampDown(dir) => {
+                Into::<WorldCoordsDelta>::into(dir) + WorldCoordsDelta::DOWN
+            }
+        }
+    }
+}
 impl From<WorldCoords> for Vec3 {
     fn from(coords: WorldCoords) -> Self {
         Vec3::new(
@@ -404,12 +444,30 @@ mod tests {
 
     #[test]
     fn dir_to_world_coords_delta() {
-        assert_eq!(WorldCoordsDelta::from(Dir::Up), WorldCoordsDelta { x: 0, y: 1, z: 0 });
-        assert_eq!(WorldCoordsDelta::from(Dir::Down), WorldCoordsDelta { x: 0, y: -1, z: 0 });
-        assert_eq!(WorldCoordsDelta::from(Dir::North), WorldCoordsDelta { x: 1, y: 0, z: 0 });
-        assert_eq!(WorldCoordsDelta::from(Dir::South), WorldCoordsDelta { x: -1, y: 0, z: 0 });
-        assert_eq!(WorldCoordsDelta::from(Dir::East), WorldCoordsDelta { x: 0, y: 0, z: 1 });
-        assert_eq!(WorldCoordsDelta::from(Dir::West), WorldCoordsDelta { x: 0, y: 0, z: -1 });
+        assert_eq!(
+            WorldCoordsDelta::from(Dir::Up),
+            WorldCoordsDelta { x: 0, y: 1, z: 0 }
+        );
+        assert_eq!(
+            WorldCoordsDelta::from(Dir::Down),
+            WorldCoordsDelta { x: 0, y: -1, z: 0 }
+        );
+        assert_eq!(
+            WorldCoordsDelta::from(Dir::North),
+            WorldCoordsDelta { x: 1, y: 0, z: 0 }
+        );
+        assert_eq!(
+            WorldCoordsDelta::from(Dir::South),
+            WorldCoordsDelta { x: -1, y: 0, z: 0 }
+        );
+        assert_eq!(
+            WorldCoordsDelta::from(Dir::East),
+            WorldCoordsDelta { x: 0, y: 0, z: 1 }
+        );
+        assert_eq!(
+            WorldCoordsDelta::from(Dir::West),
+            WorldCoordsDelta { x: 0, y: 0, z: -1 }
+        );
     }
 
     #[test]
@@ -424,9 +482,18 @@ mod tests {
     #[test]
     fn belt_output_works_with_step() {
         let origin = WorldCoords { x: 0, y: 0, z: 0 };
-        assert_eq!(origin.step(BeltOutput::Up(HDir::North)), WorldCoords { x: 1, y: 1, z: 0 });
-        assert_eq!(origin.step(BeltOutput::Level(HDir::East)), WorldCoords { x: 0, y: 0, z: 1 });
-        assert_eq!(origin.step(BeltOutput::Down(HDir::South)), WorldCoords { x: -1, y: -1, z: 0 });
+        assert_eq!(
+            origin.step(BeltOutput::Up(HDir::North)),
+            WorldCoords { x: 1, y: 1, z: 0 }
+        );
+        assert_eq!(
+            origin.step(BeltOutput::Level(HDir::East)),
+            WorldCoords { x: 0, y: 0, z: 1 }
+        );
+        assert_eq!(
+            origin.step(BeltOutput::Down(HDir::South)),
+            WorldCoords { x: -1, y: -1, z: 0 }
+        );
     }
 
     #[test]

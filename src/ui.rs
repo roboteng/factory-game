@@ -378,14 +378,15 @@ fn raycast_and_resolve(
     })
 }
 
-fn cast_ray(
-    origin: Vec3,
-    dir: Vec3,
-    targets: impl Iterator<Item = RayTarget>,
-) -> Option<RayHit> {
+fn cast_ray(origin: Vec3, dir: Vec3, targets: impl Iterator<Item = RayTarget>) -> Option<RayHit> {
     let mut best: Option<(f32, WorldCoords, [i32; 3])> = None;
 
-    'outer: for RayTarget { coords, center, half_extents } in targets {
+    'outer: for RayTarget {
+        coords,
+        center,
+        half_extents,
+    } in targets
+    {
         // Bottom-align the AABB within the voxel slot
         let center = Vec3::new(
             center.x,
@@ -445,7 +446,8 @@ fn cast_ray(
     }
 
     best.map(|(_, hit_coords, offset)| {
-        let place_coords = hit_coords + WorldCoordsDelta::from_axes(offset[0], offset[1], offset[2]);
+        let place_coords =
+            hit_coords + WorldCoordsDelta::from_axes(offset[0], offset[1], offset[2]);
         RayHit {
             hit_coords,
             place_coords,
@@ -494,9 +496,11 @@ fn handle_click_to_place(
     let Some(hit) = cast_ray(
         origin,
         ray_dir,
-        targets
-            .iter()
-            .map(|(c, t, rt)| RayTarget { coords: *c, center: t.translation, half_extents: rt.half_extents }),
+        targets.iter().map(|(c, t, rt)| RayTarget {
+            coords: *c,
+            center: t.translation,
+            half_extents: rt.half_extents,
+        }),
     ) else {
         return;
     };
@@ -598,9 +602,11 @@ fn update_delete_preview(
 
     let Some(resolved) = raycast_and_resolve(
         camera_q.into_inner(),
-        targets
-            .iter()
-            .map(|(c, tr, rt)| RayTarget { coords: *c, center: tr.translation, half_extents: rt.half_extents }),
+        targets.iter().map(|(c, tr, rt)| RayTarget {
+            coords: *c,
+            center: tr.translation,
+            half_extents: rt.half_extents,
+        }),
         &coord_map,
         |e| {
             targets
@@ -652,9 +658,11 @@ fn handle_change_incline(
 
     let Some(resolved) = raycast_and_resolve(
         camera_q.into_inner(),
-        targets
-            .iter()
-            .map(|(c, tr, rt)| RayTarget { coords: *c, center: tr.translation, half_extents: rt.half_extents }),
+        targets.iter().map(|(c, tr, rt)| RayTarget {
+            coords: *c,
+            center: tr.translation,
+            half_extents: rt.half_extents,
+        }),
         &coord_map,
         |e| {
             targets
@@ -693,9 +701,11 @@ fn draw_crosshair_gizmo(
 
     let Some(resolved) = raycast_and_resolve(
         camera_q.into_inner(),
-        targets
-            .iter()
-            .map(|(c, t, rt)| RayTarget { coords: *c, center: t.translation, half_extents: rt.half_extents }),
+        targets.iter().map(|(c, t, rt)| RayTarget {
+            coords: *c,
+            center: t.translation,
+            half_extents: rt.half_extents,
+        }),
         &coord_map,
         |e| {
             targets
@@ -736,9 +746,11 @@ fn draw_placement_preview(
     let Some(hit) = cast_ray(
         origin,
         ray_dir,
-        targets
-            .iter()
-            .map(|(c, t, rt)| RayTarget { coords: *c, center: t.translation, half_extents: rt.half_extents }),
+        targets.iter().map(|(c, t, rt)| RayTarget {
+            coords: *c,
+            center: t.translation,
+            half_extents: rt.half_extents,
+        }),
     ) else {
         return;
     };
