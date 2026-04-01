@@ -24,6 +24,8 @@ impl Plugin for UiPlugin {
         app.add_systems(Startup, setup_models);
         app.add_systems(Startup, setup_delete_preview);
         app.add_systems(Startup, setup_incline_preview);
+        app.add_systems(Startup, setup_inventory_pane);
+        app.add_systems(Startup, setup_menu_pane);
 
         // Systems that trigger events Must run in PreUpdate
         app.add_systems(PreUpdate, camera_movement);
@@ -42,18 +44,40 @@ impl Plugin for UiPlugin {
         app.add_systems(Update, attach_models);
         app.add_systems(Update, camera_look);
         app.add_systems(Update, cursor_grab.after(handle_click_to_place));
+        app.add_systems(Update, update_inventory_pane.after(cursor_grab));
+        app.add_systems(Update, handle_inventory_close_button);
+        app.add_systems(Update, update_menu_pane.after(cursor_grab));
+        app.add_systems(Update, handle_menu_resume_button);
 
         app.add_observer(on_place_item);
     }
 }
 
-#[derive(Resource, Default, PartialEq, Eq)]
-pub(super) enum InteractionMode {
+#[derive(Default, PartialEq, Eq)]
+pub(super) enum WorldMode {
     #[default]
     None,
     Placing(PlacementItem),
     Deleting,
     ChangingIncline,
+}
+
+#[derive(PartialEq, Eq)]
+pub(super) enum ScreenMode {
+    Inventory,
+    Menu,
+}
+
+#[derive(Resource, PartialEq, Eq)]
+pub(super) enum InteractionMode {
+    InWorld(WorldMode),
+    InScreen(ScreenMode),
+}
+
+impl Default for InteractionMode {
+    fn default() -> Self {
+        InteractionMode::InWorld(WorldMode::None)
+    }
 }
 
 #[derive(Resource)]
@@ -265,20 +289,22 @@ fn on_place_item(event: On<PlaceItem>, mut cmd: Commands, asset_server: Res<Asse
 
 fn cursor_grab(
     mut cursor_options: Single<&mut CursorOptions>,
-    mouse: Res<ButtonInput<MouseButton>>,
     key: Res<ButtonInput<KeyCode>>,
     mut mode: ResMut<InteractionMode>,
 ) {
-    // Only grab cursor on left click if not already grabbed
-    if mouse.just_pressed(MouseButton::Left) && cursor_options.grab_mode != CursorGrabMode::Locked {
-        cursor_options.visible = false;
-        cursor_options.grab_mode = CursorGrabMode::Locked;
+    if key.just_pressed(KeyCode::Escape) {
+        *mode = match *mode {
+            InteractionMode::InWorld(_) => InteractionMode::InScreen(ScreenMode::Menu),
+            InteractionMode::InScreen(_) => InteractionMode::InWorld(WorldMode::None),
+        };
     }
 
-    if key.just_pressed(KeyCode::Escape) {
-        if *mode != InteractionMode::None {
-            *mode = InteractionMode::None;
-        } else {
+    match *mode {
+        InteractionMode::InWorld(_) => {
+            cursor_options.visible = false;
+            cursor_options.grab_mode = CursorGrabMode::Locked;
+        }
+        InteractionMode::InScreen(_) => {
             cursor_options.visible = true;
             cursor_options.grab_mode = CursorGrabMode::None;
         }
@@ -288,7 +314,11 @@ fn cursor_grab(
 fn camera_look(
     accumulated_mouse_motion: Res<AccumulatedMouseMotion>,
     mut query: Query<(&mut Transform, &mut FirstPersonCamera)>,
+    mode: Res<InteractionMode>,
 ) {
+    if matches!(*mode, InteractionMode::InScreen(_)) {
+        return;
+    }
     for (mut transform, mut camera) in query.iter_mut() {
         let delta = accumulated_mouse_motion.delta;
 
@@ -306,7 +336,11 @@ fn camera_movement(
     time: Res<Time>,
     keys: Res<ButtonInput<KeyCode>>,
     mut query: Query<(&mut Transform, &FirstPersonCamera)>,
+    mode: Res<InteractionMode>,
 ) {
+    if matches!(*mode, InteractionMode::InScreen(_)) {
+        return;
+    }
     for (mut transform, camera) in query.iter_mut() {
         let mut direction = Vec3::ZERO;
 
@@ -467,7 +501,7 @@ fn handle_click_to_place(
     targets: Query<(&WorldCoords, &Transform, &RaycastTarget)>,
     placement_dir: Res<PlacementDirection>,
 ) {
-    let InteractionMode::Placing(tool) = *mode else {
+    let InteractionMode::InWorld(WorldMode::Placing(tool)) = *mode else {
         return;
     };
     let Ok(_) = invs.get_mut(player.0) else {
@@ -558,18 +592,35 @@ fn handle_mode_inputs(
     mut mode: ResMut<InteractionMode>,
     mut placement_dir: ResMut<PlacementDirection>,
 ) {
+    if keys.just_pressed(KeyCode::KeyE) {
+        match *mode {
+            InteractionMode::InScreen(ScreenMode::Inventory) => {
+                *mode = InteractionMode::InWorld(WorldMode::None);
+            }
+            InteractionMode::InWorld(_) => {
+                *mode = InteractionMode::InScreen(ScreenMode::Inventory);
+            }
+            _ => {}
+        }
+    }
+
+    // World-mode keys only apply when not in a screen
+    if matches!(*mode, InteractionMode::InScreen(_)) {
+        return;
+    }
+
     if keys.just_pressed(KeyCode::KeyX) {
-        if *mode == InteractionMode::Deleting {
-            *mode = InteractionMode::None;
+        if *mode == InteractionMode::InWorld(WorldMode::Deleting) {
+            *mode = InteractionMode::InWorld(WorldMode::None);
         } else {
-            *mode = InteractionMode::Deleting;
+            *mode = InteractionMode::InWorld(WorldMode::Deleting);
         }
     }
     if keys.just_pressed(KeyCode::KeyC) {
-        if *mode == InteractionMode::ChangingIncline {
-            *mode = InteractionMode::None;
+        if *mode == InteractionMode::InWorld(WorldMode::ChangingIncline) {
+            *mode = InteractionMode::InWorld(WorldMode::None);
         } else {
-            *mode = InteractionMode::ChangingIncline;
+            *mode = InteractionMode::InWorld(WorldMode::ChangingIncline);
         }
     }
     if keys.just_pressed(KeyCode::KeyR) {
@@ -593,7 +644,7 @@ fn update_delete_preview(
     let (ref mut t, ref mut vis) = *preview_q;
     let cursor_locked = cursor_options.grab_mode == CursorGrabMode::Locked;
 
-    if *mode != InteractionMode::Deleting || !cursor_locked {
+    if *mode != InteractionMode::InWorld(WorldMode::Deleting) || !cursor_locked {
         **vis = Visibility::Hidden;
         return;
     }
@@ -649,7 +700,7 @@ fn handle_change_incline(
     let (ref mut t, ref mut vis) = *preview_q;
     let cursor_locked = cursor_options.grab_mode == CursorGrabMode::Locked;
 
-    if *mode != InteractionMode::ChangingIncline || !cursor_locked {
+    if *mode != InteractionMode::InWorld(WorldMode::ChangingIncline) || !cursor_locked {
         **vis = Visibility::Hidden;
         return;
     }
@@ -733,7 +784,7 @@ fn draw_placement_preview(
     camera_q: Single<&Transform, With<FirstPersonCamera>>,
     targets: Query<(&WorldCoords, &Transform, &RaycastTarget)>,
 ) {
-    if !matches!(*mode, InteractionMode::Placing(_))
+    if !matches!(*mode, InteractionMode::InWorld(WorldMode::Placing(_)))
         || cursor_options.grab_mode != CursorGrabMode::Locked
     {
         return;
@@ -769,6 +820,175 @@ fn draw_placement_preview(
     gizmos
         .arrow(start, end, color)
         .with_tip_length(BLOCK_SIZE * 0.2);
+}
+
+#[derive(Component)]
+struct InventoryPane;
+
+#[derive(Component)]
+struct CloseInventoryButton;
+
+fn setup_inventory_pane(mut cmd: Commands) {
+    cmd.spawn((
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Percent(5.0),
+            right: Val::Percent(5.0),
+            top: Val::Percent(5.0),
+            bottom: Val::Percent(5.0),
+            flex_direction: FlexDirection::Column,
+            ..default()
+        },
+        BackgroundColor(Color::srgba(0.08, 0.08, 0.12, 0.95)),
+        Visibility::Hidden,
+        InventoryPane,
+    ))
+    .with_children(|parent| {
+        // Title bar row
+        parent
+            .spawn(Node {
+                width: Val::Percent(100.0),
+                justify_content: JustifyContent::SpaceBetween,
+                align_items: AlignItems::Center,
+                padding: UiRect::axes(Val::Px(16.0), Val::Px(12.0)),
+                ..default()
+            })
+            .with_children(|parent| {
+                parent.spawn((
+                    Text::new("Inventory"),
+                    TextFont {
+                        font_size: 20.0,
+                        ..default()
+                    },
+                    TextColor(Color::WHITE),
+                ));
+
+                // Close button
+                parent
+                    .spawn((
+                        Button,
+                        Node {
+                            width: Val::Px(32.0),
+                            height: Val::Px(32.0),
+                            justify_content: JustifyContent::Center,
+                            align_items: AlignItems::Center,
+                            ..default()
+                        },
+                        BackgroundColor(Color::srgba(0.3, 0.1, 0.1, 0.9)),
+                        CloseInventoryButton,
+                    ))
+                    .with_children(|parent| {
+                        parent.spawn((
+                            Text::new("X"),
+                            TextFont {
+                                font_size: 16.0,
+                                ..default()
+                            },
+                            TextColor(Color::WHITE),
+                        ));
+                    });
+            });
+    });
+}
+
+fn update_inventory_pane(
+    mode: Res<InteractionMode>,
+    mut pane: Single<&mut Visibility, With<InventoryPane>>,
+) {
+    **pane = if matches!(*mode, InteractionMode::InScreen(ScreenMode::Inventory)) {
+        Visibility::Visible
+    } else {
+        Visibility::Hidden
+    };
+}
+
+fn handle_inventory_close_button(
+    interaction: Query<&Interaction, (Changed<Interaction>, With<CloseInventoryButton>)>,
+    mut mode: ResMut<InteractionMode>,
+) {
+    for &interaction in interaction.iter() {
+        if interaction == Interaction::Pressed {
+            *mode = InteractionMode::InWorld(WorldMode::None);
+        }
+    }
+}
+
+#[derive(Component)]
+struct MenuPane;
+
+#[derive(Component)]
+struct ResumeButton;
+
+fn setup_menu_pane(mut cmd: Commands) {
+    cmd.spawn((
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Percent(30.0),
+            right: Val::Percent(30.0),
+            top: Val::Percent(20.0),
+            bottom: Val::Percent(20.0),
+            flex_direction: FlexDirection::Column,
+            align_items: AlignItems::Center,
+            justify_content: JustifyContent::Center,
+            row_gap: Val::Px(16.0),
+            ..default()
+        },
+        BackgroundColor(Color::srgba(0.08, 0.08, 0.12, 0.95)),
+        Visibility::Hidden,
+        MenuPane,
+    ))
+    .with_children(|parent| {
+        parent.spawn((
+            Text::new("Menu"),
+            TextFont {
+                font_size: 24.0,
+                ..default()
+            },
+            TextColor(Color::WHITE),
+        ));
+
+        parent
+            .spawn((
+                Button,
+                Node {
+                    padding: UiRect::axes(Val::Px(24.0), Val::Px(10.0)),
+                    justify_content: JustifyContent::Center,
+                    align_items: AlignItems::Center,
+                    ..default()
+                },
+                BackgroundColor(Color::srgba(0.2, 0.4, 0.2, 0.9)),
+                ResumeButton,
+            ))
+            .with_children(|parent| {
+                parent.spawn((
+                    Text::new("Resume"),
+                    TextFont {
+                        font_size: 16.0,
+                        ..default()
+                    },
+                    TextColor(Color::WHITE),
+                ));
+            });
+    });
+}
+
+fn update_menu_pane(mode: Res<InteractionMode>, mut pane: Single<&mut Visibility, With<MenuPane>>) {
+    **pane = if matches!(*mode, InteractionMode::InScreen(ScreenMode::Menu)) {
+        Visibility::Visible
+    } else {
+        Visibility::Hidden
+    };
+}
+
+fn handle_menu_resume_button(
+    interaction: Query<&Interaction, (Changed<Interaction>, With<ResumeButton>)>,
+    mut mode: ResMut<InteractionMode>,
+) {
+    for &interaction in interaction.iter() {
+        if interaction == Interaction::Pressed {
+            *mode = InteractionMode::InWorld(WorldMode::None);
+        }
+    }
 }
 
 fn setup_reticle(mut cmd: Commands) {

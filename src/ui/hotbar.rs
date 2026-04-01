@@ -131,16 +131,21 @@ const DIGITS: [KeyCode; 10] = [
 ];
 
 fn handle_tool_selection(keys: Res<ButtonInput<KeyCode>>, mut mode: ResMut<InteractionMode>) {
+    if matches!(*mode, InteractionMode::InScreen(_)) {
+        return;
+    }
     for (index, key) in DIGITS.iter().enumerate() {
         if keys.just_pressed(*key) {
             match mode.as_ref() {
-                InteractionMode::Placing(PlacementItem::HotbarSlot(s))
+                InteractionMode::InWorld(WorldMode::Placing(PlacementItem::HotbarSlot(s)))
                     if (*s as usize) == index =>
                 {
-                    *mode = InteractionMode::None;
+                    *mode = InteractionMode::InWorld(WorldMode::None);
                 }
                 _ => {
-                    *mode = InteractionMode::Placing(PlacementItem::HotbarSlot(index as u16));
+                    *mode = InteractionMode::InWorld(WorldMode::Placing(
+                        PlacementItem::HotbarSlot(index as u16),
+                    ));
                 }
             }
         }
@@ -152,7 +157,7 @@ fn update_hotbar_selection(
     mut slots: Query<(&HotbarSlot, &mut BorderColor)>,
 ) {
     let selected_slot = match &*mode {
-        InteractionMode::Placing(PlacementItem::HotbarSlot(slot)) => Some(slot),
+        InteractionMode::InWorld(WorldMode::Placing(PlacementItem::HotbarSlot(slot))) => Some(slot),
         _ => None,
     };
     for (slot, mut border) in slots.iter_mut() {
