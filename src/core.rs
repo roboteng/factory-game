@@ -185,7 +185,7 @@ pub const RECIPES: &'static [Recipe] = &[
 
 #[derive(Component, Default)]
 pub struct Furnace {
-    ticks: u32,
+    pub ticks: u32,
 }
 
 #[derive(Component)]
@@ -551,7 +551,7 @@ fn on_place_item(
         OnBelt,
         item_position(*belt.0, *belt.1, event.lane, event.position),
     ));
-    belt.2.0[event.lane].push((event.position, event.entity));
+    belt.2 .0[event.lane].push((event.position, event.entity));
 }
 
 fn on_remove_block(
@@ -700,13 +700,13 @@ fn determine_belt_shape(
 fn move_items_on_belts(mut belts: Query<(&mut ItemLanes, &BeltShape)>) {
     for mut belt in belts.iter_mut() {
         for side in SIDES {
-            let Some(lead_item) = belt.0.0[side].get_mut(0) else {
+            let Some(lead_item) = belt.0 .0[side].get_mut(0) else {
                 continue;
             };
             lead_item.0 = 0.max(lead_item.0 - BASE_BELT_SPEED);
-            for i in 1..belt.0.0[side].len() {
-                let first = belt.0.0[side][i - 1];
-                let second = &mut belt.0.0[side][i];
+            for i in 1..belt.0 .0[side].len() {
+                let first = belt.0 .0[side][i - 1];
+                let second = &mut belt.0 .0[side][i];
 
                 second.0 = (first.0 + ITEM_SPACING).max(second.0 - BASE_BELT_SPEED);
             }
@@ -733,11 +733,11 @@ fn transfer_items(
             continue;
         };
         for side in SIDES {
-            let Some(i) = source.1.0[side].get(0) else {
+            let Some(i) = source.1 .0[side].get(0) else {
                 continue;
             };
             if i.0 <= 0
-                && dest.1.0[side].last().map(|a| a.0).unwrap_or(0) + ITEM_SPACING
+                && dest.1 .0[side].last().map(|a| a.0).unwrap_or(0) + ITEM_SPACING
                     < dest.3.num_pos(side)
                 && source.3.output() == dest.3.input()
             {
@@ -751,11 +751,11 @@ fn transfer_items(
     }
     for transfer in transfers {
         let mut source = invs.get_mut(transfer.source).unwrap();
-        let slot = source.1.0[transfer.lane].remove(0);
+        let slot = source.1 .0[transfer.lane].remove(0);
         drop(source);
 
         let mut dest = invs.get_mut(transfer.dest).unwrap();
-        let lane = &mut dest.1.0[transfer.lane];
+        let lane = &mut dest.1 .0[transfer.lane];
         lane.push((dest.3.num_pos(transfer.lane), slot.1));
     }
 }
@@ -792,11 +792,11 @@ fn side_loading(
                 Side::Right
             };
             for side in SIDES {
-                let Some(item) = source.1.0[side].get(0) else {
+                let Some(item) = source.1 .0[side].get(0) else {
                     continue;
                 };
                 if item.0 <= 0
-                    && dest.1.0[dest_side].last().map(|a| a.0).unwrap_or(0) + ITEM_SPACING
+                    && dest.1 .0[dest_side].last().map(|a| a.0).unwrap_or(0) + ITEM_SPACING
                         < dest.3.num_pos(dest_side)
                 {
                     const OFFSET: i32 =
@@ -819,11 +819,11 @@ fn side_loading(
     }
     for transfer in transfers {
         let mut source = invs.get_mut(transfer.source).unwrap();
-        let slot = source.1.0[transfer.source_lane].remove(0);
+        let slot = source.1 .0[transfer.source_lane].remove(0);
         drop(source);
 
         let mut dest = invs.get_mut(transfer.dest).unwrap();
-        let lane = &mut dest.1.0[transfer.dest_lane];
+        let lane = &mut dest.1 .0[transfer.dest_lane];
         lane.push((transfer.position, slot.1));
     }
 }
@@ -834,7 +834,7 @@ fn set_item_transforms(
 ) {
     for belt in belts {
         for side in SIDES {
-            for slot in belt.0.0[side].iter() {
+            for slot in belt.0 .0[side].iter() {
                 let Ok(mut item) = items.get_mut(slot.1) else {
                     continue;
                 };
@@ -1135,7 +1135,7 @@ pub fn assert_close(left: Vec3, right: Vec3) {
 
 #[cfg(test)]
 pub fn init_tracing() {
-    use tracing_subscriber::{EnvFilter, fmt};
+    use tracing_subscriber::{fmt, EnvFilter};
     let _ = fmt()
         .with_env_filter(
             EnvFilter::try_from_default_env()

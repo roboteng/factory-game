@@ -24,6 +24,7 @@ impl Plugin for PlayerControllerPlugin {
             PreUpdate,
             (
                 handle_mode_inputs,
+                handle_right_click_furnace.after(handle_mode_inputs),
                 update_delete_preview.after(handle_mode_inputs),
                 handle_change_incline.after(handle_mode_inputs),
                 handle_click_to_place.after(handle_mode_inputs),
@@ -621,6 +622,50 @@ fn handle_change_incline(
         cmd.trigger(Incline {
             entity: resolved.entity,
         });
+    }
+}
+
+fn handle_right_click_furnace(
+    mouse: Res<ButtonInput<MouseButton>>,
+    cursor_options: Single<&CursorOptions>,
+    camera_q: Single<&Transform, With<FirstPersonCamera>>,
+    coord_map: Res<CoordsMap>,
+    targets: Query<(&WorldCoords, &Transform, &RaycastTarget)>,
+    furnace_check: Query<(), With<Furnace>>,
+    mut mode: ResMut<InteractionMode>,
+) {
+    if cursor_options.grab_mode != CursorGrabMode::Locked {
+        return;
+    }
+    if !mouse.just_pressed(MouseButton::Right) {
+        return;
+    }
+    if !matches!(*mode, InteractionMode::InWorld(_)) {
+        return;
+    }
+
+    let camera_transform = camera_q.into_inner();
+    let origin = camera_transform.translation;
+    let ray_dir = *camera_transform.forward();
+
+    let Some(hit) = cast_ray(
+        origin,
+        ray_dir,
+        targets.iter().map(|(c, t, rt)| RayTarget {
+            coords: *c,
+            center: t.translation,
+            half_extents: rt.half_extents,
+        }),
+    ) else {
+        return;
+    };
+
+    let Some(&entity) = coord_map.0.get(&hit.hit_coords) else {
+        return;
+    };
+
+    if furnace_check.get(entity).is_ok() {
+        *mode = InteractionMode::InScreen(ScreenMode::Furnace(entity));
     }
 }
 

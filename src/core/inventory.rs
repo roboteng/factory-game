@@ -30,6 +30,17 @@ impl Inventory {
         }
     }
 
+    pub fn take_slot(&mut self, slot: u16) -> Option<Stack> {
+        match self.0.get_mut(slot as usize) {
+            Some(entry) => entry.take(),
+            None => None,
+        }
+    }
+
+    pub fn slots(&self) -> &[Option<Stack>] {
+        &self.0
+    }
+
     /// Add items to the first availible slot
     pub fn insert(&mut self, stack: Stack) -> Result<(), InventoryAddError> {
         // TODO: combine stacks
