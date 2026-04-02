@@ -1,4 +1,4 @@
-use super::{Side, BLOCK_SIZE, HALF_BLOCK_SIZE};
+use super::{BLOCK_SIZE, HALF_BLOCK_SIZE, Side};
 use bevy::prelude::*;
 use std::f32::consts::PI;
 

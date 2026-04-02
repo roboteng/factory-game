@@ -65,6 +65,8 @@ impl Plugin for CorePlugin {
         let mut inv = Inventory::new();
         inv.insert(Stack::new(Item::Belt, 15.try_into().unwrap()))
             .unwrap();
+        inv.insert(Stack::new(Item::IronOre, 5.try_into().unwrap()))
+            .unwrap();
         let player = app.world_mut().spawn(inv).id();
         app.insert_resource(Player(player));
 
@@ -155,7 +157,7 @@ pub struct OutputBuffer {
     pub items: Vec<Item>,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum ProcessingMethod {
     Furnace,
     Assembler,
@@ -191,6 +193,7 @@ pub struct Furnace {
 #[derive(Component)]
 pub struct InputBuffer {
     pub recipe: Option<&'static Recipe>,
+    pub method: Option<ProcessingMethod>,
     pub slots: Vec<Option<Item>>,
 }
 
@@ -198,6 +201,15 @@ impl InputBuffer {
     pub fn all() -> Self {
         Self {
             recipe: None,
+            method: None,
+            slots: vec![None],
+        }
+    }
+
+    pub fn for_method(method: ProcessingMethod) -> Self {
+        Self {
+            recipe: None,
+            method: Some(method),
             slots: vec![None],
         }
     }
@@ -205,38 +217,43 @@ impl InputBuffer {
     pub fn for_recipe(recipe: &'static Recipe) -> Self {
         Self {
             recipe: Some(recipe),
+            method: None,
             slots: vec![None; recipe.inputs.len()],
         }
     }
 
     pub fn accepts(&self, item: Item) -> bool {
-        match self.recipe {
-            None => self.slots.iter().any(|s| s.is_none()),
-            Some(r) => r
+        if let Some(recipe) = self.recipe {
+            return recipe
                 .inputs
                 .iter()
                 .zip(self.slots.iter())
-                .any(|(&expected, slot)| slot.is_none() && expected == item),
+                .any(|(&expected, slot)| slot.is_none() && expected == item);
         }
+        if let Some(method) = self.method {
+            return self.slots.iter().any(|s| s.is_none())
+                && RECIPES
+                    .iter()
+                    .filter(|r| r.method == method)
+                    .any(|r| r.inputs.contains(&item));
+        }
+        self.slots.iter().any(|s| s.is_none())
     }
 
     pub fn fill_slot(&mut self, item: Item) {
-        match self.recipe {
-            None => {
-                if let Some(slot) = self.slots.iter_mut().find(|s| s.is_none()) {
-                    *slot = Some(item);
-                }
+        if let Some(r) = self.recipe {
+            if let Some((_, slot)) = r
+                .inputs
+                .iter()
+                .zip(self.slots.iter_mut())
+                .find(|(expected, slot)| slot.is_none() && **expected == item)
+            {
+                *slot = Some(item);
             }
-            Some(r) => {
-                if let Some((_, slot)) = r
-                    .inputs
-                    .iter()
-                    .zip(self.slots.iter_mut())
-                    .find(|(expected, slot)| slot.is_none() && **expected == item)
-                {
-                    *slot = Some(item);
-                }
-            }
+            return;
+        }
+        if let Some(slot) = self.slots.iter_mut().find(|s| s.is_none()) {
+            *slot = Some(item);
         }
     }
 
@@ -511,7 +528,7 @@ fn on_place_block(
         WorldBlock::Furnace => {
             cmd.entity(event.entity).insert((
                 Furnace::default(),
-                InputBuffer::all(),
+                InputBuffer::for_method(ProcessingMethod::Furnace),
                 OutputBuffer::default(),
                 OutputDir(Some(place.dir)),
                 AffectsBelts,
@@ -551,7 +568,7 @@ fn on_place_item(
         OnBelt,
         item_position(*belt.0, *belt.1, event.lane, event.position),
     ));
-    belt.2 .0[event.lane].push((event.position, event.entity));
+    belt.2.0[event.lane].push((event.position, event.entity));
 }
 
 fn on_remove_block(
@@ -700,13 +717,13 @@ fn determine_belt_shape(
 fn move_items_on_belts(mut belts: Query<(&mut ItemLanes, &BeltShape)>) {
     for mut belt in belts.iter_mut() {
         for side in SIDES {
-            let Some(lead_item) = belt.0 .0[side].get_mut(0) else {
+            let Some(lead_item) = belt.0.0[side].get_mut(0) else {
                 continue;
             };
             lead_item.0 = 0.max(lead_item.0 - BASE_BELT_SPEED);
-            for i in 1..belt.0 .0[side].len() {
-                let first = belt.0 .0[side][i - 1];
-                let second = &mut belt.0 .0[side][i];
+            for i in 1..belt.0.0[side].len() {
+                let first = belt.0.0[side][i - 1];
+                let second = &mut belt.0.0[side][i];
 
                 second.0 = (first.0 + ITEM_SPACING).max(second.0 - BASE_BELT_SPEED);
             }
@@ -733,11 +750,11 @@ fn transfer_items(
             continue;
         };
         for side in SIDES {
-            let Some(i) = source.1 .0[side].get(0) else {
+            let Some(i) = source.1.0[side].get(0) else {
                 continue;
             };
             if i.0 <= 0
-                && dest.1 .0[side].last().map(|a| a.0).unwrap_or(0) + ITEM_SPACING
+                && dest.1.0[side].last().map(|a| a.0).unwrap_or(0) + ITEM_SPACING
                     < dest.3.num_pos(side)
                 && source.3.output() == dest.3.input()
             {
@@ -751,11 +768,11 @@ fn transfer_items(
     }
     for transfer in transfers {
         let mut source = invs.get_mut(transfer.source).unwrap();
-        let slot = source.1 .0[transfer.lane].remove(0);
+        let slot = source.1.0[transfer.lane].remove(0);
         drop(source);
 
         let mut dest = invs.get_mut(transfer.dest).unwrap();
-        let lane = &mut dest.1 .0[transfer.lane];
+        let lane = &mut dest.1.0[transfer.lane];
         lane.push((dest.3.num_pos(transfer.lane), slot.1));
     }
 }
@@ -792,11 +809,11 @@ fn side_loading(
                 Side::Right
             };
             for side in SIDES {
-                let Some(item) = source.1 .0[side].get(0) else {
+                let Some(item) = source.1.0[side].get(0) else {
                     continue;
                 };
                 if item.0 <= 0
-                    && dest.1 .0[dest_side].last().map(|a| a.0).unwrap_or(0) + ITEM_SPACING
+                    && dest.1.0[dest_side].last().map(|a| a.0).unwrap_or(0) + ITEM_SPACING
                         < dest.3.num_pos(dest_side)
                 {
                     const OFFSET: i32 =
@@ -819,11 +836,11 @@ fn side_loading(
     }
     for transfer in transfers {
         let mut source = invs.get_mut(transfer.source).unwrap();
-        let slot = source.1 .0[transfer.source_lane].remove(0);
+        let slot = source.1.0[transfer.source_lane].remove(0);
         drop(source);
 
         let mut dest = invs.get_mut(transfer.dest).unwrap();
-        let lane = &mut dest.1 .0[transfer.dest_lane];
+        let lane = &mut dest.1.0[transfer.dest_lane];
         lane.push((transfer.position, slot.1));
     }
 }
@@ -834,7 +851,7 @@ fn set_item_transforms(
 ) {
     for belt in belts {
         for side in SIDES {
-            for slot in belt.0 .0[side].iter() {
+            for slot in belt.0.0[side].iter() {
                 let Ok(mut item) = items.get_mut(slot.1) else {
                     continue;
                 };
@@ -1135,7 +1152,7 @@ pub fn assert_close(left: Vec3, right: Vec3) {
 
 #[cfg(test)]
 pub fn init_tracing() {
-    use tracing_subscriber::{fmt, EnvFilter};
+    use tracing_subscriber::{EnvFilter, fmt};
     let _ = fmt()
         .with_env_filter(
             EnvFilter::try_from_default_env()
@@ -1616,5 +1633,50 @@ mod tests {
         }
 
         assert!(app.item_count_on_belt(belt) > 0);
+    }
+
+    #[test]
+    fn miner_outputs_correct_ore_for_deposit() {
+        for (deposit, expected_ore) in [
+            (WorldBlock::IronOreDeposit, Item::IronOre),
+            (WorldBlock::CopperOreDeposit, Item::CopperOre),
+        ] {
+            let mut app = test_app();
+            let o = WorldCoords::ORIGIN;
+
+            app.add_world_block(o.step(HDir::South), deposit);
+
+            let miner = app.world_mut().spawn_empty().id();
+            app.world_mut().trigger(PlaceBlock {
+                entity: miner,
+                block: WorldBlock::Miner,
+                coords: o,
+                dir: HDir::South,
+            });
+
+            let belt = app.add_belt(o.step(HDir::North), HDir::North);
+
+            for _ in 0..=MINER_TICKS_PER_EXTRACT {
+                app.update();
+            }
+
+            let world = app.world_mut();
+            let lanes = world.query::<&ItemLanes>().get(world, belt).unwrap();
+            let item_entities: Vec<Entity> = lanes
+                .0
+                .left
+                .iter()
+                .chain(lanes.0.right.iter())
+                .map(|(_, e)| *e)
+                .collect();
+            assert!(
+                !item_entities.is_empty(),
+                "expected ore on belt for {deposit:?}"
+            );
+            for entity in item_entities {
+                let item = *world.query::<&Item>().get(world, entity).unwrap();
+                assert_eq!(item, expected_ore, "wrong ore for {deposit:?}");
+            }
+        }
     }
 }
