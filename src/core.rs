@@ -32,6 +32,7 @@ pub const LANE_OFFSET_FACTOR: f32 = 0.25;
 pub const LANE_OFFSET: f32 = LANE_OFFSET_FACTOR * BLOCK_SIZE;
 
 pub const POSITIONS_PER_BELT: i32 = 256;
+pub const MINER_TICKS_PER_EXTRACT: u32 = 60;
 pub const ITEM_SPACING: i32 = POSITIONS_PER_BELT / 4;
 pub const BASE_BELT_SPEED: i32 = 8;
 pub const BASE_ITEM_MOVEMENT: f32 = BLOCK_SIZE * BASE_BELT_SPEED as f32 / POSITIONS_PER_BELT as f32;
@@ -74,7 +75,9 @@ impl Plugin for CorePlugin {
                 move_items_on_belts,
                 transfer_items,
                 set_item_transforms,
-                sources_place,
+                fill_sources,
+                fill_miners,
+                push_to_belt,
                 sinks_destroy,
                 side_loading,
             ),
@@ -136,8 +139,20 @@ pub struct Belt;
 #[derive(Component)]
 pub struct Source;
 
+#[derive(Component, Default)]
+pub struct Miner {
+    ticks: u32,
+}
+
 #[derive(Component)]
 pub struct Sink;
+
+#[derive(Component, Default)]
+pub struct OutputBuffer(pub Option<Item>);
+
+/// Output direction for belt pushers. `None` = try all four horizontal directions.
+#[derive(Component)]
+pub struct OutputDir(pub Option<HDir>);
 
 #[derive(Component)]
 pub struct AffectsBelts;
@@ -185,6 +200,7 @@ pub enum Item {
     Dirt,
     IronOre,
     CopperOre,
+    Miner,
 }
 
 impl Item {
@@ -197,6 +213,7 @@ impl Item {
             Item::Dirt => "Dirt",
             Item::IronOre => "Iron Ore",
             Item::CopperOre => "Copper Ore",
+            Item::Miner => "Miner",
         }
     }
 
@@ -208,7 +225,8 @@ impl Item {
             | Item::Source
             | Item::Sink
             | Item::IronOre
-            | Item::CopperOre => RaycastTarget::FULL_BLOCK,
+            | Item::CopperOre
+            | Item::Miner => RaycastTarget::FULL_BLOCK,
         }
     }
 }
@@ -300,12 +318,13 @@ fn on_place_block(
     match event.item {
         Item::Belt => {
             cmd.entity(event.entity)
-                .insert((Belt, ItemLanes::default(), AffectsBelts, rt))
+                .insert((Belt, ItemLanes::default(), AffectsBelts, rt));
         }
-        Item::Source => cmd.entity(event.entity).insert((Source, AffectsBelts, rt)),
-        Item::Sink => cmd.entity(event.entity).insert((Sink, AffectsBelts, rt)),
+        Item::Source => { cmd.entity(event.entity).insert((Source, OutputBuffer::default(), OutputDir(Some(place.dir)), AffectsBelts, rt)); }
+        Item::Sink => { cmd.entity(event.entity).insert((Sink, AffectsBelts, rt)); }
+        Item::Miner => { cmd.entity(event.entity).insert((Miner::default(), OutputBuffer::default(), OutputDir(None), AffectsBelts, rt)); }
         Item::Rock | Item::Dirt | Item::IronOre | Item::CopperOre => {
-            cmd.entity(event.entity).insert(rt)
+            cmd.entity(event.entity).insert(rt);
         }
     };
 
@@ -627,30 +646,81 @@ fn set_item_transforms(
     }
 }
 
-fn sources_place(
-    sources: Query<(&WorldCoords, &HDir), With<Source>>,
+fn fill_sources(mut sources: Query<&mut OutputBuffer, With<Source>>) {
+    for mut buffer in &mut sources {
+        if buffer.0.is_none() {
+            buffer.0 = Some(Item::Belt);
+        }
+    }
+}
+
+fn fill_miners(
+    mut miners: Query<(&WorldCoords, &mut Miner, &mut OutputBuffer)>,
+    ore_items: Query<&Item>,
+    coord_map: Res<CoordsMap>,
+) {
+    for (miner_coords, mut miner, mut buffer) in &mut miners {
+        if buffer.0.is_some() {
+            continue;
+        }
+        miner.ticks += 1;
+        if miner.ticks < MINER_TICKS_PER_EXTRACT {
+            continue;
+        }
+        miner.ticks = 0;
+
+        let adjacent = [
+            miner_coords.step(Dir::Down),
+            miner_coords.step(HDir::North),
+            miner_coords.step(HDir::South),
+            miner_coords.step(HDir::East),
+            miner_coords.step(HDir::West),
+        ];
+        let Some(output_item) = adjacent.iter().find_map(|pos| {
+            let &ore_entity = coord_map.0.get(pos)?;
+            match ore_items.get(ore_entity).ok()? {
+                Item::IronOre => Some(Item::IronOre),
+                Item::CopperOre => Some(Item::CopperOre),
+                _ => None,
+            }
+        }) else {
+            continue;
+        };
+        buffer.0 = Some(output_item);
+    }
+}
+
+fn push_to_belt(
+    mut pushers: Query<(&mut OutputBuffer, &WorldCoords, &OutputDir)>,
     belts: Query<(Entity, &ItemLanes), With<Belt>>,
     coord_map: Res<CoordsMap>,
     mut cmd: Commands,
 ) {
-    for (source_coords, source_dir) in sources {
-        let target = source_coords.step(*source_dir);
-        let Some(&belt_entity) = coord_map.0.get(&target) else {
-            continue;
+    const ALL_DIRS: [HDir; 4] = [HDir::North, HDir::South, HDir::East, HDir::West];
+    for (mut buffer, coords, output_dir) in &mut pushers {
+        let Some(item) = buffer.0 else { continue };
+        let dirs: &[HDir] = match &output_dir.0 {
+            Some(d) => std::slice::from_ref(d),
+            None => &ALL_DIRS,
         };
-        let Ok((belt_entity, lanes)) = belts.get(belt_entity) else {
-            continue;
-        };
-        if lanes.0.left.len() <= ITEMS_PER_BELT as usize {
+        for &dir in dirs {
+            let target = coords.step(dir);
+            let Some(&belt_entity) = coord_map.0.get(&target) else { continue };
+            let Ok((belt_entity, lanes)) = belts.get(belt_entity) else { continue };
+            if lanes.0.left.len() >= ITEMS_PER_BELT as usize {
+                continue;
+            }
+            buffer.0 = None;
             let entity = cmd.spawn_empty().id();
             cmd.trigger(PlaceItem {
                 entity,
-                item: Item::Belt,
+                item,
                 belt: belt_entity,
                 lane: Side::Left,
                 position: POSITIONS_PER_BELT,
                 on_error: Box::new(|_, _| {}),
             });
+            break;
         }
     }
 }
@@ -686,6 +756,7 @@ fn sinks_destroy(
         }
     }
 }
+
 
 impl<T> std::ops::Index<Side> for Sided<T> {
     type Output = T;
@@ -942,6 +1013,7 @@ pub trait AppExtension {
     fn add_item(&mut self, belt: Entity, pos: i32, lane: Side) -> Entity;
     fn find_item(&mut self, item: Entity) -> Option<(Item, Transform)>;
     fn find_belt(&mut self, belt: Entity) -> Option<(BeltShape, Transform)>;
+    fn item_count_on_belt(&mut self, belt: Entity) -> usize;
     fn remove_belt_at(&mut self, coords: impl Into<WorldCoords>) -> bool;
     fn layout(&mut self, s: &str) -> Layout;
     #[allow(unused)]
@@ -999,6 +1071,15 @@ impl AppExtension for App {
             .get(world, belt)
             .ok()
             .map(|(shape, transform)| (*shape, *transform))
+    }
+
+    fn item_count_on_belt(&mut self, belt: Entity) -> usize {
+        let world = self.world_mut();
+        world
+            .query::<&ItemLanes>()
+            .get(world, belt)
+            .map(|lanes| lanes.0.left.len() + lanes.0.right.len())
+            .unwrap_or(0)
     }
 
     fn remove_belt_at(&mut self, coords: impl Into<WorldCoords>) -> bool {
@@ -1214,5 +1295,70 @@ mod tests {
 
         let belt = app.find_belt(belt).unwrap();
         assert_eq!(belt.0, BeltShape::Straight(HDir::North));
+    }
+
+    #[test]
+    fn miner_does_not_extract_without_adjacent_ore() {
+        let mut app = test_app();
+        let o = WorldCoords::ORIGIN;
+
+        // Place iron ore two steps away — not adjacent to the miner.
+        let ore = app.world_mut().spawn_empty().id();
+        app.world_mut().trigger(PlaceBlock {
+            entity: ore,
+            item: Item::IronOre,
+            coords: o.step(HDir::South).step(HDir::South),
+            dir: HDir::North,
+        });
+
+        let miner = app.world_mut().spawn_empty().id();
+        app.world_mut().trigger(PlaceBlock {
+            entity: miner,
+            item: Item::Miner,
+            coords: o,
+            dir: HDir::South,
+        });
+
+        let belt = app.add_belt(o.step(HDir::North), HDir::North);
+
+        for _ in 0..=MINER_TICKS_PER_EXTRACT {
+            app.update();
+        }
+
+        assert_eq!(app.item_count_on_belt(belt), 0);
+    }
+
+    #[test]
+    fn miner_extracts_ore_onto_belt() {
+        let mut app = test_app();
+        let o = WorldCoords::ORIGIN;
+
+        // Place iron ore adjacent to the south of the miner position.
+        let ore = app.world_mut().spawn_empty().id();
+        app.world_mut().trigger(PlaceBlock {
+            entity: ore,
+            item: Item::IronOre,
+            coords: o.step(HDir::South),
+            dir: HDir::North,
+        });
+
+        // Place miner at origin facing the ore to the south.
+        let miner = app.world_mut().spawn_empty().id();
+        app.world_mut().trigger(PlaceBlock {
+            entity: miner,
+            item: Item::Miner,
+            coords: o,
+            dir: HDir::South,
+        });
+
+        // Place belt to the north — the miner's OutputDir(None) will find it.
+        let belt = app.add_belt(o.step(HDir::North), HDir::North);
+
+        // Tick until the miner has had enough time to extract and push.
+        for _ in 0..=MINER_TICKS_PER_EXTRACT {
+            app.update();
+        }
+
+        assert!(app.item_count_on_belt(belt) > 0);
     }
 }

@@ -11,6 +11,7 @@ impl Plugin for HotbarPlugin {
         hotbar[4] = Some(Item::Dirt);
         hotbar[5] = Some(Item::IronOre);
         hotbar[6] = Some(Item::CopperOre);
+        hotbar[7] = Some(Item::Miner);
         app.insert_resource(Hotbar(hotbar));
 
         app.add_systems(Startup, setup_hotbar);

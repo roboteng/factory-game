@@ -118,6 +118,7 @@ struct AllModels {
     dirt: ModelDef,
     iron_ore: ModelDef,
     copper_ore: ModelDef,
+    miner: ModelDef,
 }
 
 /// Creates a scene asset that renders `inner` with `transform` applied.
@@ -229,6 +230,15 @@ fn setup_models(
                 .collect(),
             )
         },
+        miner: ModelDef::Scene(ramp_scene(
+            asset_server.load(
+                GltfAssetLabel::Scene(0)
+                    .from_asset("models/kenney_prototype_kit/shape-hexagon-half.glb"),
+            ),
+            Transform::from_translation(Vec3::new(0.0, -HALF_BLOCK_SIZE / 2.0, 0.0))
+                .with_scale(Vec3::splat(2.0)),
+            &mut scenes,
+        )),
     });
 }
 
@@ -382,6 +392,7 @@ fn attach_models(
             Item::Dirt => &all_models.dirt,
             Item::IronOre => &all_models.iron_ore,
             Item::CopperOre => &all_models.copper_ore,
+            Item::Miner => &all_models.miner,
             Item::Belt => match shape {
                 Some(BeltShape::Straight(_)) => &all_models.belt_straight,
                 Some(BeltShape::Curve(_)) => &all_models.belt_curve,
