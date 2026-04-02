@@ -526,8 +526,8 @@ fn update_furnace_pane(
         return;
     };
     for (slot_marker, children) in &inv_slots {
-        let label = match inventory.slots().get(slot_marker.0 as usize) {
-            Some(Some(stack)) => format!("{}\n\u{00d7}{}", stack.item.name(), stack.count),
+        let label = match inventory.get(slot_marker.0) {
+            Some(stack) => format!("{}\n\u{00d7}{}", stack.item.name(), stack.count),
             _ => String::new(),
         };
         if let Some(&child) = children.first() {
@@ -575,9 +575,8 @@ fn handle_furnace_inventory_slot_clicks(
         if input_buf.accepts(stack.item) {
             input_buf.fill_slot(stack.item);
             // Return remainder if stack had more than 1
-            if let Some(remaining) = NonZeroU16::new(stack.count.get() - 1) {
-                let _ = inv.insert(Stack::new(stack.item, remaining));
-            }
+            let remaining = stack.count - 1;
+            inv.insert(Stack::new(stack.item, remaining)).unwrap();
         } else {
             // Furnace doesn't accept it — put the stack back
             let _ = inv.insert(stack);

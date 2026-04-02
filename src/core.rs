@@ -63,10 +63,8 @@ impl Plugin for CorePlugin {
         app.add_observer(on_incline);
 
         let mut inv = Inventory::new();
-        inv.insert(Stack::new(Item::Belt, 15.try_into().unwrap()))
-            .unwrap();
-        inv.insert(Stack::new(Item::IronOre, 5.try_into().unwrap()))
-            .unwrap();
+        inv.insert(Stack::new(Item::Belt, 15)).unwrap();
+        inv.insert(Stack::new(Item::IronOre, 5)).unwrap();
         let player = app.world_mut().spawn(inv).id();
         app.insert_resource(Player(player));
 
