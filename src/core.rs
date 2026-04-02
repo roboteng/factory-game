@@ -78,7 +78,8 @@ impl Plugin for CorePlugin {
                 fill_sources,
                 fill_miners,
                 push_to_belt,
-                sinks_destroy,
+                pull_from_belt,
+                consume_sink_buffer,
                 side_loading,
             ),
         );
@@ -150,6 +151,33 @@ pub struct Sink;
 #[derive(Component, Default)]
 pub struct OutputBuffer(pub Option<Item>);
 
+#[derive(Clone, Copy)]
+pub enum BeltFilter {
+    All,
+    Ores,
+}
+
+impl BeltFilter {
+    pub fn accepts(self, item: Item) -> bool {
+        match self {
+            BeltFilter::All => true,
+            BeltFilter::Ores => item.is_ore(),
+        }
+    }
+}
+
+#[derive(Component)]
+pub struct InputBuffer {
+    pub filter: BeltFilter,
+    pub item: Option<Item>,
+}
+
+impl InputBuffer {
+    pub fn new(filter: BeltFilter) -> Self {
+        Self { filter, item: None }
+    }
+}
+
 /// Output direction for belt pushers. `None` = try all four horizontal directions.
 #[derive(Component)]
 pub struct OutputDir(pub Option<HDir>);
@@ -204,6 +232,10 @@ pub enum Item {
 }
 
 impl Item {
+    pub fn is_ore(self) -> bool {
+        matches!(self, Item::IronOre | Item::CopperOre)
+    }
+
     pub fn name(self) -> &'static str {
         match self {
             Item::Belt => "Belt",
@@ -383,7 +415,8 @@ fn on_place_block(
                 .insert((Source, OutputBuffer::default(), OutputDir(Some(place.dir)), AffectsBelts, rt));
         }
         WorldBlock::Sink => {
-            cmd.entity(event.entity).insert((Sink, AffectsBelts, rt));
+            cmd.entity(event.entity)
+                .insert((Sink, InputBuffer::new(BeltFilter::All), AffectsBelts, rt));
         }
         WorldBlock::Miner => {
             cmd.entity(event.entity)
@@ -790,19 +823,23 @@ fn push_to_belt(
     }
 }
 
-fn sinks_destroy(
-    sinks: Query<&WorldCoords, With<Sink>>,
-    mut belts: Query<(Entity, &mut ItemLanes, &HDir)>,
+fn pull_from_belt(
+    mut sinks: Query<(&mut InputBuffer, &WorldCoords), With<Sink>>,
+    mut belts: Query<(&mut ItemLanes, &HDir)>,
+    items: Query<&Item, With<OnBelt>>,
     coord_map: Res<CoordsMap>,
     mut cmd: Commands,
 ) {
-    for sink_coords in sinks {
+    for (mut buffer, sink_coords) in &mut sinks {
+        if buffer.item.is_some() {
+            continue;
+        }
         for d in [HDir::North, HDir::South, HDir::East, HDir::West] {
             let neighbor = sink_coords.step(d.opposite());
             let Some(&belt_entity) = coord_map.0.get(&neighbor) else {
                 continue;
             };
-            let Ok((_, mut lanes, belt_dir)) = belts.get_mut(belt_entity) else {
+            let Ok((mut lanes, belt_dir)) = belts.get_mut(belt_entity) else {
                 continue;
             };
             if *belt_dir != d {
@@ -815,10 +852,28 @@ fn sinks_destroy(
                 if lead_item.0 != 0 {
                     continue;
                 }
-                cmd.entity(lead_item.1).despawn();
+                let item_entity = lead_item.1;
+                let Ok(&item) = items.get(item_entity) else {
+                    continue;
+                };
+                if !buffer.filter.accepts(item) {
+                    continue;
+                }
                 lanes.0[side].remove(0);
+                cmd.entity(item_entity).despawn();
+                buffer.item = Some(item);
+                break;
+            }
+            if buffer.item.is_some() {
+                break;
             }
         }
+    }
+}
+
+fn consume_sink_buffer(mut sinks: Query<&mut InputBuffer, With<Sink>>) {
+    for mut buffer in &mut sinks {
+        buffer.item = None;
     }
 }
 
