@@ -412,9 +412,31 @@ fn attach_models(
 }
 
 fn on_place_item(event: On<PlaceItem>, mut cmd: Commands, asset_server: Res<AssetServer>) {
-    cmd.entity(event.entity).insert(SceneRoot(
-        asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/item.glb")),
-    ));
+    let color = match event.item {
+        Item::Belt => Color::srgb(0.5, 0.5, 0.5),
+        Item::Source => Color::srgb(0.2, 0.8, 0.2),
+        Item::Sink => Color::srgb(0.8, 0.2, 0.2),
+        Item::Rock => Color::srgb(0.55, 0.55, 0.55),
+        Item::Dirt => Color::srgb(0.55, 0.35, 0.15),
+        Item::IronOre => Color::srgb(0.6, 0.4, 0.3),
+        Item::CopperOre => Color::srgb(0.7, 0.4, 0.15),
+        Item::IronIngot => Color::srgb(0.7, 0.7, 0.75),
+        Item::CopperIngot => Color::srgb(0.8, 0.5, 0.2),
+        Item::Miner => Color::srgb(0.3, 0.3, 0.5),
+        Item::Furnace => Color::srgb(0.8, 0.4, 0.1),
+    };
+    let visual = cmd
+        .spawn((
+            SceneRoot(asset_server.load(
+                GltfAssetLabel::Scene(0).from_asset("models/kenney_prototype_kit/shape-cube.glb"),
+            )),
+            Transform::from_scale(Vec3::splat(ITEM_SIZE * 0.95))
+                .with_translation(Vec3::Y * HALF_ITEM_SIZE),
+            SceneTint(color),
+            Visibility::Hidden,
+        ))
+        .id();
+    cmd.entity(event.entity).add_child(visual);
 }
 
 fn cursor_grab(
@@ -645,7 +667,9 @@ fn handle_click_to_place(
         },
         PlacementItem::Custom(item) => item,
     };
-    let Some(block) = item.can_place() else { return };
+    let Some(block) = item.can_place() else {
+        return;
+    };
 
     // Only handle clicks when cursor is grabbed (in game mode)
     if !mouse.just_pressed(MouseButton::Left) || cursor_options.grab_mode != CursorGrabMode::Locked
