@@ -155,6 +155,7 @@ pub struct OutputBuffer {
     pub items: Vec<Item>,
 }
 
+#[derive(Debug, PartialEq, Eq)]
 pub enum ProcessingMethod {
     Furnace,
     Assembler,
@@ -167,21 +168,20 @@ pub struct Recipe {
     pub ticks: u32,
 }
 
-pub static SMELT_IRON: Recipe = Recipe {
-    method: ProcessingMethod::Furnace,
-    inputs: &[Item::IronOre],
-    outputs: &[Item::IronIngot],
-    ticks: 100,
-};
-
-pub static SMELT_COPPER: Recipe = Recipe {
-    method: ProcessingMethod::Furnace,
-    inputs: &[Item::CopperOre],
-    outputs: &[Item::CopperIngot],
-    ticks: 100,
-};
-
-const FURNACE_RECIPES: &[&Recipe] = &[&SMELT_IRON, &SMELT_COPPER];
+pub const RECIPES: &'static [Recipe] = &[
+    Recipe {
+        method: ProcessingMethod::Furnace,
+        inputs: &[Item::IronOre],
+        outputs: &[Item::IronIngot],
+        ticks: 100,
+    },
+    Recipe {
+        method: ProcessingMethod::Furnace,
+        inputs: &[Item::CopperOre],
+        outputs: &[Item::CopperIngot],
+        ticks: 100,
+    },
+];
 
 #[derive(Component, Default)]
 pub struct Furnace {
@@ -978,13 +978,16 @@ fn process_furnace(mut furnaces: Query<(&mut Furnace, &mut InputBuffer, &mut Out
         if !output.items.is_empty() {
             continue;
         }
-        let recipe = FURNACE_RECIPES.iter().find(|r| {
-            r.inputs.len() == input.slots.len()
-                && r.inputs
-                    .iter()
-                    .zip(&input.slots)
-                    .all(|(exp, slot)| slot.as_ref() == Some(exp))
-        });
+        let recipe = RECIPES
+            .iter()
+            .filter(|r| r.method == ProcessingMethod::Furnace)
+            .find(|r| {
+                r.inputs.len() == input.slots.len()
+                    && r.inputs
+                        .iter()
+                        .zip(&input.slots)
+                        .all(|(exp, slot)| slot.as_ref() == Some(exp))
+            });
         let Some(recipe) = recipe else {
             continue;
         };
