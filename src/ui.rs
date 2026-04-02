@@ -380,20 +380,23 @@ fn spawn_stars(
 }
 
 fn attach_models(
-    world_items: Query<(Entity, &Item, Option<&BeltShape>), Or<(Added<Item>, Changed<BeltShape>)>>,
+    world_blocks: Query<
+        (Entity, &WorldBlock, Option<&BeltShape>),
+        Or<(Added<WorldBlock>, Changed<BeltShape>)>,
+    >,
     all_models: Res<AllModels>,
     mut cmd: Commands,
 ) {
-    for (entity, item, shape) in &world_items {
-        let model = match item {
-            Item::Source => &all_models.source,
-            Item::Sink => &all_models.sink,
-            Item::Rock => &all_models.rock,
-            Item::Dirt => &all_models.dirt,
-            Item::IronOre => &all_models.iron_ore,
-            Item::CopperOre => &all_models.copper_ore,
-            Item::Miner => &all_models.miner,
-            Item::Belt => match shape {
+    for (entity, block, shape) in &world_blocks {
+        let model = match block {
+            WorldBlock::Source => &all_models.source,
+            WorldBlock::Sink => &all_models.sink,
+            WorldBlock::Rock => &all_models.rock,
+            WorldBlock::Dirt => &all_models.dirt,
+            WorldBlock::IronOreDeposit => &all_models.iron_ore,
+            WorldBlock::CopperOreDeposit => &all_models.copper_ore,
+            WorldBlock::Miner => &all_models.miner,
+            WorldBlock::Belt => match shape {
                 Some(BeltShape::Straight(_)) => &all_models.belt_straight,
                 Some(BeltShape::Curve(_)) => &all_models.belt_curve,
                 Some(BeltShape::RampUp(_)) => &all_models.belt_ramp_up,
@@ -639,6 +642,8 @@ fn handle_click_to_place(
         },
         PlacementItem::Custom(item) => item,
     };
+    let Some(block) = item.can_place() else { return };
+
     // Only handle clicks when cursor is grabbed (in game mode)
     if !mouse.just_pressed(MouseButton::Left) || cursor_options.grab_mode != CursorGrabMode::Locked
     {
@@ -667,7 +672,7 @@ fn handle_click_to_place(
 
     let event = PlaceBlock {
         entity,
-        item,
+        block,
         coords: hit.place_coords,
         dir,
     };

@@ -44,41 +44,58 @@ fn setup(mut cmd: Commands) {
         use rand::Rng;
         let mut rng = rand::thread_rng();
         let ground_height = WorldCoordsDelta::ZERO.height(-2);
-        for ns in -4..=4 {
-            for ew in -4..=4 {
-                let item = if rng.gen_bool(0.5) {
-                    crate::core::Item::Rock
+        for ns in -5..=5 {
+            for ew in -5..=5 {
+                let block = if rng.gen_bool(0.5) {
+                    WorldBlock::Rock
                 } else {
-                    crate::core::Item::Dirt
+                    WorldBlock::Dirt
                 };
                 let entity = cmd.spawn_empty().id();
-                cmd.trigger(crate::core::PlaceBlock {
+                cmd.trigger(PlaceBlock {
                     entity,
-                    item,
+                    block,
                     coords: o + ground_height + WorldCoordsDelta::ZERO.north(ns).east(ew),
                     dir: HDir::North,
                 });
             }
         }
+
+        // Ore deposits for mining — placed outside the rock/dirt grid.
+        for (ns, ew, block) in [
+            (6i32, 0i32, WorldBlock::IronOreDeposit),
+            (6, 1, WorldBlock::IronOreDeposit),
+            (6, -1, WorldBlock::IronOreDeposit),
+            (-6, 0, WorldBlock::CopperOreDeposit),
+            (-6, 1, WorldBlock::CopperOreDeposit),
+        ] {
+            let entity = cmd.spawn_empty().id();
+            cmd.trigger(crate::core::PlaceBlock {
+                entity,
+                block,
+                coords: o + WorldCoordsDelta::ZERO.north(ns).east(ew),
+                dir: HDir::North,
+            });
+        }
     }
     let entity = cmd.spawn_empty().id();
-    cmd.trigger(crate::core::PlaceBlock {
+    cmd.trigger(PlaceBlock {
         entity,
-        item: crate::core::Item::Belt,
+        block: WorldBlock::Belt,
         coords: o.step(HDir::North).step(Dir::Up),
         dir: HDir::North,
     });
     let entity = cmd.spawn_empty().id();
-    cmd.trigger(crate::core::PlaceBlock {
+    cmd.trigger(PlaceBlock {
         entity,
-        item: crate::core::Item::Belt,
+        block: WorldBlock::Belt,
         coords: o,
         dir: HDir::North,
     });
     let belt_entity = cmd.spawn_empty().id();
-    cmd.trigger(crate::core::PlaceBlock {
+    cmd.trigger(PlaceBlock {
         entity: belt_entity,
-        item: crate::core::Item::Belt,
+        block: WorldBlock::Belt,
         coords: o.step(HDir::South),
         dir: HDir::North,
     });

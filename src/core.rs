@@ -94,7 +94,7 @@ impl Plugin for CorePlugin {
 #[derive(EntityEvent, Debug, Clone, Copy)]
 pub struct PlaceBlock {
     pub entity: Entity,
-    pub item: Item,
+    pub block: WorldBlock,
     pub coords: WorldCoords,
     pub dir: HDir,
 }
@@ -107,7 +107,7 @@ pub struct Incline {
 impl PlaceBlock {
     fn to_bundle(&self) -> impl Bundle {
         (
-            self.item,
+            self.block,
             self.coords,
             self.dir,
             Transform::from_translation(self.coords.into())
@@ -190,7 +190,7 @@ pub struct ItemLanes(Sided<Vec<(ItemPos, Entity)>>);
 #[derive(Component)]
 pub struct Delete;
 
-/// Item type.
+/// Item type — things that exist in the player's inventory or flow on belts.
 #[derive(Component, Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord, Hash)]
 pub enum Item {
     Belt,
@@ -217,16 +217,74 @@ impl Item {
         }
     }
 
+    /// Returns the world block this item places, or `None` if the item cannot be placed.
+    pub fn can_place(self) -> Option<WorldBlock> {
+        match self {
+            Item::Belt => Some(WorldBlock::Belt),
+            Item::Source => Some(WorldBlock::Source),
+            Item::Sink => Some(WorldBlock::Sink),
+            Item::Rock => Some(WorldBlock::Rock),
+            Item::Dirt => Some(WorldBlock::Dirt),
+            Item::Miner => Some(WorldBlock::Miner),
+            Item::IronOre | Item::CopperOre => None,
+        }
+    }
+}
+
+/// World block type — everything that occupies a position in the world, whether placed by the
+/// player or spawned by world generation. Not all world blocks have a corresponding item.
+#[derive(Component, Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord, Hash)]
+pub enum WorldBlock {
+    Belt,
+    Source,
+    Sink,
+    Rock,
+    Dirt,
+    IronOreDeposit,
+    CopperOreDeposit,
+    Miner,
+}
+
+impl WorldBlock {
+    pub fn name(self) -> &'static str {
+        match self {
+            WorldBlock::Belt => "Belt",
+            WorldBlock::Source => "Source",
+            WorldBlock::Sink => "Sink",
+            WorldBlock::Rock => "Rock",
+            WorldBlock::Dirt => "Dirt",
+            WorldBlock::IronOreDeposit => "Iron Ore Deposit",
+            WorldBlock::CopperOreDeposit => "Copper Ore Deposit",
+            WorldBlock::Miner => "Miner",
+        }
+    }
+
+    /// Item produced when a miner harvests this block. `None` means not minable.
+    pub fn mine(self) -> Option<Item> {
+        match self {
+            WorldBlock::IronOreDeposit => Some(Item::IronOre),
+            WorldBlock::CopperOreDeposit => Some(Item::CopperOre),
+            _ => None,
+        }
+    }
+
+    /// Item dropped when a player breaks this block. `None` means nothing is returned.
+    pub fn break_drop(self) -> Option<Item> {
+        match self {
+            WorldBlock::Belt => Some(Item::Belt),
+            WorldBlock::Source => Some(Item::Source),
+            WorldBlock::Sink => Some(Item::Sink),
+            WorldBlock::Rock => Some(Item::Rock),
+            WorldBlock::Dirt => Some(Item::Dirt),
+            WorldBlock::Miner => Some(Item::Miner),
+            WorldBlock::IronOreDeposit | WorldBlock::CopperOreDeposit => None,
+        }
+    }
+
     pub fn raycast_target(self) -> RaycastTarget {
         match self {
-            Item::Belt => RaycastTarget::HALF_BLOCK,
-            Item::Rock
-            | Item::Dirt
-            | Item::Source
-            | Item::Sink
-            | Item::IronOre
-            | Item::CopperOre
-            | Item::Miner => RaycastTarget::FULL_BLOCK,
+            WorldBlock::Belt => RaycastTarget::HALF_BLOCK,
+            _ => RaycastTarget::FULL_BLOCK,
         }
     }
 }
@@ -267,7 +325,7 @@ fn on_place_block(
     mut coord_map: ResMut<CoordsMap>,
     belts_q: Query<&ItemLanes, With<Belt>>,
 ) {
-    let rt = event.item.raycast_target();
+    let rt = event.block.raycast_target();
     let is_full = rt.half_extents.y > HALF_BLOCK_SIZE / 2.0;
 
     // Full-height blocks must sit at an even y coordinate. If the ray lands
@@ -285,7 +343,7 @@ fn on_place_block(
 
     debug!(
         "Placing {:?} at {coords:?} facing {:?}",
-        event.item, event.dir
+        event.block, event.dir
     );
 
     // For full-height blocks, also check the top slot.
@@ -296,7 +354,7 @@ fn on_place_block(
 
     // Check for an existing block at this location.
     if let Some(&existing) = coord_map.0.get(&coords) {
-        if event.item == Item::Belt {
+        if event.block == WorldBlock::Belt {
             if let Ok(old_lanes) = belts_q.get(existing) {
                 // Belt-on-belt: replace the old belt and transfer its items to the new one.
                 let transferred = old_lanes.0.clone();
@@ -315,15 +373,26 @@ fn on_place_block(
         return;
     }
 
-    match event.item {
-        Item::Belt => {
+    match event.block {
+        WorldBlock::Belt => {
             cmd.entity(event.entity)
                 .insert((Belt, ItemLanes::default(), AffectsBelts, rt));
         }
-        Item::Source => { cmd.entity(event.entity).insert((Source, OutputBuffer::default(), OutputDir(Some(place.dir)), AffectsBelts, rt)); }
-        Item::Sink => { cmd.entity(event.entity).insert((Sink, AffectsBelts, rt)); }
-        Item::Miner => { cmd.entity(event.entity).insert((Miner::default(), OutputBuffer::default(), OutputDir(None), AffectsBelts, rt)); }
-        Item::Rock | Item::Dirt | Item::IronOre | Item::CopperOre => {
+        WorldBlock::Source => {
+            cmd.entity(event.entity)
+                .insert((Source, OutputBuffer::default(), OutputDir(Some(place.dir)), AffectsBelts, rt));
+        }
+        WorldBlock::Sink => {
+            cmd.entity(event.entity).insert((Sink, AffectsBelts, rt));
+        }
+        WorldBlock::Miner => {
+            cmd.entity(event.entity)
+                .insert((Miner::default(), OutputBuffer::default(), OutputDir(None), AffectsBelts, rt));
+        }
+        WorldBlock::Rock
+        | WorldBlock::Dirt
+        | WorldBlock::IronOreDeposit
+        | WorldBlock::CopperOreDeposit => {
             cmd.entity(event.entity).insert(rt);
         }
     };
@@ -656,7 +725,7 @@ fn fill_sources(mut sources: Query<&mut OutputBuffer, With<Source>>) {
 
 fn fill_miners(
     mut miners: Query<(&WorldCoords, &mut Miner, &mut OutputBuffer)>,
-    ore_items: Query<&Item>,
+    world_blocks: Query<&WorldBlock>,
     coord_map: Res<CoordsMap>,
 ) {
     for (miner_coords, mut miner, mut buffer) in &mut miners {
@@ -676,17 +745,13 @@ fn fill_miners(
             miner_coords.step(HDir::East),
             miner_coords.step(HDir::West),
         ];
-        let Some(output_item) = adjacent.iter().find_map(|pos| {
-            let &ore_entity = coord_map.0.get(pos)?;
-            match ore_items.get(ore_entity).ok()? {
-                Item::IronOre => Some(Item::IronOre),
-                Item::CopperOre => Some(Item::CopperOre),
-                _ => None,
-            }
+        let Some(item) = adjacent.iter().find_map(|pos| {
+            let &entity = coord_map.0.get(pos)?;
+            world_blocks.get(entity).ok()?.mine()
         }) else {
             continue;
         };
-        buffer.0 = Some(output_item);
+        buffer.0 = Some(item);
     }
 }
 
@@ -1010,6 +1075,7 @@ fn parse_layout(s: &str) -> Vec<(i32, i32, HDir)> {
 #[cfg(test)]
 pub trait AppExtension {
     fn add_belt(&mut self, coords: impl Into<WorldCoords>, dir: HDir) -> Entity;
+    fn add_world_block(&mut self, coords: impl Into<WorldCoords>, block: WorldBlock) -> Entity;
     fn add_item(&mut self, belt: Entity, pos: i32, lane: Side) -> Entity;
     fn find_item(&mut self, item: Entity) -> Option<(Item, Transform)>;
     fn find_belt(&mut self, belt: Entity) -> Option<(BeltShape, Transform)>;
@@ -1028,8 +1094,19 @@ impl AppExtension for App {
         let entity = self.world_mut().spawn_empty().id();
         self.world_mut().trigger(PlaceBlock {
             entity,
-            item: Item::Belt,
+            block: WorldBlock::Belt,
             dir,
+            coords: coords.into(),
+        });
+        entity
+    }
+
+    fn add_world_block(&mut self, coords: impl Into<WorldCoords>, block: WorldBlock) -> Entity {
+        let entity = self.world_mut().spawn_empty().id();
+        self.world_mut().trigger(PlaceBlock {
+            entity,
+            block,
+            dir: HDir::North,
             coords: coords.into(),
         });
         entity
@@ -1302,19 +1379,13 @@ mod tests {
         let mut app = test_app();
         let o = WorldCoords::ORIGIN;
 
-        // Place iron ore two steps away — not adjacent to the miner.
-        let ore = app.world_mut().spawn_empty().id();
-        app.world_mut().trigger(PlaceBlock {
-            entity: ore,
-            item: Item::IronOre,
-            coords: o.step(HDir::South).step(HDir::South),
-            dir: HDir::North,
-        });
+        // Place iron ore deposit two steps away — not adjacent to the miner.
+        app.add_world_block(o.step(HDir::South).step(HDir::South), WorldBlock::IronOreDeposit);
 
         let miner = app.world_mut().spawn_empty().id();
         app.world_mut().trigger(PlaceBlock {
             entity: miner,
-            item: Item::Miner,
+            block: WorldBlock::Miner,
             coords: o,
             dir: HDir::South,
         });
@@ -1333,20 +1404,14 @@ mod tests {
         let mut app = test_app();
         let o = WorldCoords::ORIGIN;
 
-        // Place iron ore adjacent to the south of the miner position.
-        let ore = app.world_mut().spawn_empty().id();
-        app.world_mut().trigger(PlaceBlock {
-            entity: ore,
-            item: Item::IronOre,
-            coords: o.step(HDir::South),
-            dir: HDir::North,
-        });
+        // Place iron ore deposit adjacent to the south of the miner position.
+        app.add_world_block(o.step(HDir::South), WorldBlock::IronOreDeposit);
 
         // Place miner at origin facing the ore to the south.
         let miner = app.world_mut().spawn_empty().id();
         app.world_mut().trigger(PlaceBlock {
             entity: miner,
-            item: Item::Miner,
+            block: WorldBlock::Miner,
             coords: o,
             dir: HDir::South,
         });

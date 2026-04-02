@@ -9,8 +9,8 @@ impl Plugin for HotbarPlugin {
         hotbar[2] = Some(Item::Sink);
         hotbar[3] = Some(Item::Rock);
         hotbar[4] = Some(Item::Dirt);
-        hotbar[5] = Some(Item::IronOre);
-        hotbar[6] = Some(Item::CopperOre);
+        hotbar[5] = None;
+        hotbar[6] = None;
         hotbar[7] = Some(Item::Miner);
         app.insert_resource(Hotbar(hotbar));
 
