@@ -355,7 +355,6 @@ impl Curve {
             Side::Left
         }
     }
-    #[expect(unused)]
     pub const fn outer_lane(&self) -> Side {
         if self.is_clockwise() {
             Side::Left

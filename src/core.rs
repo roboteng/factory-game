@@ -141,9 +141,10 @@ pub struct Belt;
 #[derive(Component)]
 pub struct Source;
 
-#[derive(Component, Default)]
+#[derive(Component)]
 pub struct Miner {
     ticks: u32,
+    dir: HDir,
 }
 
 #[derive(Component)]
@@ -195,17 +196,26 @@ pub struct InputBuffer {
 
 impl InputBuffer {
     pub fn all() -> Self {
-        Self { recipe: None, slots: vec![None] }
+        Self {
+            recipe: None,
+            slots: vec![None],
+        }
     }
 
     pub fn for_recipe(recipe: &'static Recipe) -> Self {
-        Self { recipe: Some(recipe), slots: vec![None; recipe.inputs.len()] }
+        Self {
+            recipe: Some(recipe),
+            slots: vec![None; recipe.inputs.len()],
+        }
     }
 
     pub fn accepts(&self, item: Item) -> bool {
         match self.recipe {
             None => self.slots.iter().any(|s| s.is_none()),
-            Some(r) => r.inputs.iter().zip(self.slots.iter())
+            Some(r) => r
+                .inputs
+                .iter()
+                .zip(self.slots.iter())
                 .any(|(&expected, slot)| slot.is_none() && expected == item),
         }
     }
@@ -218,7 +228,10 @@ impl InputBuffer {
                 }
             }
             Some(r) => {
-                if let Some((_, slot)) = r.inputs.iter().zip(self.slots.iter_mut())
+                if let Some((_, slot)) = r
+                    .inputs
+                    .iter()
+                    .zip(self.slots.iter_mut())
                     .find(|(expected, slot)| slot.is_none() && **expected == item)
                 {
                     *slot = Some(item);
@@ -359,7 +372,7 @@ impl WorldBlock {
         }
     }
 
-    /// Item dropped when a player breaks this block. `None` means nothing is returned.
+    /// Item dropped when a player breaks this block. `None` means this block cannot be broken.
     pub fn break_drop(self) -> Option<Item> {
         match self {
             WorldBlock::Belt => Some(Item::Belt),
@@ -471,16 +484,29 @@ fn on_place_block(
                 .insert((Belt, ItemLanes::default(), AffectsBelts, rt));
         }
         WorldBlock::Source => {
-            cmd.entity(event.entity)
-                .insert((Source, OutputBuffer::default(), OutputDir(Some(place.dir)), AffectsBelts, rt));
+            cmd.entity(event.entity).insert((
+                Source,
+                OutputBuffer::default(),
+                OutputDir(Some(place.dir)),
+                AffectsBelts,
+                rt,
+            ));
         }
         WorldBlock::Sink => {
             cmd.entity(event.entity)
                 .insert((Sink, InputBuffer::all(), AffectsBelts, rt));
         }
         WorldBlock::Miner => {
-            cmd.entity(event.entity)
-                .insert((Miner::default(), OutputBuffer::default(), OutputDir(None), AffectsBelts, rt));
+            cmd.entity(event.entity).insert((
+                Miner {
+                    ticks: 0,
+                    dir: event.dir,
+                },
+                OutputBuffer::default(),
+                OutputDir(None),
+                AffectsBelts,
+                rt,
+            ));
         }
         WorldBlock::Furnace => {
             cmd.entity(event.entity).insert((
@@ -841,17 +867,13 @@ fn fill_miners(
         }
         miner.ticks = 0;
 
-        let adjacent = [
-            miner_coords.step(Dir::Down),
-            miner_coords.step(HDir::North),
-            miner_coords.step(HDir::South),
-            miner_coords.step(HDir::East),
-            miner_coords.step(HDir::West),
-        ];
-        let Some(item) = adjacent.iter().find_map(|pos| {
-            let &entity = coord_map.0.get(pos)?;
-            world_blocks.get(entity).ok()?.mine()
-        }) else {
+        let Some(&item) = coord_map.0.get(&miner_coords.step(miner.dir)) else {
+            continue;
+        };
+        let Ok(block) = world_blocks.get(item) else {
+            continue;
+        };
+        let Some(item) = block.mine() else {
             continue;
         };
         buffer.items.push(item);
@@ -866,15 +888,21 @@ fn push_to_belt(
 ) {
     const ALL_DIRS: [HDir; 4] = [HDir::North, HDir::South, HDir::East, HDir::West];
     for (mut buffer, coords, output_dir) in &mut pushers {
-        let Some(&item) = buffer.items.first() else { continue };
+        let Some(&item) = buffer.items.first() else {
+            continue;
+        };
         let dirs: &[HDir] = match &output_dir.0 {
             Some(d) => std::slice::from_ref(d),
             None => &ALL_DIRS,
         };
         for &dir in dirs {
             let target = coords.step(dir);
-            let Some(&belt_entity) = coord_map.0.get(&target) else { continue };
-            let Ok((belt_entity, lanes)) = belts.get(belt_entity) else { continue };
+            let Some(&belt_entity) = coord_map.0.get(&target) else {
+                continue;
+            };
+            let Ok((belt_entity, lanes)) = belts.get(belt_entity) else {
+                continue;
+            };
             if lanes.0.left.len() >= ITEMS_PER_BELT as usize {
                 continue;
             }
@@ -941,9 +969,7 @@ fn pull_from_belt(
     }
 }
 
-fn process_furnace(
-    mut furnaces: Query<(&mut Furnace, &mut InputBuffer, &mut OutputBuffer)>,
-) {
+fn process_furnace(mut furnaces: Query<(&mut Furnace, &mut InputBuffer, &mut OutputBuffer)>) {
     for (mut furnace, mut input, mut output) in &mut furnaces {
         if !input.is_ready() {
             furnace.ticks = 0;
@@ -954,7 +980,10 @@ fn process_furnace(
         }
         let recipe = FURNACE_RECIPES.iter().find(|r| {
             r.inputs.len() == input.slots.len()
-                && r.inputs.iter().zip(&input.slots).all(|(exp, slot)| slot.as_ref() == Some(exp))
+                && r.inputs
+                    .iter()
+                    .zip(&input.slots)
+                    .all(|(exp, slot)| slot.as_ref() == Some(exp))
         });
         let Some(recipe) = recipe else {
             continue;
@@ -978,7 +1007,6 @@ fn consume_sink_buffer(mut sinks: Query<&mut InputBuffer, With<Sink>>) {
         }
     }
 }
-
 
 impl<T> std::ops::Index<Side> for Sided<T> {
     type Output = T;
@@ -1537,7 +1565,10 @@ mod tests {
         let o = WorldCoords::ORIGIN;
 
         // Place iron ore deposit two steps away — not adjacent to the miner.
-        app.add_world_block(o.step(HDir::South).step(HDir::South), WorldBlock::IronOreDeposit);
+        app.add_world_block(
+            o.step(HDir::South).step(HDir::South),
+            WorldBlock::IronOreDeposit,
+        );
 
         let miner = app.world_mut().spawn_empty().id();
         app.world_mut().trigger(PlaceBlock {

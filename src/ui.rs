@@ -107,7 +107,7 @@ enum ModelDef {
 struct SceneTint(Color);
 
 #[derive(Resource)]
-struct AllModels {
+struct BlockModels {
     belt_straight: ModelDef,
     belt_curve: ModelDef,
     belt_ramp_up: ModelDef,
@@ -150,7 +150,7 @@ fn setup_models(
     let ramp_scale =
         (BLOCK_SIZE * BLOCK_SIZE + HALF_BLOCK_SIZE * HALF_BLOCK_SIZE).sqrt() / BLOCK_SIZE;
 
-    cmd.insert_resource(AllModels {
+    cmd.insert_resource(BlockModels {
         belt_straight: ModelDef::Scene(straight_scene.clone()),
         belt_curve: ModelDef::Scene(
             asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Untitled.glb")),
@@ -386,7 +386,7 @@ fn attach_models(
         (Entity, &WorldBlock, Option<&BeltShape>),
         Or<(Added<WorldBlock>, Changed<BeltShape>)>,
     >,
-    all_models: Res<AllModels>,
+    all_models: Res<BlockModels>,
     mut cmd: Commands,
 ) {
     for (entity, block, shape) in &world_blocks {
