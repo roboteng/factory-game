@@ -119,6 +119,7 @@ struct AllModels {
     iron_ore: ModelDef,
     copper_ore: ModelDef,
     miner: ModelDef,
+    furnace: ModelDef,
 }
 
 /// Creates a scene asset that renders `inner` with `transform` applied.
@@ -239,6 +240,7 @@ fn setup_models(
                 .with_scale(Vec3::splat(2.0)),
             &mut scenes,
         )),
+        furnace: ModelDef::Mesh(cuboid.clone(), materials.add(Color::srgb(0.8, 0.4, 0.1))),
     });
 }
 
@@ -396,6 +398,7 @@ fn attach_models(
             WorldBlock::IronOreDeposit => &all_models.iron_ore,
             WorldBlock::CopperOreDeposit => &all_models.copper_ore,
             WorldBlock::Miner => &all_models.miner,
+            WorldBlock::Furnace => &all_models.furnace,
             WorldBlock::Belt => match shape {
                 Some(BeltShape::Straight(_)) => &all_models.belt_straight,
                 Some(BeltShape::Curve(_)) => &all_models.belt_curve,

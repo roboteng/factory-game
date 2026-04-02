@@ -79,6 +79,7 @@ impl Plugin for CorePlugin {
                 fill_miners,
                 push_to_belt,
                 pull_from_belt,
+                process_furnace,
                 consume_sink_buffer,
                 side_loading,
             ),
@@ -149,32 +150,85 @@ pub struct Miner {
 pub struct Sink;
 
 #[derive(Component, Default)]
-pub struct OutputBuffer(pub Option<Item>);
-
-#[derive(Clone, Copy)]
-pub enum BeltFilter {
-    All,
-    Ores,
+pub struct OutputBuffer {
+    pub items: Vec<Item>,
 }
 
-impl BeltFilter {
-    pub fn accepts(self, item: Item) -> bool {
-        match self {
-            BeltFilter::All => true,
-            BeltFilter::Ores => item.is_ore(),
-        }
-    }
+pub enum ProcessingMethod {
+    Furnace,
+    Assembler,
+}
+
+pub struct Recipe {
+    pub method: ProcessingMethod,
+    pub inputs: &'static [Item],
+    pub outputs: &'static [Item],
+    pub ticks: u32,
+}
+
+pub static SMELT_IRON: Recipe = Recipe {
+    method: ProcessingMethod::Furnace,
+    inputs: &[Item::IronOre],
+    outputs: &[Item::IronIngot],
+    ticks: 100,
+};
+
+pub static SMELT_COPPER: Recipe = Recipe {
+    method: ProcessingMethod::Furnace,
+    inputs: &[Item::CopperOre],
+    outputs: &[Item::CopperIngot],
+    ticks: 100,
+};
+
+const FURNACE_RECIPES: &[&Recipe] = &[&SMELT_IRON, &SMELT_COPPER];
+
+#[derive(Component, Default)]
+pub struct Furnace {
+    ticks: u32,
 }
 
 #[derive(Component)]
 pub struct InputBuffer {
-    pub filter: BeltFilter,
-    pub item: Option<Item>,
+    pub recipe: Option<&'static Recipe>,
+    pub slots: Vec<Option<Item>>,
 }
 
 impl InputBuffer {
-    pub fn new(filter: BeltFilter) -> Self {
-        Self { filter, item: None }
+    pub fn all() -> Self {
+        Self { recipe: None, slots: vec![None] }
+    }
+
+    pub fn for_recipe(recipe: &'static Recipe) -> Self {
+        Self { recipe: Some(recipe), slots: vec![None; recipe.inputs.len()] }
+    }
+
+    pub fn accepts(&self, item: Item) -> bool {
+        match self.recipe {
+            None => self.slots.iter().any(|s| s.is_none()),
+            Some(r) => r.inputs.iter().zip(self.slots.iter())
+                .any(|(&expected, slot)| slot.is_none() && expected == item),
+        }
+    }
+
+    pub fn fill_slot(&mut self, item: Item) {
+        match self.recipe {
+            None => {
+                if let Some(slot) = self.slots.iter_mut().find(|s| s.is_none()) {
+                    *slot = Some(item);
+                }
+            }
+            Some(r) => {
+                if let Some((_, slot)) = r.inputs.iter().zip(self.slots.iter_mut())
+                    .find(|(expected, slot)| slot.is_none() && **expected == item)
+                {
+                    *slot = Some(item);
+                }
+            }
+        }
+    }
+
+    pub fn is_ready(&self) -> bool {
+        self.slots.iter().all(|s| s.is_some())
     }
 }
 
@@ -228,14 +282,13 @@ pub enum Item {
     Dirt,
     IronOre,
     CopperOre,
+    IronIngot,
+    CopperIngot,
     Miner,
+    Furnace,
 }
 
 impl Item {
-    pub fn is_ore(self) -> bool {
-        matches!(self, Item::IronOre | Item::CopperOre)
-    }
-
     pub fn name(self) -> &'static str {
         match self {
             Item::Belt => "Belt",
@@ -245,7 +298,10 @@ impl Item {
             Item::Dirt => "Dirt",
             Item::IronOre => "Iron Ore",
             Item::CopperOre => "Copper Ore",
+            Item::IronIngot => "Iron Ingot",
+            Item::CopperIngot => "Copper Ingot",
             Item::Miner => "Miner",
+            Item::Furnace => "Furnace",
         }
     }
 
@@ -258,7 +314,8 @@ impl Item {
             Item::Rock => Some(WorldBlock::Rock),
             Item::Dirt => Some(WorldBlock::Dirt),
             Item::Miner => Some(WorldBlock::Miner),
-            Item::IronOre | Item::CopperOre => None,
+            Item::Furnace => Some(WorldBlock::Furnace),
+            Item::IronOre | Item::CopperOre | Item::IronIngot | Item::CopperIngot => None,
         }
     }
 }
@@ -275,6 +332,7 @@ pub enum WorldBlock {
     IronOreDeposit,
     CopperOreDeposit,
     Miner,
+    Furnace,
 }
 
 impl WorldBlock {
@@ -288,6 +346,7 @@ impl WorldBlock {
             WorldBlock::IronOreDeposit => "Iron Ore Deposit",
             WorldBlock::CopperOreDeposit => "Copper Ore Deposit",
             WorldBlock::Miner => "Miner",
+            WorldBlock::Furnace => "Furnace",
         }
     }
 
@@ -309,6 +368,7 @@ impl WorldBlock {
             WorldBlock::Rock => Some(Item::Rock),
             WorldBlock::Dirt => Some(Item::Dirt),
             WorldBlock::Miner => Some(Item::Miner),
+            WorldBlock::Furnace => Some(Item::Furnace),
             WorldBlock::IronOreDeposit | WorldBlock::CopperOreDeposit => None,
         }
     }
@@ -416,11 +476,21 @@ fn on_place_block(
         }
         WorldBlock::Sink => {
             cmd.entity(event.entity)
-                .insert((Sink, InputBuffer::new(BeltFilter::All), AffectsBelts, rt));
+                .insert((Sink, InputBuffer::all(), AffectsBelts, rt));
         }
         WorldBlock::Miner => {
             cmd.entity(event.entity)
                 .insert((Miner::default(), OutputBuffer::default(), OutputDir(None), AffectsBelts, rt));
+        }
+        WorldBlock::Furnace => {
+            cmd.entity(event.entity).insert((
+                Furnace::default(),
+                InputBuffer::all(),
+                OutputBuffer::default(),
+                OutputDir(Some(place.dir)),
+                AffectsBelts,
+                rt,
+            ));
         }
         WorldBlock::Rock
         | WorldBlock::Dirt
@@ -750,8 +820,8 @@ fn set_item_transforms(
 
 fn fill_sources(mut sources: Query<&mut OutputBuffer, With<Source>>) {
     for mut buffer in &mut sources {
-        if buffer.0.is_none() {
-            buffer.0 = Some(Item::Belt);
+        if buffer.items.is_empty() {
+            buffer.items.push(Item::Belt);
         }
     }
 }
@@ -762,7 +832,7 @@ fn fill_miners(
     coord_map: Res<CoordsMap>,
 ) {
     for (miner_coords, mut miner, mut buffer) in &mut miners {
-        if buffer.0.is_some() {
+        if !buffer.items.is_empty() {
             continue;
         }
         miner.ticks += 1;
@@ -784,7 +854,7 @@ fn fill_miners(
         }) else {
             continue;
         };
-        buffer.0 = Some(item);
+        buffer.items.push(item);
     }
 }
 
@@ -796,7 +866,7 @@ fn push_to_belt(
 ) {
     const ALL_DIRS: [HDir; 4] = [HDir::North, HDir::South, HDir::East, HDir::West];
     for (mut buffer, coords, output_dir) in &mut pushers {
-        let Some(item) = buffer.0 else { continue };
+        let Some(&item) = buffer.items.first() else { continue };
         let dirs: &[HDir] = match &output_dir.0 {
             Some(d) => std::slice::from_ref(d),
             None => &ALL_DIRS,
@@ -808,7 +878,7 @@ fn push_to_belt(
             if lanes.0.left.len() >= ITEMS_PER_BELT as usize {
                 continue;
             }
-            buffer.0 = None;
+            buffer.items.remove(0);
             let entity = cmd.spawn_empty().id();
             cmd.trigger(PlaceItem {
                 entity,
@@ -824,14 +894,14 @@ fn push_to_belt(
 }
 
 fn pull_from_belt(
-    mut sinks: Query<(&mut InputBuffer, &WorldCoords), With<Sink>>,
+    mut sinks: Query<(&mut InputBuffer, &WorldCoords)>,
     mut belts: Query<(&mut ItemLanes, &HDir)>,
     items: Query<&Item, With<OnBelt>>,
     coord_map: Res<CoordsMap>,
     mut cmd: Commands,
 ) {
     for (mut buffer, sink_coords) in &mut sinks {
-        if buffer.item.is_some() {
+        if buffer.is_ready() {
             continue;
         }
         for d in [HDir::North, HDir::South, HDir::East, HDir::West] {
@@ -856,24 +926,56 @@ fn pull_from_belt(
                 let Ok(&item) = items.get(item_entity) else {
                     continue;
                 };
-                if !buffer.filter.accepts(item) {
+                if !buffer.accepts(item) {
                     continue;
                 }
                 lanes.0[side].remove(0);
                 cmd.entity(item_entity).despawn();
-                buffer.item = Some(item);
+                buffer.fill_slot(item);
                 break;
             }
-            if buffer.item.is_some() {
+            if buffer.is_ready() {
                 break;
             }
         }
     }
 }
 
+fn process_furnace(
+    mut furnaces: Query<(&mut Furnace, &mut InputBuffer, &mut OutputBuffer)>,
+) {
+    for (mut furnace, mut input, mut output) in &mut furnaces {
+        if !input.is_ready() {
+            furnace.ticks = 0;
+            continue;
+        }
+        if !output.items.is_empty() {
+            continue;
+        }
+        let recipe = FURNACE_RECIPES.iter().find(|r| {
+            r.inputs.len() == input.slots.len()
+                && r.inputs.iter().zip(&input.slots).all(|(exp, slot)| slot.as_ref() == Some(exp))
+        });
+        let Some(recipe) = recipe else {
+            continue;
+        };
+        furnace.ticks += 1;
+        if furnace.ticks < recipe.ticks {
+            continue;
+        }
+        furnace.ticks = 0;
+        output.items.extend_from_slice(recipe.outputs);
+        for slot in &mut input.slots {
+            *slot = None;
+        }
+    }
+}
+
 fn consume_sink_buffer(mut sinks: Query<&mut InputBuffer, With<Sink>>) {
     for mut buffer in &mut sinks {
-        buffer.item = None;
+        for slot in &mut buffer.slots {
+            *slot = None;
+        }
     }
 }
 
