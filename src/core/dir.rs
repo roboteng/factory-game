@@ -2,10 +2,15 @@ use super::{BLOCK_SIZE, HALF_BLOCK_SIZE, Side};
 use bevy::prelude::*;
 use std::f32::consts::PI;
 
+/// A block aligned position in the world.
+/// Y represents height. Each y level is half block, so moving up by one block, is moving up by 2 y.
+///
+/// The mappings between x-z and the cardnial directions are intentionall kept private.
+/// This remove much of the burden of the rest of the codebase to know the mapping.
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct WorldCoords {
     x: i32,
-    y: i32,
+    pub y: i32,
     z: i32,
 }
 
@@ -81,12 +86,19 @@ impl WorldCoords {
     }
 
     pub fn horizontal_neighbors(self) -> impl Iterator<Item = Self> {
-        (-1..=1i32)
-            .flat_map(move |dx| (-1..=1i32).map(move |dz| self + WorldCoordsDelta::new(dx, 0, dz)))
+        let vec = (-1..=1i32)
+            .flat_map(|dx| (-1..=1i32).map(move |dz| self + WorldCoordsDelta::new(dx, 0, dz)))
+            .filter(|d| *d != self)
+            .collect::<Vec<_>>();
+        vec.into_iter()
     }
 
     pub fn step(&self, dir: impl Into<WorldCoordsDelta>) -> Self {
         let d: WorldCoordsDelta = dir.into();
+        self.step_inner(d)
+    }
+
+    fn step_inner(&self, d: WorldCoordsDelta) -> Self {
         Self {
             x: self.x + d.x,
             y: self.y + d.y,
@@ -98,11 +110,7 @@ impl WorldCoords {
 impl std::ops::Add<WorldCoordsDelta> for WorldCoords {
     type Output = Self;
     fn add(self, rhs: WorldCoordsDelta) -> Self {
-        Self {
-            x: self.x + rhs.x,
-            y: self.y + rhs.y,
-            z: self.z + rhs.z,
-        }
+        self.step_inner(rhs)
     }
 }
 

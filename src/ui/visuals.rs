@@ -156,7 +156,9 @@ fn setup_models(
                 .with_scale(Vec3::splat(2.0)),
             &mut scenes,
         )),
-        furnace: ModelDef::Mesh(cuboid.clone(), materials.add(Color::srgb(0.8, 0.4, 0.1))),
+        furnace: ModelDef::Scene(
+            asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Assembler.glb")),
+        ),
     });
 }
 
