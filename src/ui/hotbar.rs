@@ -1,4 +1,7 @@
-use super::*;
+use crate::core::{inventory::Inventory, *};
+use bevy::prelude::*;
+
+use super::{InteractionMode, WorldMode};
 
 pub struct HotbarPlugin;
 impl Plugin for HotbarPlugin {
