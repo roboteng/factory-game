@@ -14,6 +14,7 @@ impl Plugin for VisualsPlugin {
 
 enum ModelDef {
     Scene(Handle<Scene>),
+    SceneTransform(Handle<Scene>, Transform),
     TintedScene(Handle<Scene>, Color),
     Random(Vec<ModelDef>),
     Mesh(Handle<Mesh>, Handle<StandardMaterial>),
@@ -37,61 +38,36 @@ struct BlockModels {
     miner: ModelDef,
     furnace: ModelDef,
 }
-
-/// Creates a scene asset that renders `inner` with `transform` applied.
-/// When instantiated, the scene root contains one entity (the transformed inner scene),
-/// so the ramp shape is entirely self-contained in the asset.
-fn ramp_scene(
-    inner: Handle<Scene>,
-    transform: Transform,
-    scenes: &mut Assets<Scene>,
-) -> Handle<Scene> {
-    let mut world = World::new();
-    world.spawn((SceneRoot(inner), transform));
-    scenes.add(Scene::new(world))
-}
-
 fn setup_models(
     mut cmd: Commands,
     asset_server: Res<AssetServer>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    mut scenes: ResMut<Assets<Scene>>,
 ) {
-    let cuboid = meshes.add(Cuboid::new(BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE));
+    let cuboid = meshes.add(Cuboid::new(1.0, 1.0, 1.0));
     let straight_scene =
         asset_server.load(GltfAssetLabel::Scene(1).from_asset("models/Untitled.glb"));
 
-    let ramp_angle = (HALF_BLOCK_SIZE / BLOCK_SIZE).atan();
-    let ramp_scale =
-        (BLOCK_SIZE * BLOCK_SIZE + HALF_BLOCK_SIZE * HALF_BLOCK_SIZE).sqrt() / BLOCK_SIZE;
+    let ramp_angle = 0.5_f32.atan();
+    let ramp_scale = (1.0_f32 + 0.5 * 0.5).sqrt();
 
     cmd.insert_resource(BlockModels {
         belt_straight: ModelDef::Scene(straight_scene.clone()),
         belt_curve: ModelDef::Scene(
             asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Untitled.glb")),
         ),
-        belt_ramp_up: ModelDef::Scene(ramp_scene(
+        belt_ramp_up: ModelDef::SceneTransform(
             straight_scene.clone(),
-            Transform::from_translation(Vec3::new(0.0, HALF_BLOCK_SIZE / 2.0, 0.0))
+            Transform::from_translation(Vec3::new(0.0, 0.5 / 2.0, 0.0))
                 .with_rotation(Quat::from_rotation_z(ramp_angle))
                 .with_scale(Vec3::new(ramp_scale, 1.0, 1.0)),
-            &mut scenes,
-        )),
-        belt_ramp_down: ModelDef::Scene(ramp_scene(
-            straight_scene,
-            Transform::from_translation(Vec3::new(0.0, -HALF_BLOCK_SIZE / 2.0, 0.0))
-                .with_rotation(Quat::from_rotation_z(-ramp_angle))
-                .with_scale(Vec3::new(ramp_scale, 1.0, 1.0)),
-            &mut scenes,
-        )),
+        ),
+        belt_ramp_down: ModelDef::Scene(straight_scene),
         source: ModelDef::Mesh(cuboid.clone(), materials.add(Color::srgb(0.2, 0.8, 0.2))),
         sink: ModelDef::Mesh(cuboid.clone(), materials.add(Color::srgb(0.8, 0.2, 0.2))),
         rock: ModelDef::Mesh(cuboid.clone(), materials.add(Color::srgb(0.55, 0.55, 0.55))),
         dirt: ModelDef::Mesh(cuboid.clone(), materials.add(Color::srgb(0.55, 0.35, 0.15))),
         iron_ore: {
-            let ore_transform = Transform::from_translation(Vec3::new(0.0, -HALF_BLOCK_SIZE, 0.0))
-                .with_scale(Vec3::splat(2.0));
             ModelDef::Random(
                 [
                     "rock_largeA",
@@ -104,13 +80,9 @@ fn setup_models(
                 .iter()
                 .map(|name| {
                     ModelDef::TintedScene(
-                        ramp_scene(
-                            asset_server.load(
-                                GltfAssetLabel::Scene(0)
-                                    .from_asset(format!("models/kenney_nature_kit/{name}.glb")),
-                            ),
-                            ore_transform,
-                            &mut scenes,
+                        asset_server.load(
+                            GltfAssetLabel::Scene(0)
+                                .from_asset(format!("models/kenney_nature_kit/{name}.glb")),
                         ),
                         Color::srgb(0.6, 0.5, 0.45),
                     )
@@ -118,57 +90,51 @@ fn setup_models(
                 .collect(),
             )
         },
-        copper_ore: {
-            let ore_transform = Transform::from_translation(Vec3::new(0.0, -HALF_BLOCK_SIZE, 0.0))
-                .with_scale(Vec3::splat(2.0));
-            ModelDef::Random(
-                [
-                    "rock_largeA",
-                    "rock_largeB",
-                    "rock_largeC",
-                    "rock_largeD",
-                    "rock_largeE",
-                    "rock_largeF",
-                ]
-                .iter()
-                .map(|name| {
-                    ModelDef::TintedScene(
-                        ramp_scene(
-                            asset_server.load(
-                                GltfAssetLabel::Scene(0)
-                                    .from_asset(format!("models/kenney_nature_kit/{name}.glb")),
-                            ),
-                            ore_transform,
-                            &mut scenes,
-                        ),
-                        Color::srgb(0.7, 0.4, 0.15),
-                    )
-                })
-                .collect(),
-            )
-        },
-        miner: ModelDef::Scene(ramp_scene(
+        copper_ore: ModelDef::Random(
+            [
+                "rock_largeA",
+                "rock_largeB",
+                "rock_largeC",
+                "rock_largeD",
+                "rock_largeE",
+                "rock_largeF",
+            ]
+            .iter()
+            .map(|name| {
+                ModelDef::TintedScene(
+                    asset_server.load(
+                        GltfAssetLabel::Scene(0)
+                            .from_asset(format!("models/kenney_nature_kit/{name}.glb")),
+                    ),
+                    Color::srgb(0.7, 0.4, 0.15),
+                )
+            })
+            .collect(),
+        ),
+        miner: ModelDef::Scene(
             asset_server.load(
                 GltfAssetLabel::Scene(0)
                     .from_asset("models/kenney_prototype_kit/shape-hexagon-half.glb"),
             ),
-            Transform::from_translation(Vec3::new(0.0, -HALF_BLOCK_SIZE / 2.0, 0.0))
-                .with_scale(Vec3::splat(2.0)),
-            &mut scenes,
-        )),
+            // Transform::from_translation(Vec3::new(0.0, -0.5 / 2.0, 0.0))
+            //     .with_scale(Vec3::splat(2.0)),
+        ),
         furnace: ModelDef::Scene(
-            asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Assembler.glb")),
+            asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Furnace.glb")),
         ),
     });
 }
 
-fn apply_model(cmd: &mut EntityCommands, model: &ModelDef) {
+fn apply_model(entity: Entity, mut cmd: Commands, model: &ModelDef) {
     match model {
         ModelDef::Scene(handle) => {
-            cmd.insert(SceneRoot(handle.clone()));
+            cmd.entity(entity).insert(SceneRoot(handle.clone()));
+        }
+        ModelDef::SceneTransform(handle, transform) => {
+            cmd.spawn((SceneRoot(handle.clone()), *transform, ChildOf(entity)));
         }
         ModelDef::TintedScene(handle, color) => {
-            cmd.insert((
+            cmd.entity(entity).insert((
                 SceneRoot(handle.clone()),
                 SceneTint(*color),
                 Visibility::Hidden,
@@ -176,10 +142,11 @@ fn apply_model(cmd: &mut EntityCommands, model: &ModelDef) {
         }
         ModelDef::Random(options) => {
             let chosen = &options[rand::random::<usize>() % options.len()];
-            apply_model(cmd, chosen);
+            apply_model(entity, cmd, chosen);
         }
         ModelDef::Mesh(mesh, material) => {
-            cmd.insert((Mesh3d(mesh.clone()), MeshMaterial3d(material.clone())));
+            cmd.entity(entity)
+                .insert((Mesh3d(mesh.clone()), MeshMaterial3d(material.clone())));
         }
     }
 }
@@ -244,7 +211,7 @@ fn attach_models(
                 None => continue,
             },
         };
-        apply_model(&mut cmd.entity(entity), model);
+        apply_model(entity, cmd.reborrow(), model);
     }
 }
 

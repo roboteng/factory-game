@@ -1,4 +1,4 @@
-use super::{BLOCK_SIZE, HALF_BLOCK_SIZE, Side};
+use super::Side;
 use bevy::prelude::*;
 use std::f32::consts::PI;
 
@@ -131,28 +131,28 @@ impl WorldCoordsDelta {
 
     pub const fn north(self, n: i32) -> Self {
         Self {
-            x: self.x + n,
+            z: self.z - n,
             ..self
         }
     }
 
     pub const fn south(self, n: i32) -> Self {
         Self {
-            x: self.x - n,
+            z: self.z + n,
             ..self
         }
     }
 
     pub const fn east(self, n: i32) -> Self {
         Self {
-            z: self.z + n,
+            x: self.x + n,
             ..self
         }
     }
 
     pub const fn west(self, n: i32) -> Self {
         Self {
-            z: self.z - n,
+            x: self.x - n,
             ..self
         }
     }
@@ -170,10 +170,10 @@ impl From<Dir> for WorldCoordsDelta {
         match dir {
             Dir::Up => Self { x: 0, y: 1, z: 0 },
             Dir::Down => Self { x: 0, y: -1, z: 0 },
-            Dir::North => Self { x: 1, y: 0, z: 0 },
-            Dir::South => Self { x: -1, y: 0, z: 0 },
-            Dir::East => Self { x: 0, y: 0, z: 1 },
-            Dir::West => Self { x: 0, y: 0, z: -1 },
+            Dir::North => Self { x: 0, y: 0, z: -1 },
+            Dir::South => Self { x: 0, y: 0, z: 1 },
+            Dir::East => Self { x: 1, y: 0, z: 0 },
+            Dir::West => Self { x: -1, y: 0, z: 0 },
         }
     }
 }
@@ -211,10 +211,10 @@ impl From<BeltOutput> for WorldCoordsDelta {
 impl HDir {
     pub const fn angle(&self) -> f32 {
         match self {
-            Self::North => 0.0,
-            Self::East => -PI / 2.0,
-            Self::South => PI,
-            Self::West => PI / 2.0,
+            Self::North => PI / 2.0,
+            Self::East => 0.0,
+            Self::South => -PI / 2.0,
+            Self::West => PI,
         }
     }
 
@@ -402,11 +402,7 @@ impl From<BeltShape> for WorldCoordsDelta {
 }
 impl From<WorldCoords> for Vec3 {
     fn from(coords: WorldCoords) -> Self {
-        Vec3::new(
-            coords.x as f32 * BLOCK_SIZE,
-            coords.y as f32 * HALF_BLOCK_SIZE,
-            coords.z as f32 * BLOCK_SIZE,
-        )
+        Vec3::new(coords.x as f32, coords.y as f32 * 0.5, coords.z as f32)
     }
 }
 
@@ -429,10 +425,10 @@ impl From<HDir> for BeltOutput {
 impl From<HDir> for Vec3 {
     fn from(value: HDir) -> Vec3 {
         match value {
-            HDir::North => Vec3::X,
-            HDir::South => Vec3::NEG_X,
-            HDir::East => Vec3::Z,
-            HDir::West => Vec3::NEG_Z,
+            HDir::North => Vec3::NEG_Z,
+            HDir::South => Vec3::Z,
+            HDir::East => Vec3::X,
+            HDir::West => Vec3::NEG_X,
         }
     }
 }
@@ -461,29 +457,29 @@ mod tests {
         );
         assert_eq!(
             WorldCoordsDelta::from(Dir::North),
-            WorldCoordsDelta { x: 1, y: 0, z: 0 }
+            WorldCoordsDelta { x: 0, y: 0, z: -1 }
         );
         assert_eq!(
             WorldCoordsDelta::from(Dir::South),
-            WorldCoordsDelta { x: -1, y: 0, z: 0 }
-        );
-        assert_eq!(
-            WorldCoordsDelta::from(Dir::East),
             WorldCoordsDelta { x: 0, y: 0, z: 1 }
         );
         assert_eq!(
+            WorldCoordsDelta::from(Dir::East),
+            WorldCoordsDelta { x: 1, y: 0, z: 0 }
+        );
+        assert_eq!(
             WorldCoordsDelta::from(Dir::West),
-            WorldCoordsDelta { x: 0, y: 0, z: -1 }
+            WorldCoordsDelta { x: -1, y: 0, z: 0 }
         );
     }
 
     #[test]
     fn hdir_works_with_step() {
         let origin = WorldCoords { x: 0, y: 0, z: 0 };
-        assert_eq!(origin.step(HDir::North), WorldCoords { x: 1, y: 0, z: 0 });
-        assert_eq!(origin.step(HDir::South), WorldCoords { x: -1, y: 0, z: 0 });
-        assert_eq!(origin.step(HDir::East), WorldCoords { x: 0, y: 0, z: 1 });
-        assert_eq!(origin.step(HDir::West), WorldCoords { x: 0, y: 0, z: -1 });
+        assert_eq!(origin.step(HDir::North), WorldCoords { x: 0, y: 0, z: -1 });
+        assert_eq!(origin.step(HDir::South), WorldCoords { x: 0, y: 0, z: 1 });
+        assert_eq!(origin.step(HDir::East), WorldCoords { x: 1, y: 0, z: 0 });
+        assert_eq!(origin.step(HDir::West), WorldCoords { x: -1, y: 0, z: 0 });
     }
 
     #[test]
@@ -491,15 +487,15 @@ mod tests {
         let origin = WorldCoords { x: 0, y: 0, z: 0 };
         assert_eq!(
             origin.step(BeltOutput::Up(HDir::North)),
-            WorldCoords { x: 1, y: 1, z: 0 }
+            WorldCoords { x: 0, y: 1, z: -1 }
         );
         assert_eq!(
             origin.step(BeltOutput::Level(HDir::East)),
-            WorldCoords { x: 0, y: 0, z: 1 }
+            WorldCoords { x: 1, y: 0, z: 0 }
         );
         assert_eq!(
             origin.step(BeltOutput::Down(HDir::South)),
-            WorldCoords { x: -1, y: -1, z: 0 }
+            WorldCoords { x: 0, y: -1, z: 1 }
         );
     }
 

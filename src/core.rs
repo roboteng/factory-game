@@ -19,28 +19,24 @@ mod proptest_actions;
 #[cfg(all(test, feature = "proptests"))]
 mod proptests;
 
-pub const BLOCK_SIZE: f32 = 2.0;
-pub const HALF_BLOCK_SIZE: f32 = BLOCK_SIZE / 2.0;
-pub const ITEM_SIZE: f32 = BLOCK_SIZE / 4.0;
-pub const HALF_ITEM_SIZE: f32 = ITEM_SIZE / 2.0;
-/// How far from the bottom of the voxel the belt surface is.
-pub const BELT_HEIGHT: f32 = 0.25 * BLOCK_SIZE;
-pub const BELT_HEIGHT_FROM_CENTER: f32 = -(BLOCK_SIZE / 2.0) + BELT_HEIGHT;
-/// Amount of a unit voxel of how far a lane is offset from center.
-pub const LANE_OFFSET_FACTOR: f32 = 0.25;
-/// How far from center each lane is.
-pub const LANE_OFFSET: f32 = LANE_OFFSET_FACTOR * BLOCK_SIZE;
-
+pub const ITEMS_PER_BELT: i32 = 4;
 pub const POSITIONS_PER_BELT: i32 = 256;
-pub const MINER_TICKS_PER_EXTRACT: u32 = 60;
-pub const ITEM_SPACING: i32 = POSITIONS_PER_BELT / 4;
 pub const BASE_BELT_SPEED: i32 = 8;
-pub const BASE_ITEM_MOVEMENT: f32 = BLOCK_SIZE * BASE_BELT_SPEED as f32 / POSITIONS_PER_BELT as f32;
+/// How far from center each lane is.
+pub const LANE_OFFSET: f32 = 0.25;
+/// How far from the bottom of the voxel the belt surface is.
+pub const BELT_HEIGHT: f32 = 0.25;
+pub const BELT_HEIGHT_FROM_CENTER: f32 = BELT_HEIGHT - 0.5;
+
+pub const ITEM_SIZE: f32 = 1.0 / (ITEMS_PER_BELT as f32);
+pub const HALF_ITEM_SIZE: f32 = ITEM_SIZE / 2.0;
+pub const MINER_TICKS_PER_EXTRACT: u32 = 60;
+pub const ITEM_SPACING: i32 = POSITIONS_PER_BELT / ITEMS_PER_BELT;
+pub const BASE_ITEM_MOVEMENT: f32 = BASE_BELT_SPEED as f32 / POSITIONS_PER_BELT as f32;
 pub const POSITIONS_PER_INNER_CURVE: i32 =
-    ((0.5 - LANE_OFFSET_FACTOR) * POSITIONS_PER_BELT as f32 * PI / 2.0).round() as i32;
+    ((0.5 - LANE_OFFSET) * POSITIONS_PER_BELT as f32 * PI / 2.0).round() as i32;
 pub const POSITIONS_PER_OUTER_CURVE: i32 =
-    ((0.5 + LANE_OFFSET_FACTOR) * POSITIONS_PER_BELT as f32 * PI / 2.0).round() as i32;
-pub const ITEMS_PER_BELT: i32 = POSITIONS_PER_BELT / ITEM_SPACING;
+    ((0.5 + LANE_OFFSET) * POSITIONS_PER_BELT as f32 * PI / 2.0).round() as i32;
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub enum Side {
@@ -280,11 +276,11 @@ pub struct RaycastTarget {
 impl RaycastTarget {
     /// Half-block tall (belts).
     pub const HALF_BLOCK: Self = Self {
-        half_extents: Vec3::new(BLOCK_SIZE / 2.0, BELT_HEIGHT / 2.0, BLOCK_SIZE / 2.0),
+        half_extents: Vec3::new(0.5, BELT_HEIGHT / 2.0, 0.5),
     };
     /// Full-block tall (Rock / Dirt / Source / Sink).
     pub const FULL_BLOCK: Self = Self {
-        half_extents: Vec3::new(BLOCK_SIZE / 2.0, BLOCK_SIZE / 2.0, BLOCK_SIZE / 2.0),
+        half_extents: Vec3::splat(0.5),
     };
 }
 
@@ -407,6 +403,44 @@ impl WorldBlock {
             _ => RaycastTarget::FULL_BLOCK,
         }
     }
+
+    pub fn size(&self) -> BlockSize {
+        match self {
+            WorldBlock::Belt => BlockSize::HALF_BLOCK,
+            WorldBlock::Source
+            | WorldBlock::Sink
+            | WorldBlock::Rock
+            | WorldBlock::Dirt
+            | WorldBlock::IronOreDeposit
+            | WorldBlock::CopperOreDeposit
+            | WorldBlock::Miner => BlockSize::HALF_BLOCK,
+            WorldBlock::Furnace => BlockSize {
+                height: 6,
+                width: 2,
+                depth: 2,
+            },
+        }
+    }
+}
+
+pub struct BlockSize {
+    /// How many half blocks it takes up
+    height: u8,
+    width: u8,
+    depth: u8,
+}
+
+impl BlockSize {
+    pub const HALF_BLOCK: Self = BlockSize {
+        height: 1,
+        width: 1,
+        depth: 1,
+    };
+    pub const FULL_BLOCK: Self = BlockSize {
+        height: 2,
+        width: 1,
+        depth: 1,
+    };
 }
 
 #[derive(Component, Debug, PartialEq, Eq, Clone, Default)]
@@ -446,7 +480,7 @@ fn on_place_block(
     belts_q: Query<&ItemLanes, With<Belt>>,
 ) {
     let rt = event.block.raycast_target();
-    let is_full = rt.half_extents.y > HALF_BLOCK_SIZE / 2.0;
+    let is_full = rt.half_extents.y > 0.25;
 
     // Full-height blocks must sit at an even y coordinate. If the ray lands
     // on an odd slot (e.g. top face of a belt), snap down to the nearest even.
@@ -814,8 +848,7 @@ fn side_loading(
                     && dest.1.0[dest_side].last().map(|a| a.0).unwrap_or(0) + ITEM_SPACING
                         < dest.3.num_pos(dest_side)
                 {
-                    const OFFSET: i32 =
-                        (POSITIONS_PER_BELT as f32 * LANE_OFFSET_FACTOR).round() as i32;
+                    const OFFSET: i32 = (POSITIONS_PER_BELT as f32 * LANE_OFFSET).round() as i32;
                     let position = if side == dest_side {
                         POSITIONS_PER_BELT / 2 - OFFSET
                     } else {
@@ -1064,8 +1097,8 @@ pub fn item_position(
                 Side::Left => -LANE_OFFSET,
                 Side::Right => LANE_OFFSET,
             };
-            let start = Vec3::new(HALF_BLOCK_SIZE, BELT_HEIGHT_FROM_CENTER, z);
-            let end = Vec3::new(-HALF_BLOCK_SIZE, BELT_HEIGHT_FROM_CENTER, z);
+            let start = Vec3::new(0.5, BELT_HEIGHT_FROM_CENTER, z);
+            let end = Vec3::new(-0.5, BELT_HEIGHT_FROM_CENTER, z);
 
             let t = (pos + ITEM_SPACING / 2) as f32 / POSITIONS_PER_BELT as f32;
             let angle = dir.angle();
@@ -1082,9 +1115,9 @@ pub fn item_position(
                 POSITIONS_PER_OUTER_CURVE
             };
             let lane_offset = if curve.inner_lane() == lane {
-                0.5 - LANE_OFFSET_FACTOR
+                0.5 - LANE_OFFSET
             } else {
-                0.5 + LANE_OFFSET_FACTOR
+                0.5 + LANE_OFFSET
             };
             let angle_offset = (pos + ITEM_SPACING / 2) as f32 / n_pos as f32 * PI / 2.0;
             let angle_base = curve.input().angle();
@@ -1110,11 +1143,8 @@ pub fn item_position(
                 local_offset
             );
             Transform::from_translation(
-                Vec3::new(
-                    local_offset.y * BLOCK_SIZE,
-                    BELT_HEIGHT_FROM_CENTER,
-                    local_offset.x * BLOCK_SIZE,
-                ) + Vec3::from(coords.into()),
+                Vec3::new(local_offset.y, BELT_HEIGHT_FROM_CENTER, local_offset.x)
+                    + Vec3::from(coords.into()),
             )
             .with_rotation(Quat::from_rotation_y(angle + PI / 2.0))
         }

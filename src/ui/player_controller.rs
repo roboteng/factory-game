@@ -344,7 +344,7 @@ fn cast_ray(origin: Vec3, dir: Vec3, targets: impl Iterator<Item = RayTarget>) -
         // Bottom-align the AABB within the voxel slot
         let center = Vec3::new(
             center.x,
-            center.y - HALF_BLOCK_SIZE / 2.0 + half_extents.y.min(HALF_BLOCK_SIZE / 2.0),
+            center.y - 0.5 / 2.0 + half_extents.y.min(0.5 / 2.0),
             center.z,
         );
         let mut t_enter = f32::NEG_INFINITY;
@@ -382,7 +382,7 @@ fn cast_ray(origin: Vec3, dir: Vec3, targets: impl Iterator<Item = RayTarget>) -
         if best.map_or(true, |(best_t, _, _)| t_enter < best_t) {
             let mut offset = [0i32; 3];
             // How many half-block y-slots does this block occupy?
-            let y_slots = (2.0 * half_extents.y / HALF_BLOCK_SIZE).round() as i32;
+            let y_slots = (2.0 * half_extents.y / 0.5).round() as i32;
             if enter_axis == 1 {
                 // Top/bottom face: step past all occupied y slots.
                 offset[1] = if dir[1] > 0.0 { -y_slots } else { y_slots };
@@ -390,7 +390,7 @@ fn cast_ray(origin: Vec3, dir: Vec3, targets: impl Iterator<Item = RayTarget>) -
                 // Side face: snap Y to whichever half-block slot the ray actually
                 // hit, clamped to the block's own occupied slots.
                 let hit_world_y = origin[1] + t_enter * dir[1];
-                let raw_y = (hit_world_y / HALF_BLOCK_SIZE).round() as i32;
+                let raw_y = (hit_world_y / 0.5).round() as i32;
                 let snapped_y = raw_y.clamp(coords.height(), coords.height() + y_slots - 1);
                 offset[1] = snapped_y - coords.height();
                 offset[enter_axis] = if dir[enter_axis] > 0.0 { -1 } else { 1 };
@@ -558,7 +558,7 @@ fn update_delete_preview(
 
     **vis = Visibility::Visible;
     let mut pos = Vec3::from(resolved.coords);
-    pos.y = pos.y - HALF_BLOCK_SIZE / 2.0 + resolved.half_extents.y.min(HALF_BLOCK_SIZE / 2.0);
+    pos.y = pos.y - 0.5 / 2.0 + resolved.half_extents.y.min(0.5 / 2.0);
     t.translation = pos;
     t.scale = resolved.half_extents * 2.0 * 1.05;
 
@@ -614,7 +614,7 @@ fn handle_change_incline(
 
     **vis = Visibility::Visible;
     let mut pos = Vec3::from(resolved.coords);
-    pos.y = pos.y - HALF_BLOCK_SIZE / 2.0 + resolved.half_extents.y.min(HALF_BLOCK_SIZE / 2.0);
+    pos.y = pos.y - 0.5 / 2.0 + resolved.half_extents.y.min(0.5 / 2.0);
     t.translation = pos;
     t.scale = resolved.half_extents * 2.0 * 1.05;
 
@@ -699,7 +699,7 @@ fn draw_crosshair_gizmo(
     };
 
     let mut pos = Vec3::from(resolved.coords);
-    pos.y = pos.y - HALF_BLOCK_SIZE / 2.0 + resolved.half_extents.y.min(HALF_BLOCK_SIZE / 2.0);
+    pos.y = pos.y - 0.5 / 2.0 + resolved.half_extents.y.min(0.5 / 2.0);
     let size = resolved.half_extents * 2.0;
 
     gizmos.cube(
@@ -744,12 +744,10 @@ fn draw_placement_preview(
 
     // Arrow direction vector on XZ plane (North = +X)
     let forward = Vec3::new(angle.cos(), 0.0, -angle.sin());
-    let arrow_len = BLOCK_SIZE * 0.8;
+    let arrow_len = 0.8;
     let start = pos - forward * arrow_len * 0.5;
     let end = pos + forward * arrow_len * 0.5;
 
     let color = Color::srgba(0.2, 0.8, 1.0, 0.9);
-    gizmos
-        .arrow(start, end, color)
-        .with_tip_length(BLOCK_SIZE * 0.2);
+    gizmos.arrow(start, end, color).with_tip_length(0.2);
 }
