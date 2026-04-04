@@ -341,12 +341,8 @@ fn cast_ray(origin: Vec3, dir: Vec3, targets: impl Iterator<Item = RayTarget>) -
         half_extents,
     } in targets
     {
-        // Bottom-align the AABB within the voxel slot
-        let center = Vec3::new(
-            center.x,
-            center.y - 0.5 / 2.0 + half_extents.y.min(0.5 / 2.0),
-            center.z,
-        );
+        // Entity transform is at the center-bottom; shift up to AABB center.
+        let center = Vec3::new(center.x, center.y + half_extents.y, center.z);
         let mut t_enter = f32::NEG_INFINITY;
         let mut t_leave = f32::INFINITY;
         let mut enter_axis = 0usize;
@@ -558,7 +554,7 @@ fn update_delete_preview(
 
     **vis = Visibility::Visible;
     let mut pos = Vec3::from(resolved.coords);
-    pos.y = pos.y - 0.5 / 2.0 + resolved.half_extents.y.min(0.5 / 2.0);
+    pos.y += resolved.half_extents.y;
     t.translation = pos;
     t.scale = resolved.half_extents * 2.0 * 1.05;
 
@@ -614,7 +610,7 @@ fn handle_change_incline(
 
     **vis = Visibility::Visible;
     let mut pos = Vec3::from(resolved.coords);
-    pos.y = pos.y - 0.5 / 2.0 + resolved.half_extents.y.min(0.5 / 2.0);
+    pos.y += resolved.half_extents.y;
     t.translation = pos;
     t.scale = resolved.half_extents * 2.0 * 1.05;
 
@@ -699,7 +695,7 @@ fn draw_crosshair_gizmo(
     };
 
     let mut pos = Vec3::from(resolved.coords);
-    pos.y = pos.y - 0.5 / 2.0 + resolved.half_extents.y.min(0.5 / 2.0);
+    pos.y += resolved.half_extents.y;
     let size = resolved.half_extents * 2.0;
 
     gizmos.cube(

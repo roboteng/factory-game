@@ -14,10 +14,8 @@ impl Plugin for VisualsPlugin {
 
 enum ModelDef {
     Scene(Handle<Scene>),
-    SceneTransform(Handle<Scene>, Transform),
     TintedScene(Handle<Scene>, Color),
     Random(Vec<ModelDef>),
-    Mesh(Handle<Mesh>, Handle<StandardMaterial>),
 }
 
 #[derive(Component)]
@@ -38,35 +36,28 @@ struct BlockModels {
     miner: ModelDef,
     furnace: ModelDef,
 }
-fn setup_models(
-    mut cmd: Commands,
-    asset_server: Res<AssetServer>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-) {
-    let cuboid = meshes.add(Cuboid::new(1.0, 1.0, 1.0));
-    let straight_scene =
-        asset_server.load(GltfAssetLabel::Scene(1).from_asset("models/Untitled.glb"));
-
-    let ramp_angle = 0.5_f32.atan();
-    let ramp_scale = (1.0_f32 + 0.5 * 0.5).sqrt();
+fn setup_models(mut cmd: Commands, asset_server: Res<AssetServer>) {
+    let voxel = || {
+        asset_server
+            .load(GltfAssetLabel::Scene(0).from_asset("models/kenney_prototype_kit/shape-cube.glb"))
+    };
+    let straight_scene = asset_server.load(GltfAssetLabel::Scene(1).from_asset("models/belt.glb"));
 
     cmd.insert_resource(BlockModels {
         belt_straight: ModelDef::Scene(straight_scene.clone()),
         belt_curve: ModelDef::Scene(
             asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Untitled.glb")),
         ),
-        belt_ramp_up: ModelDef::SceneTransform(
-            straight_scene.clone(),
-            Transform::from_translation(Vec3::new(0.0, 0.5 / 2.0, 0.0))
-                .with_rotation(Quat::from_rotation_z(ramp_angle))
-                .with_scale(Vec3::new(ramp_scale, 1.0, 1.0)),
+        belt_ramp_up: ModelDef::Scene(
+            asset_server.load(GltfAssetLabel::Scene(1).from_asset("models/belt-up.glb")),
         ),
-        belt_ramp_down: ModelDef::Scene(straight_scene),
-        source: ModelDef::Mesh(cuboid.clone(), materials.add(Color::srgb(0.2, 0.8, 0.2))),
-        sink: ModelDef::Mesh(cuboid.clone(), materials.add(Color::srgb(0.8, 0.2, 0.2))),
-        rock: ModelDef::Mesh(cuboid.clone(), materials.add(Color::srgb(0.55, 0.55, 0.55))),
-        dirt: ModelDef::Mesh(cuboid.clone(), materials.add(Color::srgb(0.55, 0.35, 0.15))),
+        belt_ramp_down: ModelDef::Scene(
+            asset_server.load(GltfAssetLabel::Scene(1).from_asset("models/belt-down.glb")),
+        ),
+        source: ModelDef::TintedScene(voxel(), Color::srgb(0.2, 0.8, 0.2)),
+        sink: ModelDef::TintedScene(voxel(), Color::srgb(0.8, 0.2, 0.2)),
+        rock: ModelDef::TintedScene(voxel(), Color::srgb(0.55, 0.55, 0.55)),
+        dirt: ModelDef::TintedScene(voxel(), Color::srgb(0.55, 0.35, 0.15)),
         iron_ore: {
             ModelDef::Random(
                 [
@@ -130,9 +121,6 @@ fn apply_model(entity: Entity, mut cmd: Commands, model: &ModelDef) {
         ModelDef::Scene(handle) => {
             cmd.entity(entity).insert(SceneRoot(handle.clone()));
         }
-        ModelDef::SceneTransform(handle, transform) => {
-            cmd.spawn((SceneRoot(handle.clone()), *transform, ChildOf(entity)));
-        }
         ModelDef::TintedScene(handle, color) => {
             cmd.entity(entity).insert((
                 SceneRoot(handle.clone()),
@@ -143,10 +131,6 @@ fn apply_model(entity: Entity, mut cmd: Commands, model: &ModelDef) {
         ModelDef::Random(options) => {
             let chosen = &options[rand::random::<usize>() % options.len()];
             apply_model(entity, cmd, chosen);
-        }
-        ModelDef::Mesh(mesh, material) => {
-            cmd.entity(entity)
-                .insert((Mesh3d(mesh.clone()), MeshMaterial3d(material.clone())));
         }
     }
 }
