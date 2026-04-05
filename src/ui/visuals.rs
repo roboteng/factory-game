@@ -103,12 +103,7 @@ fn setup_models(mut cmd: Commands, asset_server: Res<AssetServer>) {
             .collect(),
         ),
         miner: ModelDef::Scene(
-            asset_server.load(
-                GltfAssetLabel::Scene(0)
-                    .from_asset("models/kenney_prototype_kit/shape-hexagon-half.glb"),
-            ),
-            // Transform::from_translation(Vec3::new(0.0, -0.5 / 2.0, 0.0))
-            //     .with_scale(Vec3::splat(2.0)),
+            asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Miner.glb")),
         ),
         furnace: ModelDef::Scene(
             asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Furnace.glb")),

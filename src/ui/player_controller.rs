@@ -739,7 +739,7 @@ fn draw_placement_preview(
     let angle = dir.angle();
 
     // Arrow direction vector on XZ plane (North = +X)
-    let forward = Vec3::new(angle.cos(), 0.0, -angle.sin());
+    let forward = Vec3::new(angle.sin(), 0.0, angle.cos());
     let arrow_len = 0.8;
     let start = pos - forward * arrow_len * 0.5;
     let end = pos + forward * arrow_len * 0.5;

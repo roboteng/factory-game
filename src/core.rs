@@ -1093,12 +1093,12 @@ pub fn item_position(
 ) -> Transform {
     match belt {
         BeltShape::Straight(dir) => {
-            let z = match lane {
-                Side::Left => -LANE_OFFSET,
-                Side::Right => LANE_OFFSET,
+            let x = match lane {
+                Side::Left => LANE_OFFSET,
+                Side::Right => -LANE_OFFSET,
             };
-            let start = Vec3::new(0.5, BELT_HEIGHT_FROM_CENTER, z);
-            let end = Vec3::new(-0.5, BELT_HEIGHT_FROM_CENTER, z);
+            let start = Vec3::new(x, BELT_HEIGHT_FROM_CENTER, 0.5);
+            let end = Vec3::new(x, BELT_HEIGHT_FROM_CENTER, -0.5);
 
             let t = (pos + ITEM_SPACING / 2) as f32 / POSITIONS_PER_BELT as f32;
             let angle = dir.angle();
@@ -1136,7 +1136,7 @@ pub fn item_position(
             let local_offset = center_offset
                 + lane_offset * {
                     let (sin, cos) = sin_cos(angle);
-                    Vec2 { x: -sin, y: cos }
+                    Vec2 { x: cos, y: sin }
                 };
             debug!(
                 "center_offset: {center_offset:?}, lane_offset: {lane_offset}, local_offset: {:?}, ",

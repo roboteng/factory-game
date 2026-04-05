@@ -1,4 +1,4 @@
-use crate::core::{inventory::Inventory, Player};
+use crate::core::{Player, inventory::Inventory};
 
 use bevy::prelude::*;
 

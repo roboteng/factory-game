@@ -211,10 +211,10 @@ impl From<BeltOutput> for WorldCoordsDelta {
 impl HDir {
     pub const fn angle(&self) -> f32 {
         match self {
-            Self::North => PI / 2.0,
-            Self::East => 0.0,
-            Self::South => -PI / 2.0,
-            Self::West => PI,
+            Self::North => PI,
+            Self::East => PI / 2.0,
+            Self::South => 0.0,
+            Self::West => -PI / 2.0,
         }
     }
 
