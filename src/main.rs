@@ -21,6 +21,9 @@ fn main() {
     #[cfg(feature = "ui")]
     app.add_plugins(ui::UiPlugin);
 
+    #[cfg(feature = "ui")]
+    app.add_systems(Update, screenshot_on_f10);
+
     app.add_systems(Startup, setup);
 
     #[cfg(all(feature = "ui", feature = "dev"))]
@@ -33,6 +36,25 @@ fn main() {
 fn max_framerate(mut windows: Query<&mut Window, With<bevy::window::PrimaryWindow>>) {
     for mut window in windows.iter_mut() {
         window.present_mode = bevy::window::PresentMode::AutoNoVsync
+    }
+}
+
+#[cfg(feature = "ui")]
+fn screenshot_on_f10(
+    input: Res<ButtonInput<KeyCode>>,
+    mut counter: Local<u32>,
+    mut commands: Commands,
+) {
+    use bevy::render::view::screenshot::{Screenshot, save_to_disk};
+    if input.just_pressed(KeyCode::F10) {
+        let path = format!("./screenshot-{}.png", *counter);
+        *counter += 1;
+        if let Ok(full_path) = std::path::absolute(&path) {
+            info!("Saving screenshot to: {}", full_path.display());
+        }
+        commands
+            .spawn(Screenshot::primary_window())
+            .observe(save_to_disk(path));
     }
 }
 
