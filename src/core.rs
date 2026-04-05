@@ -593,6 +593,7 @@ fn on_place_item(
 
     let Ok(mut belt) = belts.get_mut(event.belt) else {
         warn!("Couldn't find belt for the item");
+        cmd.entity(event.entity).insert(Delete);
         return;
     };
     cmd.entity(event.entity).insert((
