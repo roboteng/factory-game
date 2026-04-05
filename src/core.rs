@@ -1097,8 +1097,8 @@ pub fn item_position(
                 Side::Left => LANE_OFFSET,
                 Side::Right => -LANE_OFFSET,
             };
-            let start = Vec3::new(x, BELT_HEIGHT_FROM_CENTER, 0.5);
-            let end = Vec3::new(x, BELT_HEIGHT_FROM_CENTER, -0.5);
+            let start = Vec3::new(x, BELT_HEIGHT, 0.5);
+            let end = Vec3::new(x, BELT_HEIGHT, -0.5);
 
             let t = (pos + ITEM_SPACING / 2) as f32 / POSITIONS_PER_BELT as f32;
             let angle = dir.angle();
@@ -1143,8 +1143,7 @@ pub fn item_position(
                 local_offset
             );
             Transform::from_translation(
-                Vec3::new(local_offset.y, BELT_HEIGHT_FROM_CENTER, local_offset.x)
-                    + Vec3::from(coords.into()),
+                Vec3::new(local_offset.y, BELT_HEIGHT, local_offset.x) + Vec3::from(coords.into()),
             )
             .with_rotation(Quat::from_rotation_y(angle + PI / 2.0))
         }

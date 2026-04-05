@@ -210,11 +210,8 @@ fn on_place_item(event: On<PlaceItem>, mut cmd: Commands, asset_server: Res<Asse
     };
     let visual = cmd
         .spawn((
-            SceneRoot(asset_server.load(
-                GltfAssetLabel::Scene(0).from_asset("models/kenney_prototype_kit/shape-cube.glb"),
-            )),
-            Transform::from_scale(Vec3::splat(ITEM_SIZE * 0.95))
-                .with_translation(Vec3::Y * HALF_ITEM_SIZE),
+            SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Voxel.glb"))),
+            Transform::from_scale(Vec3::splat(ITEM_SIZE * 0.95)),
             SceneTint(color),
             Visibility::Hidden,
         ))
