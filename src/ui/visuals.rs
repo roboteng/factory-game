@@ -24,7 +24,8 @@ pub(super) struct SceneTint(pub(super) Color);
 #[derive(Resource)]
 struct BlockModels {
     belt_straight: ModelDef,
-    belt_curve: ModelDef,
+    belt_curve_cw: ModelDef,
+    belt_curve_ccw: ModelDef,
     belt_ramp_up: ModelDef,
     belt_ramp_down: ModelDef,
     source: ModelDef,
@@ -37,16 +38,16 @@ struct BlockModels {
     furnace: ModelDef,
 }
 fn setup_models(mut cmd: Commands, asset_server: Res<AssetServer>) {
-    let voxel = || {
-        asset_server
-            .load(GltfAssetLabel::Scene(0).from_asset("models/kenney_prototype_kit/shape-cube.glb"))
-    };
-    let straight_scene = asset_server.load(GltfAssetLabel::Scene(1).from_asset("models/belt.glb"));
-
+    let voxel = asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Voxel.glb"));
     cmd.insert_resource(BlockModels {
-        belt_straight: ModelDef::Scene(straight_scene.clone()),
-        belt_curve: ModelDef::Scene(
-            asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Untitled.glb")),
+        belt_straight: ModelDef::Scene(
+            asset_server.load(GltfAssetLabel::Scene(2).from_asset("models/belt.glb")),
+        ),
+        belt_curve_cw: ModelDef::Scene(
+            asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/belt-curve-cw.glb")),
+        ),
+        belt_curve_ccw: ModelDef::Scene(
+            asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/belt-curve-ccw.glb")),
         ),
         belt_ramp_up: ModelDef::Scene(
             asset_server.load(GltfAssetLabel::Scene(1).from_asset("models/belt-up.glb")),
@@ -54,10 +55,10 @@ fn setup_models(mut cmd: Commands, asset_server: Res<AssetServer>) {
         belt_ramp_down: ModelDef::Scene(
             asset_server.load(GltfAssetLabel::Scene(1).from_asset("models/belt-down.glb")),
         ),
-        source: ModelDef::TintedScene(voxel(), Color::srgb(0.2, 0.8, 0.2)),
-        sink: ModelDef::TintedScene(voxel(), Color::srgb(0.8, 0.2, 0.2)),
-        rock: ModelDef::TintedScene(voxel(), Color::srgb(0.55, 0.55, 0.55)),
-        dirt: ModelDef::TintedScene(voxel(), Color::srgb(0.55, 0.35, 0.15)),
+        source: ModelDef::TintedScene(voxel.clone(), Color::srgb(0.2, 0.8, 0.2)),
+        sink: ModelDef::TintedScene(voxel.clone(), Color::srgb(0.8, 0.2, 0.2)),
+        rock: ModelDef::TintedScene(voxel.clone(), Color::srgb(0.55, 0.55, 0.55)),
+        dirt: ModelDef::TintedScene(voxel.clone(), Color::srgb(0.55, 0.35, 0.15)),
         iron_ore: {
             ModelDef::Random(
                 [
@@ -184,7 +185,13 @@ fn attach_models(
             WorldBlock::Furnace => &all_models.furnace,
             WorldBlock::Belt => match shape {
                 Some(BeltShape::Straight(_)) => &all_models.belt_straight,
-                Some(BeltShape::Curve(_)) => &all_models.belt_curve,
+                Some(BeltShape::Curve(c)) => {
+                    if c.is_clockwise() {
+                        &all_models.belt_curve_cw
+                    } else {
+                        &all_models.belt_curve_ccw
+                    }
+                }
                 Some(BeltShape::RampUp(_)) => &all_models.belt_ramp_up,
                 Some(BeltShape::RampDown(_)) => &all_models.belt_ramp_down,
                 None => continue,
