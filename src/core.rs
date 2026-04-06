@@ -713,20 +713,14 @@ fn determine_belt_shape(
 ) {
     for (entity, coords, &dir, current_shape) in belts.iter_mut() {
         let a_feeds_b = |a: WorldCoords, b: WorldCoords| {
-            let answer = coord_map
+            coord_map
                 .0
                 .get(&a)
                 .and_then(|a| affecters.get(*a).ok())
-                .is_some_and(|a| a.at == b);
-            if answer {
-                debug!("Belt at {a:?} feeds {b:?}",);
-            } else {
-                debug!("Nothing found between {a:?} and {b:?}",);
-            }
-            answer
+                .is_some_and(|a| a.at == b)
         };
         let fed_from_side = |loc: WorldCoords, fed_from: HDir| {
-            let middle_fed = loc.step(fed_from.opposite());
+            let middle_fed = loc.step(fed_from);
             a_feeds_b(middle_fed, loc)
                 || a_feeds_b(middle_fed.step(Dir::Up), loc)
                 || a_feeds_b(middle_fed.step(Dir::Down), loc)
@@ -735,14 +729,18 @@ fn determine_belt_shape(
         let fed_from_left = fed_from_side(*coords, dir.left());
         let fed_from_right = fed_from_side(*coords, dir.right());
         let fed_from_behind = fed_from_side(*coords, dir.opposite());
+        debug!(
+            "Placing with: {:?}",
+            (fed_from_left, fed_from_behind, fed_from_right)
+        );
         let desired = match (fed_from_left, fed_from_behind, fed_from_right) {
             (true, false, false) => {
-                let curve = Curve::from_input_output(dir.left(), dir).unwrap();
+                let curve = Curve::from_input_output(dir.right(), dir).unwrap();
                 assert_eq!(curve.output(), dir);
                 BeltShape::Curve(curve)
             }
             (false, false, true) => {
-                let curve = Curve::from_input_output(dir.right(), dir).unwrap();
+                let curve = Curve::from_input_output(dir.left(), dir).unwrap();
                 assert_eq!(curve.output(), dir);
                 BeltShape::Curve(curve)
             }
@@ -1765,5 +1763,33 @@ mod tests {
 
         let (c, _) = app.find_belt(curve).unwrap();
         assert_eq!(c, BeltShape::Curve(Curve::NorthToEast));
+    }
+
+    #[test]
+    fn belt_two_side_load_is_straight() {
+        let mut app = test_app();
+        app.add_belt(WorldCoords::ORIGIN.step(HDir::West), HDir::East);
+        app.add_belt(WorldCoords::ORIGIN.step(HDir::East), HDir::West);
+        app.update();
+
+        let belt = app.add_belt(WorldCoords::ORIGIN, HDir::North);
+        app.update();
+
+        let (c, _) = app.find_belt(belt).unwrap();
+        assert_eq!(c, BeltShape::Straight(HDir::North));
+    }
+
+    #[test]
+    fn belt_side_load_and_back_load_is_straight() {
+        let mut app = test_app();
+        app.add_belt(WorldCoords::ORIGIN.step(HDir::South), HDir::North);
+        app.add_belt(WorldCoords::ORIGIN.step(HDir::East), HDir::West);
+        app.update();
+
+        let belt = app.add_belt(WorldCoords::ORIGIN, HDir::North);
+        app.update();
+
+        let (c, _) = app.find_belt(belt).unwrap();
+        assert_eq!(c, BeltShape::Straight(HDir::North));
     }
 }
