@@ -707,11 +707,18 @@ fn determine_belt_shape(
         (Entity, &WorldCoords, &HDir, Option<&mut BeltShape>),
         (With<Belt>, Or<(Added<Belt>, With<DirtyBelt>)>),
     >,
+    belts_check: Query<(), With<Belt>>,
     affecters: Query<&OutputsToBelt>,
     coord_map: Res<CoordsMap>,
     mut cmd: Commands,
 ) {
     for (entity, coords, &dir, current_shape) in belts.iter_mut() {
+        if let Ok(a) = affecters.get(entity)
+            && let Some(&a) = coord_map.0.get(&a.at)
+            && let Ok(()) = belts_check.get(a)
+        {
+            continue;
+        }
         let a_feeds_b = |a: WorldCoords, b: WorldCoords| {
             coord_map
                 .0
@@ -753,19 +760,24 @@ fn determine_belt_shape(
         } else {
             desired
         };
+        let output = coords.step(desired);
         match current_shape {
             Some(mut shape) => {
-                shape.set_if_neq(desired);
+                if *shape != desired {
+                    shape.set_if_neq(desired);
+                    if let Some(&e) = coord_map.0.get(&output) {
+                        cmd.entity(e).insert(DirtyBelt);
+                    }
+                }
             }
             None => {
+                if let Some(&e) = coord_map.0.get(&output) {
+                    cmd.entity(e).insert(DirtyBelt);
+                }
                 cmd.entity(entity).insert(desired);
             }
         }
-        let output = coords.step(desired);
         cmd.entity(entity).insert(OutputsToBelt { at: output });
-        if let Some(&e) = coord_map.0.get(&output) {
-            cmd.entity(e).insert(DirtyBelt);
-        }
         cmd.entity(entity).remove::<DirtyBelt>();
     }
 }
@@ -1791,5 +1803,26 @@ mod tests {
 
         let (c, _) = app.find_belt(belt).unwrap();
         assert_eq!(c, BeltShape::Straight(HDir::North));
+    }
+
+    #[test]
+    fn belt_remp_doesnt_update_when_pointing_at_belt() {
+        let mut app = test_app();
+        app.add_belt(
+            WorldCoords::ORIGIN.step(Dir::Up).step(HDir::North),
+            HDir::North,
+        );
+        app.add_belt(WorldCoords::ORIGIN.step(HDir::North), HDir::North);
+        app.update();
+        let ramp = app.add_belt(WorldCoords::ORIGIN, HDir::North);
+        app.update();
+
+        app.world_mut().trigger(Incline { entity: ramp });
+        app.update();
+        app.add_belt(WorldCoords::ORIGIN.step(HDir::South), HDir::North);
+        app.update();
+
+        let (c, _) = app.find_belt(ramp).unwrap();
+        assert_eq!(c, BeltShape::RampUp(HDir::North));
     }
 }
