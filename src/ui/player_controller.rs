@@ -734,7 +734,7 @@ fn draw_placement_preview(
         return;
     };
 
-    let pos = Vec3::from(hit.place_coords);
+    let pos = Vec3::from(hit.place_coords) + Vec3::Y / 4.0;
     let dir = placement_dir.0;
     let angle = dir.angle();
 

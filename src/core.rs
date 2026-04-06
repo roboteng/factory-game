@@ -67,7 +67,7 @@ impl Plugin for CorePlugin {
         app.add_systems(
             Update,
             (
-                determine_belt_shape,
+                (determine_belt_shape, ApplyDeferred, determine_belt_shape).chain(),
                 move_items_on_belts,
                 transfer_items,
                 set_item_transforms,
@@ -256,12 +256,10 @@ impl InputBuffer {
     }
 }
 
-/// Output direction for belt pushers. `None` = try all four horizontal directions.
 #[derive(Component)]
-pub struct OutputDir(pub Option<HDir>);
-
-#[derive(Component)]
-pub struct AffectsBelts;
+pub struct OutputsToBelt {
+    at: WorldCoords,
+}
 
 #[derive(Component)]
 struct DirtyBelt;
@@ -273,6 +271,7 @@ struct DirtyBelt;
 pub struct RaycastTarget {
     pub half_extents: Vec3,
 }
+
 impl RaycastTarget {
     /// Half-block tall (belts).
     pub const HALF_BLOCK: Self = Self {
@@ -465,14 +464,6 @@ fn despawn_old_entities(mut cmd: Commands, q: Query<Entity, With<Delete>>) {
     }
 }
 
-fn mark_belt_neighbors_dirty(center: WorldCoords, coord_map: &CoordsMap, cmd: &mut Commands) {
-    for pos in center.horizontal_neighbors() {
-        if let Some(&e) = coord_map.0.get(&pos) {
-            cmd.entity(e).insert(DirtyBelt);
-        }
-    }
-}
-
 fn on_place_block(
     event: On<PlaceBlock>,
     mut cmd: Commands,
@@ -515,10 +506,9 @@ fn on_place_block(
                 cmd.entity(existing).despawn();
                 coord_map.0.remove(&coords);
                 cmd.entity(event.entity)
-                    .insert((Belt, ItemLanes(transferred), AffectsBelts, rt));
+                    .insert((Belt, ItemLanes(transferred), rt));
                 cmd.entity(event.entity).insert(place.to_bundle());
                 coord_map.0.insert(coords, event.entity);
-                mark_belt_neighbors_dirty(coords, &coord_map, &mut cmd);
                 return;
             }
         }
@@ -530,20 +520,21 @@ fn on_place_block(
     match event.block {
         WorldBlock::Belt => {
             cmd.entity(event.entity)
-                .insert((Belt, ItemLanes::default(), AffectsBelts, rt));
+                .insert((Belt, ItemLanes::default(), rt));
         }
         WorldBlock::Source => {
             cmd.entity(event.entity).insert((
                 Source,
                 OutputBuffer::default(),
-                OutputDir(Some(place.dir)),
-                AffectsBelts,
+                OutputsToBelt {
+                    at: event.coords.step(event.dir),
+                },
                 rt,
             ));
         }
         WorldBlock::Sink => {
             cmd.entity(event.entity)
-                .insert((Sink, InputBuffer::all(), AffectsBelts, rt));
+                .insert((Sink, InputBuffer::all(), rt));
         }
         WorldBlock::Miner => {
             cmd.entity(event.entity).insert((
@@ -552,8 +543,9 @@ fn on_place_block(
                     dir: event.dir,
                 },
                 OutputBuffer::default(),
-                OutputDir(None),
-                AffectsBelts,
+                OutputsToBelt {
+                    at: event.coords.step(event.dir.opposite()),
+                },
                 rt,
             ));
         }
@@ -562,8 +554,9 @@ fn on_place_block(
                 Furnace::default(),
                 InputBuffer::for_method(ProcessingMethod::Furnace),
                 OutputBuffer::default(),
-                OutputDir(Some(place.dir)),
-                AffectsBelts,
+                OutputsToBelt {
+                    at: event.coords.step(event.dir),
+                },
                 rt,
             ));
         }
@@ -581,7 +574,6 @@ fn on_place_block(
     if is_full {
         coord_map.0.insert(coords.step(Dir::Up), event.entity);
     }
-    mark_belt_neighbors_dirty(coords, &coord_map, &mut cmd);
 }
 
 fn on_place_item(
@@ -606,14 +598,20 @@ fn on_place_item(
 
 fn on_remove_block(
     event: On<RemoveBlock>,
+    outputs_to_belts: Query<Option<&OutputsToBelt>>,
     coords_q: Query<&WorldCoords>,
     lanes_q: Query<&ItemLanes>,
     mut coord_map: ResMut<CoordsMap>,
     mut cmd: Commands,
 ) {
     debug!("Removing {:?}", event.entity);
+    if let Ok(c) = outputs_to_belts.get(event.entity)
+        && let Some(c) = c
+        && let Some(&other) = coord_map.0.get(&c.at)
+    {
+        cmd.entity(other).insert(DirtyBelt);
+    }
     if let Ok(coords) = coords_q.get(event.entity) {
-        mark_belt_neighbors_dirty(*coords, &coord_map, &mut cmd);
         coord_map.0.remove(coords);
         // Remove the top slot if this entity registered it (full-height blocks).
         let top = coords.step(Dir::Up);
@@ -663,6 +661,7 @@ fn on_incline(
     event: On<Incline>,
     mut belts: Query<(&mut BeltShape, &WorldCoords)>,
     coords_map: Res<CoordsMap>,
+    mut cmd: Commands,
 ) {
     let Ok((mut belt, &coords)) = belts.get_mut(event.entity) else {
         return;
@@ -689,6 +688,18 @@ fn on_incline(
         }
         BeltShape::Curve(_) => {}
     };
+    let shape = belt.into_inner();
+
+    cmd.entity(event.entity).insert(OutputsToBelt {
+        at: coords.step(*shape),
+    });
+
+    let maybe_belt = coords_map.0.get(&coords.step(*shape));
+    if let Some(&maybe_belt) = maybe_belt
+        && belts.contains(maybe_belt)
+    {
+        cmd.entity(maybe_belt).insert(DirtyBelt);
+    }
 }
 
 fn determine_belt_shape(
@@ -696,29 +707,42 @@ fn determine_belt_shape(
         (Entity, &WorldCoords, &HDir, Option<&mut BeltShape>),
         (With<Belt>, Or<(Added<Belt>, With<DirtyBelt>)>),
     >,
-    affecters: Query<&HDir, With<AffectsBelts>>,
+    affecters: Query<&OutputsToBelt>,
     coord_map: Res<CoordsMap>,
     mut cmd: Commands,
 ) {
     for (entity, coords, &dir, current_shape) in belts.iter_mut() {
-        let feeds_from = |step: WorldCoords, expected: HDir| {
-            coord_map
+        let a_feeds_b = |a: WorldCoords, b: WorldCoords| {
+            let answer = coord_map
                 .0
-                .get(&step)
-                .and_then(|&e| affecters.get(e).ok())
-                .is_some_and(|&d| d == expected)
+                .get(&a)
+                .and_then(|a| affecters.get(*a).ok())
+                .is_some_and(|a| a.at == b);
+            if answer {
+                debug!("Belt at {a:?} feeds {b:?}",);
+            } else {
+                debug!("Nothing found between {a:?} and {b:?}",);
+            }
+            answer
         };
-        let fed_from_left = feeds_from(coords.step(dir.left()), dir.right());
-        let fed_from_right = feeds_from(coords.step(dir.right()), dir.left());
-        let fed_from_behind = feeds_from(coords.step(dir.opposite()), dir);
+        let fed_from_side = |loc: WorldCoords, fed_from: HDir| {
+            let middle_fed = loc.step(fed_from.opposite());
+            a_feeds_b(middle_fed, loc)
+                || a_feeds_b(middle_fed.step(Dir::Up), loc)
+                || a_feeds_b(middle_fed.step(Dir::Down), loc)
+        };
+
+        let fed_from_left = fed_from_side(*coords, dir.left());
+        let fed_from_right = fed_from_side(*coords, dir.right());
+        let fed_from_behind = fed_from_side(*coords, dir.opposite());
         let desired = match (fed_from_left, fed_from_behind, fed_from_right) {
             (true, false, false) => {
-                let curve = Curve::from_input_output(dir.right(), dir).unwrap();
+                let curve = Curve::from_input_output(dir.left(), dir).unwrap();
                 assert_eq!(curve.output(), dir);
                 BeltShape::Curve(curve)
             }
             (false, false, true) => {
-                let curve = Curve::from_input_output(dir.left(), dir).unwrap();
+                let curve = Curve::from_input_output(dir.right(), dir).unwrap();
                 assert_eq!(curve.output(), dir);
                 BeltShape::Curve(curve)
             }
@@ -733,15 +757,16 @@ fn determine_belt_shape(
         };
         match current_shape {
             Some(mut shape) => {
-                if matches!(coord_map.0.get(&coords.step(shape.clone())), Some(_)) {
-                    // I'd like to check if its really a belt here or not
-                } else {
-                    shape.set_if_neq(desired);
-                }
+                shape.set_if_neq(desired);
             }
             None => {
                 cmd.entity(entity).insert(desired);
             }
+        }
+        let output = coords.step(desired);
+        cmd.entity(entity).insert(OutputsToBelt { at: output });
+        if let Some(&e) = coord_map.0.get(&output) {
+            cmd.entity(e).insert(DirtyBelt);
         }
         cmd.entity(entity).remove::<DirtyBelt>();
     }
@@ -930,43 +955,35 @@ fn fill_miners(
 }
 
 fn push_to_belt(
-    mut pushers: Query<(&mut OutputBuffer, &WorldCoords, &OutputDir)>,
+    mut pushers: Query<(&mut OutputBuffer, &WorldCoords, &OutputsToBelt)>,
     belts: Query<(Entity, &ItemLanes), With<Belt>>,
     coord_map: Res<CoordsMap>,
     mut cmd: Commands,
 ) {
-    const ALL_DIRS: [HDir; 4] = [HDir::North, HDir::South, HDir::East, HDir::West];
     for (mut buffer, coords, output_dir) in &mut pushers {
         let Some(&item) = buffer.items.first() else {
             continue;
         };
-        let dirs: &[HDir] = match &output_dir.0 {
-            Some(d) => std::slice::from_ref(d),
-            None => &ALL_DIRS,
+        let target = output_dir.at;
+        let Some(&belt_entity) = coord_map.0.get(&target) else {
+            continue;
         };
-        for &dir in dirs {
-            let target = coords.step(dir);
-            let Some(&belt_entity) = coord_map.0.get(&target) else {
-                continue;
-            };
-            let Ok((belt_entity, lanes)) = belts.get(belt_entity) else {
-                continue;
-            };
-            if lanes.0.left.len() >= ITEMS_PER_BELT as usize {
-                continue;
-            }
-            buffer.items.remove(0);
-            let entity = cmd.spawn_empty().id();
-            cmd.trigger(PlaceItem {
-                entity,
-                item,
-                belt: belt_entity,
-                lane: Side::Left,
-                position: POSITIONS_PER_BELT,
-                on_error: Box::new(|_, _| {}),
-            });
-            break;
+        let Ok((belt_entity, lanes)) = belts.get(belt_entity) else {
+            continue;
+        };
+        if lanes.0.left.len() >= ITEMS_PER_BELT as usize {
+            continue;
         }
+        buffer.items.remove(0);
+        let entity = cmd.spawn_empty().id();
+        cmd.trigger(PlaceItem {
+            entity,
+            item,
+            belt: belt_entity,
+            lane: Side::Left,
+            position: POSITIONS_PER_BELT,
+            on_error: Box::new(|_, _| {}),
+        });
     }
 }
 
@@ -1706,5 +1723,47 @@ mod tests {
                 assert_eq!(item, expected_ore, "wrong ore for {deposit:?}");
             }
         }
+    }
+
+    #[test]
+    fn belt_ramping_down_curves_belt_in_front_on_incline() {
+        let mut app = test_app();
+        let ramp = app.add_belt(WorldCoords::ORIGIN.step(Dir::Up), HDir::North);
+        let curve = app.add_belt(WorldCoords::ORIGIN.step(Dir::North), HDir::East);
+        app.update();
+
+        app.world_mut().trigger(Incline { entity: ramp });
+        app.update();
+
+        let (c, _) = app.find_belt(curve).unwrap();
+        assert_eq!(c, BeltShape::Curve(Curve::NorthToEast));
+    }
+
+    #[test]
+    fn belt_ramping_down_curves_belt_in_front_on_place() {
+        let mut app = test_app();
+        let ramp = app.add_belt(WorldCoords::ORIGIN.step(Dir::South), HDir::North);
+        app.update();
+        app.world_mut().trigger(Incline { entity: ramp });
+        app.update();
+
+        let curve = app.add_belt(WorldCoords::ORIGIN.step(Dir::Up), HDir::East);
+        app.update();
+
+        let (c, _) = app.find_belt(curve).unwrap();
+        assert_eq!(c, BeltShape::Curve(Curve::NorthToEast));
+    }
+
+    #[test]
+    fn belt_curves_belt_in_front() {
+        let mut app = test_app();
+        let curve = app.add_belt(WorldCoords::ORIGIN, HDir::East);
+        app.update();
+
+        app.add_belt(WorldCoords::ORIGIN.step(Dir::South), HDir::North);
+        app.update();
+
+        let (c, _) = app.find_belt(curve).unwrap();
+        assert_eq!(c, BeltShape::Curve(Curve::NorthToEast));
     }
 }
