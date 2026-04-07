@@ -1,0 +1,439 @@
+use bevy::prelude::*;
+
+use crate::core::{
+    Assembler, InputBuffer, OutputBuffer, Player, ProcessingMethod, RECIPES,
+    inventory::{Inventory, Stack},
+};
+
+use super::common::{
+    CLOSE_BTN_BG, CLOSE_BTN_FONT_SIZE, CLOSE_BTN_SIZE, InventorySlot, LABEL_COLOR, LABEL_FONT_SIZE,
+    SLOT_BG, SLOT_BORDER, SLOT_FONT_SIZE, TITLE_FONT_SIZE, pane_node, section_label,
+    spawn_inventory_panel, spawn_slot, spawn_title_bar,
+};
+use super::{InteractionMode, ScreenMode, WorldMode};
+
+const MAX_INPUT_SLOTS: usize = 4;
+const MAX_OUTPUT_SLOTS: usize = 4;
+
+#[derive(Component)]
+pub(super) struct AssemblerPane;
+
+#[derive(Component)]
+pub(super) struct CloseAssemblerButton;
+
+#[derive(Component)]
+pub(super) struct AssemblerRecipePanel;
+
+/// Index into RECIPES for a specific assembler recipe button.
+#[derive(Component)]
+pub(super) struct AssemblerRecipeButton(usize);
+
+#[derive(Component)]
+pub(super) struct AssemblerProcessingPanel;
+
+#[derive(Component)]
+pub(super) struct AssemblerInputSlot(pub(super) usize);
+
+#[derive(Component)]
+pub(super) struct AssemblerOutputSlot(pub(super) usize);
+
+#[derive(Component)]
+pub(super) struct AssemblerProgressFill;
+
+#[derive(Component, Clone)]
+pub(super) struct AssemblerInventoryPanel;
+
+#[derive(Component)]
+pub(super) struct ClearAssemblerRecipeButton;
+
+fn recipe_label(recipe: &crate::core::Recipe) -> String {
+    let inputs = recipe
+        .inputs
+        .iter()
+        .map(|i| i.name())
+        .collect::<Vec<_>>()
+        .join(" + ");
+    let outputs = recipe
+        .outputs
+        .iter()
+        .map(|i| i.name())
+        .collect::<Vec<_>>()
+        .join(" + ");
+    format!("{} \u{2192} {}", inputs, outputs)
+}
+
+pub(super) fn setup_assembler_pane(mut cmd: Commands) {
+    cmd.spawn((
+        pane_node(
+            Val::Percent(5.0),
+            Val::Percent(5.0),
+            Val::Percent(5.0),
+            Val::Percent(5.0),
+        ),
+        AssemblerPane,
+    ))
+    .with_children(|parent| {
+        spawn_title_bar(parent, "Assembler", CloseAssemblerButton);
+
+        // Recipe selection panel (shown when no recipe is set)
+        parent
+            .spawn((
+                Node {
+                    flex_direction: FlexDirection::Column,
+                    padding: UiRect::all(Val::Px(16.0)),
+                    ..default()
+                },
+                AssemblerRecipePanel,
+            ))
+            .with_children(|parent| {
+                section_label(parent, "Select a Recipe");
+                for (i, recipe) in RECIPES
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, r)| r.method == ProcessingMethod::Assembler)
+                {
+                    let label = recipe_label(recipe);
+                    parent
+                        .spawn((
+                            Button,
+                            Node {
+                                padding: UiRect::axes(Val::Px(16.0), Val::Px(12.0)),
+                                margin: UiRect::bottom(Val::Px(8.0)),
+                                border: UiRect::all(Val::Px(2.0)),
+                                ..default()
+                            },
+                            BackgroundColor(SLOT_BG),
+                            BorderColor::all(SLOT_BORDER),
+                            AssemblerRecipeButton(i),
+                        ))
+                        .with_children(|parent| {
+                            parent.spawn((
+                                Text::new(label),
+                                TextFont {
+                                    font_size: LABEL_FONT_SIZE,
+                                    ..default()
+                                },
+                                TextColor(Color::WHITE),
+                            ));
+                        });
+                }
+            });
+
+        // Processing panel (shown when a recipe is set)
+        parent
+            .spawn((
+                Node {
+                    flex_direction: FlexDirection::Row,
+                    flex_grow: 1.0,
+                    ..default()
+                },
+                AssemblerProcessingPanel,
+            ))
+            .with_children(|parent| {
+                // Left panel: slots + progress + clear button
+                parent
+                    .spawn(Node {
+                        width: Val::Percent(40.0),
+                        flex_direction: FlexDirection::Column,
+                        padding: UiRect::all(Val::Px(16.0)),
+                        ..default()
+                    })
+                    .with_children(|parent| {
+                        section_label(parent, "Input");
+                        parent
+                            .spawn(Node {
+                                flex_direction: FlexDirection::Row,
+                                flex_wrap: FlexWrap::Wrap,
+                                ..default()
+                            })
+                            .with_children(|parent| {
+                                for i in 0..MAX_INPUT_SLOTS {
+                                    spawn_slot(parent, AssemblerInputSlot(i));
+                                }
+                            });
+
+                        section_label(parent, "Progress");
+                        parent
+                            .spawn(Node {
+                                width: Val::Percent(100.0),
+                                height: Val::Px(24.0),
+                                margin: UiRect::axes(Val::Px(4.0), Val::Px(4.0)),
+                                ..default()
+                            })
+                            .insert(BackgroundColor(super::common::SLOT_BG))
+                            .with_children(|parent| {
+                                parent.spawn((
+                                    Node {
+                                        width: Val::Percent(0.0),
+                                        height: Val::Percent(100.0),
+                                        ..default()
+                                    },
+                                    BackgroundColor(Color::srgba(0.2, 0.8, 0.2, 1.0)),
+                                    AssemblerProgressFill,
+                                ));
+                            });
+
+                        section_label(parent, "Output");
+                        parent
+                            .spawn(Node {
+                                flex_direction: FlexDirection::Row,
+                                flex_wrap: FlexWrap::Wrap,
+                                ..default()
+                            })
+                            .with_children(|parent| {
+                                for i in 0..MAX_OUTPUT_SLOTS {
+                                    spawn_slot(parent, AssemblerOutputSlot(i));
+                                }
+                            });
+
+                        // Clear Recipe button
+                        parent
+                            .spawn((
+                                Button,
+                                Node {
+                                    width: Val::Px(CLOSE_BTN_SIZE * 4.0),
+                                    height: Val::Px(CLOSE_BTN_SIZE),
+                                    justify_content: JustifyContent::Center,
+                                    align_items: AlignItems::Center,
+                                    margin: UiRect::top(Val::Px(12.0)),
+                                    ..default()
+                                },
+                                BackgroundColor(CLOSE_BTN_BG),
+                                ClearAssemblerRecipeButton,
+                            ))
+                            .with_children(|parent| {
+                                parent.spawn((
+                                    Text::new("Clear Recipe"),
+                                    TextFont {
+                                        font_size: CLOSE_BTN_FONT_SIZE,
+                                        ..default()
+                                    },
+                                    TextColor(Color::WHITE),
+                                ));
+                            });
+                    });
+
+                // Right panel: player inventory
+                parent
+                    .spawn(Node {
+                        width: Val::Percent(60.0),
+                        flex_direction: FlexDirection::Column,
+                        ..default()
+                    })
+                    .with_children(|parent| {
+                        spawn_inventory_panel(parent, AssemblerInventoryPanel);
+                    });
+            });
+    });
+}
+
+pub(super) fn update_assembler_pane(
+    mode: Res<InteractionMode>,
+    mut pane: Single<
+        &mut Visibility,
+        (
+            With<AssemblerPane>,
+            (
+                Without<AssemblerRecipePanel>,
+                Without<AssemblerProcessingPanel>,
+            ),
+        ),
+    >,
+    mut recipe_panel: Single<
+        &mut Visibility,
+        (
+            With<AssemblerRecipePanel>,
+            (Without<AssemblerPane>, Without<AssemblerProcessingPanel>),
+        ),
+    >,
+    mut processing_panel: Single<
+        &mut Visibility,
+        (
+            With<AssemblerProcessingPanel>,
+            (Without<AssemblerPane>, Without<AssemblerRecipePanel>),
+        ),
+    >,
+    assembler_q: Query<(&Assembler, &InputBuffer, &OutputBuffer)>,
+    input_slots: Query<(&AssemblerInputSlot, &Children)>,
+    output_slots: Query<(&AssemblerOutputSlot, &Children)>,
+    mut fill_node: Single<&mut Node, With<AssemblerProgressFill>>,
+    mut texts: Query<&mut Text>,
+) {
+    let InteractionMode::InScreen(ScreenMode::Assembler(assembler_entity)) = *mode else {
+        **pane = Visibility::Hidden;
+        return;
+    };
+    **pane = Visibility::Visible;
+
+    let Ok((assembler, input_buf, output_buf)) = assembler_q.get(assembler_entity) else {
+        return;
+    };
+
+    if assembler.recipe.is_none() {
+        **recipe_panel = Visibility::Inherited;
+        **processing_panel = Visibility::Hidden;
+        return;
+    }
+
+    **recipe_panel = Visibility::Hidden;
+    **processing_panel = Visibility::Inherited;
+
+    let recipe = assembler.recipe.unwrap();
+
+    let progress_fraction = if recipe.ticks > 0 {
+        assembler.ticks as f32 / recipe.ticks as f32
+    } else {
+        0.0
+    };
+    fill_node.width = Val::Percent(progress_fraction * 100.0);
+
+    for (slot_marker, children) in &input_slots {
+        let label = input_buf
+            .slots
+            .get(slot_marker.0)
+            .and_then(|s| *s)
+            .map(|item| item.name())
+            .unwrap_or("");
+        if let Some(&child) = children.first() {
+            if let Ok(mut text) = texts.get_mut(child) {
+                **text = label.into();
+            }
+        }
+    }
+
+    for (slot_marker, children) in &output_slots {
+        let label = output_buf
+            .items
+            .get(slot_marker.0)
+            .map(|item| item.name())
+            .unwrap_or("");
+        if let Some(&child) = children.first() {
+            if let Ok(mut text) = texts.get_mut(child) {
+                **text = label.into();
+            }
+        }
+    }
+}
+
+pub(super) fn handle_assembler_close_button(
+    interaction: Query<&Interaction, (Changed<Interaction>, With<CloseAssemblerButton>)>,
+    mut mode: ResMut<InteractionMode>,
+) {
+    for &interaction in interaction.iter() {
+        if interaction == Interaction::Pressed {
+            *mode = InteractionMode::InWorld(WorldMode::None);
+        }
+    }
+}
+
+pub(super) fn handle_assembler_recipe_button(
+    interactions: Query<(&Interaction, &AssemblerRecipeButton), Changed<Interaction>>,
+    mode: Res<InteractionMode>,
+    mut assemblers: Query<(&mut Assembler, &mut OutputBuffer)>,
+    mut cmd: Commands,
+) {
+    let InteractionMode::InScreen(ScreenMode::Assembler(assembler_entity)) = *mode else {
+        return;
+    };
+    for (&interaction, recipe_btn) in &interactions {
+        if interaction != Interaction::Pressed {
+            continue;
+        }
+        let recipe = &RECIPES[recipe_btn.0];
+        let Ok((mut assembler, mut output_buf)) = assemblers.get_mut(assembler_entity) else {
+            continue;
+        };
+        assembler.recipe = Some(*recipe);
+        assembler.ticks = 0;
+        output_buf.items.clear();
+        cmd.entity(assembler_entity)
+            .insert(InputBuffer::for_recipe(recipe));
+    }
+}
+
+pub(super) fn handle_clear_assembler_recipe(
+    interactions: Query<&Interaction, (Changed<Interaction>, With<ClearAssemblerRecipeButton>)>,
+    mode: Res<InteractionMode>,
+    mut assemblers: Query<(&mut Assembler, &mut OutputBuffer)>,
+    mut cmd: Commands,
+) {
+    let InteractionMode::InScreen(ScreenMode::Assembler(assembler_entity)) = *mode else {
+        return;
+    };
+    for &interaction in &interactions {
+        if interaction != Interaction::Pressed {
+            continue;
+        }
+        let Ok((mut assembler, mut output_buf)) = assemblers.get_mut(assembler_entity) else {
+            continue;
+        };
+        assembler.recipe = None;
+        assembler.ticks = 0;
+        output_buf.items.clear();
+        cmd.entity(assembler_entity)
+            .insert(InputBuffer::for_method(ProcessingMethod::Assembler));
+    }
+}
+
+pub(super) fn handle_assembler_inventory_slot_clicks(
+    interactions: Query<
+        (&Interaction, &InventorySlot),
+        (Changed<Interaction>, With<AssemblerInventoryPanel>),
+    >,
+    mode: Res<InteractionMode>,
+    player: Res<Player>,
+    mut inventories: Query<&mut Inventory>,
+    mut assembler_inputs: Query<&mut InputBuffer, With<Assembler>>,
+) {
+    let InteractionMode::InScreen(ScreenMode::Assembler(assembler_entity)) = *mode else {
+        return;
+    };
+    for (&interaction, slot_marker) in &interactions {
+        if interaction != Interaction::Pressed {
+            continue;
+        }
+        let Ok(mut inv) = inventories.get_mut(player.0) else {
+            continue;
+        };
+        let Ok(mut input_buf) = assembler_inputs.get_mut(assembler_entity) else {
+            continue;
+        };
+        let Some(stack) = inv.take_slot(slot_marker.0) else {
+            continue;
+        };
+        if input_buf.accepts(stack.item) {
+            input_buf.fill_slot(stack.item);
+            let remaining = stack.count - 1;
+            inv.insert(Stack::new(stack.item, remaining)).unwrap();
+        } else {
+            let _ = inv.insert(stack);
+        }
+    }
+}
+
+pub(super) fn handle_assembler_output_slot_clicks(
+    interactions: Query<(&Interaction, &AssemblerOutputSlot), Changed<Interaction>>,
+    mode: Res<InteractionMode>,
+    player: Res<Player>,
+    mut inventories: Query<&mut Inventory>,
+    mut assembler_outputs: Query<&mut OutputBuffer, With<Assembler>>,
+) {
+    let InteractionMode::InScreen(ScreenMode::Assembler(assembler_entity)) = *mode else {
+        return;
+    };
+    for (&interaction, slot_marker) in &interactions {
+        if interaction != Interaction::Pressed {
+            continue;
+        }
+        let Ok(mut inv) = inventories.get_mut(player.0) else {
+            continue;
+        };
+        let Ok(mut output_buf) = assembler_outputs.get_mut(assembler_entity) else {
+            continue;
+        };
+        if slot_marker.0 < output_buf.items.len() {
+            let item = output_buf.items.remove(slot_marker.0);
+            let _ = inv.insert(Stack::new(item, 1.try_into().unwrap()));
+        }
+    }
+}

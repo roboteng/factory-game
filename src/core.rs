@@ -76,6 +76,7 @@ impl Plugin for CorePlugin {
                 push_to_belt,
                 pull_from_belt,
                 process_furnace,
+                process_assembler,
                 consume_sink_buffer,
                 side_loading,
             ),
@@ -157,6 +158,7 @@ pub enum ProcessingMethod {
     Assembler,
 }
 
+#[derive(Clone, Copy)]
 pub struct Recipe {
     pub method: ProcessingMethod,
     pub inputs: &'static [Item],
@@ -177,11 +179,35 @@ pub const RECIPES: &'static [Recipe] = &[
         outputs: &[Item::CopperIngot],
         ticks: 100,
     },
+    Recipe {
+        method: ProcessingMethod::Assembler,
+        inputs: &[Item::IronIngot, Item::IronIngot],
+        outputs: &[Item::Belt],
+        ticks: 60,
+    },
+    Recipe {
+        method: ProcessingMethod::Assembler,
+        inputs: &[Item::IronIngot, Item::CopperIngot],
+        outputs: &[Item::Miner],
+        ticks: 120,
+    },
+    Recipe {
+        method: ProcessingMethod::Assembler,
+        inputs: &[Item::IronIngot, Item::IronIngot, Item::CopperIngot],
+        outputs: &[Item::Furnace],
+        ticks: 150,
+    },
 ];
 
 #[derive(Component, Default)]
 pub struct Furnace {
     pub ticks: u32,
+}
+
+#[derive(Component, Default)]
+pub struct Assembler {
+    pub ticks: u32,
+    pub recipe: Option<Recipe>,
 }
 
 #[derive(Component)]
@@ -309,6 +335,7 @@ pub enum Item {
     CopperIngot,
     Miner,
     Furnace,
+    Assembler,
 }
 
 impl Item {
@@ -325,6 +352,7 @@ impl Item {
             Item::CopperIngot => "Copper Ingot",
             Item::Miner => "Miner",
             Item::Furnace => "Furnace",
+            Item::Assembler => "Assembler",
         }
     }
 
@@ -338,6 +366,7 @@ impl Item {
             Item::Dirt => Some(WorldBlock::Dirt),
             Item::Miner => Some(WorldBlock::Miner),
             Item::Furnace => Some(WorldBlock::Furnace),
+            Item::Assembler => Some(WorldBlock::Assembler),
             Item::IronOre | Item::CopperOre | Item::IronIngot | Item::CopperIngot => None,
         }
     }
@@ -356,6 +385,7 @@ pub enum WorldBlock {
     CopperOreDeposit,
     Miner,
     Furnace,
+    Assembler,
 }
 
 impl WorldBlock {
@@ -370,6 +400,7 @@ impl WorldBlock {
             WorldBlock::CopperOreDeposit => "Copper Ore Deposit",
             WorldBlock::Miner => "Miner",
             WorldBlock::Furnace => "Furnace",
+            WorldBlock::Assembler => "Assembler",
         }
     }
 
@@ -392,6 +423,7 @@ impl WorldBlock {
             WorldBlock::Dirt => Some(Item::Dirt),
             WorldBlock::Miner => Some(Item::Miner),
             WorldBlock::Furnace => Some(Item::Furnace),
+            WorldBlock::Assembler => Some(Item::Assembler),
             WorldBlock::IronOreDeposit | WorldBlock::CopperOreDeposit => None,
         }
     }
@@ -412,7 +444,8 @@ impl WorldBlock {
             | WorldBlock::Dirt
             | WorldBlock::IronOreDeposit
             | WorldBlock::CopperOreDeposit
-            | WorldBlock::Miner => BlockSize::HALF_BLOCK,
+            | WorldBlock::Assembler
+            | WorldBlock::Miner => BlockSize::FULL_BLOCK,
             WorldBlock::Furnace => BlockSize {
                 height: 6,
                 width: 2,
@@ -553,6 +586,17 @@ fn on_place_block(
             cmd.entity(event.entity).insert((
                 Furnace::default(),
                 InputBuffer::for_method(ProcessingMethod::Furnace),
+                OutputBuffer::default(),
+                OutputsToBelt {
+                    at: event.coords.step(event.dir),
+                },
+                rt,
+            ));
+        }
+        WorldBlock::Assembler => {
+            cmd.entity(event.entity).insert((
+                Assembler::default(),
+                InputBuffer::for_method(ProcessingMethod::Assembler),
                 OutputBuffer::default(),
                 OutputsToBelt {
                     at: event.coords.step(event.dir),
@@ -1072,6 +1116,31 @@ fn process_furnace(mut furnaces: Query<(&mut Furnace, &mut InputBuffer, &mut Out
             continue;
         }
         furnace.ticks = 0;
+        output.items.extend_from_slice(recipe.outputs);
+        for slot in &mut input.slots {
+            *slot = None;
+        }
+    }
+}
+
+fn process_assembler(mut assemblers: Query<(&mut Assembler, &mut InputBuffer, &mut OutputBuffer)>) {
+    for (mut assembler, mut input, mut output) in &mut assemblers {
+        let Some(recipe) = assembler.recipe else {
+            assembler.ticks = 0;
+            continue;
+        };
+        if !input.is_ready() {
+            assembler.ticks = 0;
+            continue;
+        }
+        if !output.items.is_empty() {
+            continue;
+        }
+        assembler.ticks += 1;
+        if assembler.ticks < recipe.ticks {
+            continue;
+        }
+        assembler.ticks = 0;
         output.items.extend_from_slice(recipe.outputs);
         for slot in &mut input.slots {
             *slot = None;

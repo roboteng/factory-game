@@ -1,7 +1,8 @@
-use crate::core::{Player, inventory::Inventory};
+use crate::core::{inventory::Inventory, Player};
 
 use bevy::prelude::*;
 
+mod assembler;
 mod common;
 mod furnace;
 mod hotbar;
@@ -10,6 +11,11 @@ mod menu;
 mod player_controller;
 mod visuals;
 
+use assembler::{
+    handle_assembler_close_button, handle_assembler_inventory_slot_clicks,
+    handle_assembler_output_slot_clicks, handle_assembler_recipe_button,
+    handle_clear_assembler_recipe, setup_assembler_pane, update_assembler_pane,
+};
 use common::InventorySlot;
 use furnace::{
     handle_furnace_close_button, handle_furnace_inventory_slot_clicks,
@@ -29,6 +35,7 @@ impl Plugin for UiPlugin {
         app.add_systems(Startup, setup_inventory_pane);
         app.add_systems(Startup, setup_menu_pane);
         app.add_systems(Startup, setup_furnace_pane);
+        app.add_systems(Startup, setup_assembler_pane);
 
         app.add_systems(
             Update,
@@ -47,6 +54,15 @@ impl Plugin for UiPlugin {
         app.add_systems(Update, handle_furnace_close_button);
         app.add_systems(Update, handle_furnace_inventory_slot_clicks);
         app.add_systems(Update, handle_furnace_output_slot_clicks);
+        app.add_systems(
+            Update,
+            update_assembler_pane.after(player_controller::cursor_grab),
+        );
+        app.add_systems(Update, handle_assembler_close_button);
+        app.add_systems(Update, handle_assembler_recipe_button);
+        app.add_systems(Update, handle_clear_assembler_recipe);
+        app.add_systems(Update, handle_assembler_inventory_slot_clicks);
+        app.add_systems(Update, handle_assembler_output_slot_clicks);
         app.add_systems(Update, update_inventory_slots);
     }
 }
@@ -65,6 +81,7 @@ pub(super) enum ScreenMode {
     Inventory,
     Menu,
     Furnace(Entity),
+    Assembler(Entity),
 }
 
 #[derive(Resource, PartialEq, Eq)]

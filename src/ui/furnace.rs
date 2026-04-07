@@ -1,11 +1,11 @@
 use bevy::prelude::*;
 
 use crate::core::{
-    Furnace, InputBuffer, OutputBuffer, Player, ProcessingMethod, RECIPES,
     inventory::{Inventory, Stack},
+    Furnace, InputBuffer, OutputBuffer, Player, ProcessingMethod, RECIPES,
 };
 
-use super::common::{InventorySlot, pane_node, section_label, spawn_screen_layout, spawn_slot};
+use super::common::{pane_node, section_label, spawn_screen_layout, spawn_slot, InventorySlot};
 use super::{InteractionMode, ScreenMode, WorldMode};
 
 #[derive(Component)]

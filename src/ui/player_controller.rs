@@ -24,7 +24,8 @@ impl Plugin for PlayerControllerPlugin {
             PreUpdate,
             (
                 handle_mode_inputs,
-                handle_right_click_furnace.after(handle_mode_inputs),
+                handle_right_click_block_ui::<Furnace>.after(handle_mode_inputs),
+                handle_right_click_block_ui::<Assembler>.after(handle_mode_inputs),
                 update_delete_preview.after(handle_mode_inputs),
                 handle_change_incline.after(handle_mode_inputs),
                 handle_click_to_place.after(handle_mode_inputs),
@@ -35,6 +36,22 @@ impl Plugin for PlayerControllerPlugin {
         app.add_systems(Update, draw_placement_preview);
         app.add_systems(Update, camera_look);
         app.add_systems(Update, cursor_grab.after(handle_click_to_place));
+    }
+}
+
+trait BlockUIScreen: Component {
+    fn screen(entity: Entity) -> ScreenMode;
+}
+
+impl BlockUIScreen for Assembler {
+    fn screen(entity: Entity) -> ScreenMode {
+        ScreenMode::Assembler(entity)
+    }
+}
+
+impl BlockUIScreen for Furnace {
+    fn screen(entity: Entity) -> ScreenMode {
+        ScreenMode::Furnace(entity)
     }
 }
 
@@ -662,6 +679,94 @@ fn handle_right_click_furnace(
 
     if furnace_check.get(entity).is_ok() {
         *mode = InteractionMode::InScreen(ScreenMode::Furnace(entity));
+    }
+}
+
+fn handle_right_click_assembler(
+    mouse: Res<ButtonInput<MouseButton>>,
+    cursor_options: Single<&CursorOptions>,
+    camera_q: Single<&Transform, With<FirstPersonCamera>>,
+    coord_map: Res<CoordsMap>,
+    targets: Query<(&WorldCoords, &Transform, &RaycastTarget)>,
+    assembler_check: Query<(), With<Assembler>>,
+    mut mode: ResMut<InteractionMode>,
+) {
+    if cursor_options.grab_mode != CursorGrabMode::Locked {
+        return;
+    }
+    if !mouse.just_pressed(MouseButton::Right) {
+        return;
+    }
+    if !matches!(*mode, InteractionMode::InWorld(_)) {
+        return;
+    }
+
+    let camera_transform = camera_q.into_inner();
+    let origin = camera_transform.translation;
+    let ray_dir = *camera_transform.forward();
+
+    let Some(hit) = cast_ray(
+        origin,
+        ray_dir,
+        targets.iter().map(|(c, t, rt)| RayTarget {
+            coords: *c,
+            center: t.translation,
+            half_extents: rt.half_extents,
+        }),
+    ) else {
+        return;
+    };
+
+    let Some(&entity) = coord_map.0.get(&hit.hit_coords) else {
+        return;
+    };
+
+    if assembler_check.get(entity).is_ok() {
+        *mode = InteractionMode::InScreen(ScreenMode::Assembler(entity));
+    }
+}
+
+fn handle_right_click_block_ui<T: BlockUIScreen>(
+    mouse: Res<ButtonInput<MouseButton>>,
+    cursor_options: Single<&CursorOptions>,
+    camera_q: Single<&Transform, With<FirstPersonCamera>>,
+    coord_map: Res<CoordsMap>,
+    targets: Query<(&WorldCoords, &Transform, &RaycastTarget)>,
+    blocks: Query<(), With<T>>,
+    mut mode: ResMut<InteractionMode>,
+) {
+    if cursor_options.grab_mode != CursorGrabMode::Locked {
+        return;
+    }
+    if !mouse.just_pressed(MouseButton::Right) {
+        return;
+    }
+    if !matches!(*mode, InteractionMode::InWorld(_)) {
+        return;
+    }
+
+    let camera_transform = camera_q.into_inner();
+    let origin = camera_transform.translation;
+    let ray_dir = *camera_transform.forward();
+
+    let Some(hit) = cast_ray(
+        origin,
+        ray_dir,
+        targets.iter().map(|(c, t, rt)| RayTarget {
+            coords: *c,
+            center: t.translation,
+            half_extents: rt.half_extents,
+        }),
+    ) else {
+        return;
+    };
+
+    let Some(&entity) = coord_map.0.get(&hit.hit_coords) else {
+        return;
+    };
+
+    if blocks.get(entity).is_ok() {
+        *mode = InteractionMode::InScreen(T::screen(entity));
     }
 }
 

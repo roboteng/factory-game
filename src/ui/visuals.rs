@@ -36,6 +36,7 @@ struct BlockModels {
     copper_ore: ModelDef,
     miner: ModelDef,
     furnace: ModelDef,
+    assembler: ModelDef,
 }
 fn setup_models(mut cmd: Commands, asset_server: Res<AssetServer>) {
     let voxel = asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Voxel.glb"));
@@ -108,6 +109,9 @@ fn setup_models(mut cmd: Commands, asset_server: Res<AssetServer>) {
         ),
         furnace: ModelDef::Scene(
             asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Furnace.glb")),
+        ),
+        assembler: ModelDef::Scene(
+            asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Voxel.glb")),
         ),
     });
 }
@@ -183,6 +187,7 @@ fn attach_models(
             WorldBlock::CopperOreDeposit => &all_models.copper_ore,
             WorldBlock::Miner => &all_models.miner,
             WorldBlock::Furnace => &all_models.furnace,
+            WorldBlock::Assembler => &all_models.assembler,
             WorldBlock::Belt => match shape {
                 Some(BeltShape::Straight(_)) => &all_models.belt_straight,
                 Some(BeltShape::Curve(c)) => {
@@ -214,6 +219,7 @@ fn on_place_item(event: On<PlaceItem>, mut cmd: Commands, asset_server: Res<Asse
         Item::CopperIngot => Color::srgb(0.8, 0.5, 0.2),
         Item::Miner => Color::srgb(0.3, 0.3, 0.5),
         Item::Furnace => Color::srgb(0.8, 0.4, 0.1),
+        Item::Assembler => Color::srgb(0.6, 0.4, 0.5),
     };
     let visual = cmd
         .spawn((
