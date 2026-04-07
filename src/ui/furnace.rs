@@ -118,7 +118,7 @@ pub(super) fn update_furnace_pane(
                     && r.inputs
                         .iter()
                         .zip(&input_buf.slots)
-                        .all(|(exp, slot)| slot.as_ref() == Some(exp))
+                        .all(|(exp, slot)| slot.as_ref().map(|&s| s == exp.item) == Some(true))
             });
         match active_recipe {
             Some(r) if r.ticks > 0 => furnace.ticks as f32 / r.ticks as f32,

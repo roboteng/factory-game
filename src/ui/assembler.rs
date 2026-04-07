@@ -1,14 +1,14 @@
 use bevy::prelude::*;
 
 use crate::core::{
-    Assembler, InputBuffer, OutputBuffer, Player, ProcessingMethod, RECIPES,
     inventory::{Inventory, Stack},
+    Assembler, InputBuffer, OutputBuffer, Player, ProcessingMethod, RECIPES,
 };
 
 use super::common::{
-    CLOSE_BTN_BG, CLOSE_BTN_FONT_SIZE, CLOSE_BTN_SIZE, InventorySlot, LABEL_COLOR, LABEL_FONT_SIZE,
-    SLOT_BG, SLOT_BORDER, SLOT_FONT_SIZE, TITLE_FONT_SIZE, pane_node, section_label,
-    spawn_inventory_panel, spawn_slot, spawn_title_bar,
+    pane_node, section_label, spawn_inventory_panel, spawn_slot, spawn_title_bar, InventorySlot,
+    CLOSE_BTN_BG, CLOSE_BTN_FONT_SIZE, CLOSE_BTN_SIZE, LABEL_COLOR, LABEL_FONT_SIZE, SLOT_BG,
+    SLOT_BORDER, SLOT_FONT_SIZE, TITLE_FONT_SIZE,
 };
 use super::{InteractionMode, ScreenMode, WorldMode};
 
@@ -50,13 +50,13 @@ fn recipe_label(recipe: &crate::core::Recipe) -> String {
     let inputs = recipe
         .inputs
         .iter()
-        .map(|i| i.name())
+        .map(|s| s.item.name())
         .collect::<Vec<_>>()
         .join(" + ");
     let outputs = recipe
         .outputs
         .iter()
-        .map(|i| i.name())
+        .map(|s| s.item.name())
         .collect::<Vec<_>>()
         .join(" + ");
     format!("{} \u{2192} {}", inputs, outputs)

@@ -161,40 +161,46 @@ pub enum ProcessingMethod {
 #[derive(Clone, Copy)]
 pub struct Recipe {
     pub method: ProcessingMethod,
-    pub inputs: &'static [Item],
-    pub outputs: &'static [Item],
+    pub inputs: &'static [Stack],
+    pub outputs: &'static [Stack],
     pub ticks: u32,
 }
 
 pub const RECIPES: &'static [Recipe] = &[
     Recipe {
         method: ProcessingMethod::Furnace,
-        inputs: &[Item::IronOre],
-        outputs: &[Item::IronIngot],
+        inputs: &[Stack { item: Item::IronOre, count: 1 }],
+        outputs: &[Stack { item: Item::IronIngot, count: 1 }],
         ticks: 100,
     },
     Recipe {
         method: ProcessingMethod::Furnace,
-        inputs: &[Item::CopperOre],
-        outputs: &[Item::CopperIngot],
+        inputs: &[Stack { item: Item::CopperOre, count: 1 }],
+        outputs: &[Stack { item: Item::CopperIngot, count: 1 }],
         ticks: 100,
     },
     Recipe {
         method: ProcessingMethod::Assembler,
-        inputs: &[Item::IronIngot, Item::IronIngot],
-        outputs: &[Item::Belt],
+        inputs: &[Stack { item: Item::IronIngot, count: 2 }],
+        outputs: &[Stack { item: Item::Belt, count: 1 }],
         ticks: 60,
     },
     Recipe {
         method: ProcessingMethod::Assembler,
-        inputs: &[Item::IronIngot, Item::CopperIngot],
-        outputs: &[Item::Miner],
+        inputs: &[
+            Stack { item: Item::IronIngot, count: 1 },
+            Stack { item: Item::CopperIngot, count: 1 },
+        ],
+        outputs: &[Stack { item: Item::Miner, count: 1 }],
         ticks: 120,
     },
     Recipe {
         method: ProcessingMethod::Assembler,
-        inputs: &[Item::IronIngot, Item::IronIngot, Item::CopperIngot],
-        outputs: &[Item::Furnace],
+        inputs: &[
+            Stack { item: Item::IronIngot, count: 2 },
+            Stack { item: Item::CopperIngot, count: 1 },
+        ],
+        outputs: &[Stack { item: Item::Furnace, count: 1 }],
         ticks: 150,
     },
 ];
@@ -248,14 +254,14 @@ impl InputBuffer {
                 .inputs
                 .iter()
                 .zip(self.slots.iter())
-                .any(|(&expected, slot)| slot.is_none() && expected == item);
+                .any(|(expected, slot)| slot.is_none() && expected.item == item);
         }
         if let Some(method) = self.method {
             return self.slots.iter().any(|s| s.is_none())
                 && RECIPES
                     .iter()
                     .filter(|r| r.method == method)
-                    .any(|r| r.inputs.contains(&item));
+                    .any(|r| r.inputs.iter().any(|s| s.item == item));
         }
         self.slots.iter().any(|s| s.is_none())
     }
@@ -266,7 +272,7 @@ impl InputBuffer {
                 .inputs
                 .iter()
                 .zip(self.slots.iter_mut())
-                .find(|(expected, slot)| slot.is_none() && **expected == item)
+                .find(|(expected, slot)| slot.is_none() && expected.item == item)
             {
                 *slot = Some(item);
             }
@@ -1106,7 +1112,7 @@ fn process_furnace(mut furnaces: Query<(&mut Furnace, &mut InputBuffer, &mut Out
                     && r.inputs
                         .iter()
                         .zip(&input.slots)
-                        .all(|(exp, slot)| slot.as_ref() == Some(exp))
+                        .all(|(exp, slot)| slot.as_ref().map(|&s| s == exp.item) == Some(true))
             });
         let Some(recipe) = recipe else {
             continue;
@@ -1116,7 +1122,11 @@ fn process_furnace(mut furnaces: Query<(&mut Furnace, &mut InputBuffer, &mut Out
             continue;
         }
         furnace.ticks = 0;
-        output.items.extend_from_slice(recipe.outputs);
+        for stack in recipe.outputs {
+            for _ in 0..stack.count {
+                output.items.push(stack.item);
+            }
+        }
         for slot in &mut input.slots {
             *slot = None;
         }
@@ -1141,7 +1151,11 @@ fn process_assembler(mut assemblers: Query<(&mut Assembler, &mut InputBuffer, &m
             continue;
         }
         assembler.ticks = 0;
-        output.items.extend_from_slice(recipe.outputs);
+        for stack in recipe.outputs {
+            for _ in 0..stack.count {
+                output.items.push(stack.item);
+            }
+        }
         for slot in &mut input.slots {
             *slot = None;
         }
