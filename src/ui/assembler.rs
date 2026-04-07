@@ -1,8 +1,8 @@
 use bevy::prelude::*;
 
 use crate::core::{
-    inventory::{Inventory, Stack},
-    Assembler, InputBuffer, OutputBuffer, Player, ProcessingMethod, RECIPES,
+    Assembler, InputBuffer, LoadMachineInput, OutputBuffer, ProcessingMethod, SetAssemblerRecipe,
+    UnloadMachineOutput, RECIPES,
 };
 
 use super::common::{
@@ -329,49 +329,36 @@ pub(super) fn handle_assembler_close_button(
 pub(super) fn handle_assembler_recipe_button(
     interactions: Query<(&Interaction, &AssemblerRecipeButton), Changed<Interaction>>,
     mode: Res<InteractionMode>,
-    mut assemblers: Query<(&mut Assembler, &mut OutputBuffer)>,
     mut cmd: Commands,
 ) {
     let InteractionMode::InScreen(ScreenMode::Assembler(assembler_entity)) = *mode else {
         return;
     };
     for (&interaction, recipe_btn) in &interactions {
-        if interaction != Interaction::Pressed {
-            continue;
+        if interaction == Interaction::Pressed {
+            cmd.trigger(SetAssemblerRecipe {
+                assembler: assembler_entity,
+                recipe: Some(&RECIPES[recipe_btn.0]),
+            });
         }
-        let recipe = &RECIPES[recipe_btn.0];
-        let Ok((mut assembler, mut output_buf)) = assemblers.get_mut(assembler_entity) else {
-            continue;
-        };
-        assembler.recipe = Some(*recipe);
-        assembler.ticks = 0;
-        output_buf.items.clear();
-        cmd.entity(assembler_entity)
-            .insert(InputBuffer::for_recipe(recipe));
     }
 }
 
 pub(super) fn handle_clear_assembler_recipe(
     interactions: Query<&Interaction, (Changed<Interaction>, With<ClearAssemblerRecipeButton>)>,
     mode: Res<InteractionMode>,
-    mut assemblers: Query<(&mut Assembler, &mut OutputBuffer)>,
     mut cmd: Commands,
 ) {
     let InteractionMode::InScreen(ScreenMode::Assembler(assembler_entity)) = *mode else {
         return;
     };
     for &interaction in &interactions {
-        if interaction != Interaction::Pressed {
-            continue;
+        if interaction == Interaction::Pressed {
+            cmd.trigger(SetAssemblerRecipe {
+                assembler: assembler_entity,
+                recipe: None,
+            });
         }
-        let Ok((mut assembler, mut output_buf)) = assemblers.get_mut(assembler_entity) else {
-            continue;
-        };
-        assembler.recipe = None;
-        assembler.ticks = 0;
-        output_buf.items.clear();
-        cmd.entity(assembler_entity)
-            .insert(InputBuffer::for_method(ProcessingMethod::Assembler));
     }
 }
 
@@ -381,32 +368,17 @@ pub(super) fn handle_assembler_inventory_slot_clicks(
         (Changed<Interaction>, With<AssemblerInventoryPanel>),
     >,
     mode: Res<InteractionMode>,
-    player: Res<Player>,
-    mut inventories: Query<&mut Inventory>,
-    mut assembler_inputs: Query<&mut InputBuffer, With<Assembler>>,
+    mut cmd: Commands,
 ) {
     let InteractionMode::InScreen(ScreenMode::Assembler(assembler_entity)) = *mode else {
         return;
     };
     for (&interaction, slot_marker) in &interactions {
-        if interaction != Interaction::Pressed {
-            continue;
-        }
-        let Ok(mut inv) = inventories.get_mut(player.0) else {
-            continue;
-        };
-        let Ok(mut input_buf) = assembler_inputs.get_mut(assembler_entity) else {
-            continue;
-        };
-        let Some(stack) = inv.take_slot(slot_marker.0) else {
-            continue;
-        };
-        if input_buf.accepts(stack.item) {
-            input_buf.fill_slot(stack.item);
-            let remaining = stack.count - 1;
-            inv.insert(Stack::new(stack.item, remaining)).unwrap();
-        } else {
-            let _ = inv.insert(stack);
+        if interaction == Interaction::Pressed {
+            cmd.trigger(LoadMachineInput {
+                player_inventory_slot: slot_marker.0,
+                machine: assembler_entity,
+            });
         }
     }
 }
@@ -414,26 +386,17 @@ pub(super) fn handle_assembler_inventory_slot_clicks(
 pub(super) fn handle_assembler_output_slot_clicks(
     interactions: Query<(&Interaction, &AssemblerOutputSlot), Changed<Interaction>>,
     mode: Res<InteractionMode>,
-    player: Res<Player>,
-    mut inventories: Query<&mut Inventory>,
-    mut assembler_outputs: Query<&mut OutputBuffer, With<Assembler>>,
+    mut cmd: Commands,
 ) {
     let InteractionMode::InScreen(ScreenMode::Assembler(assembler_entity)) = *mode else {
         return;
     };
     for (&interaction, slot_marker) in &interactions {
-        if interaction != Interaction::Pressed {
-            continue;
-        }
-        let Ok(mut inv) = inventories.get_mut(player.0) else {
-            continue;
-        };
-        let Ok(mut output_buf) = assembler_outputs.get_mut(assembler_entity) else {
-            continue;
-        };
-        if slot_marker.0 < output_buf.items.len() {
-            let item = output_buf.items.remove(slot_marker.0);
-            let _ = inv.insert(Stack::new(item, 1.try_into().unwrap()));
+        if interaction == Interaction::Pressed {
+            cmd.trigger(UnloadMachineOutput {
+                machine: assembler_entity,
+                output_slot: slot_marker.0,
+            });
         }
     }
 }

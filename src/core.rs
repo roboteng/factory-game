@@ -57,6 +57,9 @@ impl Plugin for CorePlugin {
         app.add_observer(on_place_item);
         app.add_observer(on_remove_block);
         app.add_observer(on_incline);
+        app.add_observer(on_load_machine_input);
+        app.add_observer(on_unload_machine_output);
+        app.add_observer(on_set_assembler_recipe);
 
         let mut inv = Inventory::new();
         inv.insert(Stack::new(Item::Belt, 15)).unwrap();
@@ -132,6 +135,27 @@ pub struct RemoveBlock {
     pub entity: Entity,
 }
 
+/// Player moved one item from their inventory into a machine's input buffer.
+#[derive(Event, Debug, Clone)]
+pub struct LoadMachineInput {
+    pub player_inventory_slot: u16,
+    pub machine: Entity,
+}
+
+/// Player collected an item from a machine's output buffer into their inventory.
+#[derive(Event, Debug, Clone)]
+pub struct UnloadMachineOutput {
+    pub machine: Entity,
+    pub output_slot: usize,
+}
+
+/// Player set or cleared an assembler's recipe. `None` clears the recipe.
+#[derive(Event, Debug, Clone, Copy)]
+pub struct SetAssemblerRecipe {
+    pub assembler: Entity,
+    pub recipe: Option<&'static Recipe>,
+}
+
 #[derive(Component)]
 pub struct Belt;
 
@@ -158,7 +182,7 @@ pub enum ProcessingMethod {
     Assembler,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub struct Recipe {
     pub method: ProcessingMethod,
     pub inputs: &'static [Stack],
@@ -749,6 +773,58 @@ fn on_incline(
         && belts.contains(maybe_belt)
     {
         cmd.entity(maybe_belt).insert(DirtyBelt);
+    }
+}
+
+fn on_load_machine_input(
+    event: On<LoadMachineInput>,
+    player: Res<Player>,
+    mut inventories: Query<&mut Inventory>,
+    mut input_bufs: Query<&mut InputBuffer>,
+) {
+    let Ok(mut inv) = inventories.get_mut(player.0) else { return };
+    let Ok(mut input_buf) = input_bufs.get_mut(event.machine) else { return };
+    let Some(stack) = inv.take_slot(event.player_inventory_slot) else { return };
+    if input_buf.accepts(stack.item) {
+        input_buf.fill_slot(stack.item);
+        let remaining = stack.count - 1;
+        inv.insert(Stack::new(stack.item, remaining)).unwrap();
+    } else {
+        let _ = inv.insert(stack);
+    }
+}
+
+fn on_unload_machine_output(
+    event: On<UnloadMachineOutput>,
+    player: Res<Player>,
+    mut inventories: Query<&mut Inventory>,
+    mut output_bufs: Query<&mut OutputBuffer>,
+) {
+    let Ok(mut inv) = inventories.get_mut(player.0) else { return };
+    let Ok(mut output_buf) = output_bufs.get_mut(event.machine) else { return };
+    if event.output_slot < output_buf.items.len() {
+        let item = output_buf.items.remove(event.output_slot);
+        let _ = inv.insert(Stack::new(item, 1.try_into().unwrap()));
+    }
+}
+
+fn on_set_assembler_recipe(
+    event: On<SetAssemblerRecipe>,
+    mut assemblers: Query<(&mut Assembler, &mut OutputBuffer)>,
+    mut cmd: Commands,
+) {
+    let Ok((mut assembler, mut output_buf)) = assemblers.get_mut(event.assembler) else { return };
+    assembler.ticks = 0;
+    output_buf.items.clear();
+    match event.recipe {
+        Some(recipe) => {
+            assembler.recipe = Some(*recipe);
+            cmd.entity(event.assembler).insert(InputBuffer::for_recipe(recipe));
+        }
+        None => {
+            assembler.recipe = None;
+            cmd.entity(event.assembler).insert(InputBuffer::for_method(ProcessingMethod::Assembler));
+        }
     }
 }
 

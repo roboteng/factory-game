@@ -1,8 +1,8 @@
 use bevy::prelude::*;
 
 use crate::core::{
-    inventory::{Inventory, Stack},
-    Furnace, InputBuffer, OutputBuffer, Player, ProcessingMethod, RECIPES,
+    Furnace, InputBuffer, LoadMachineInput, OutputBuffer, ProcessingMethod, UnloadMachineOutput,
+    RECIPES,
 };
 
 use super::common::{pane_node, section_label, spawn_screen_layout, spawn_slot, InventorySlot};
@@ -172,32 +172,17 @@ pub(super) fn handle_furnace_inventory_slot_clicks(
         (Changed<Interaction>, With<FurnaceInventoryPanel>),
     >,
     mode: Res<InteractionMode>,
-    player: Res<Player>,
-    mut inventories: Query<&mut Inventory>,
-    mut furnace_inputs: Query<&mut InputBuffer, With<Furnace>>,
+    mut cmd: Commands,
 ) {
     let InteractionMode::InScreen(ScreenMode::Furnace(furnace_entity)) = *mode else {
         return;
     };
     for (&interaction, slot_marker) in &interactions {
-        if interaction != Interaction::Pressed {
-            continue;
-        }
-        let Ok(mut inv) = inventories.get_mut(player.0) else {
-            continue;
-        };
-        let Ok(mut input_buf) = furnace_inputs.get_mut(furnace_entity) else {
-            continue;
-        };
-        let Some(stack) = inv.take_slot(slot_marker.0) else {
-            continue;
-        };
-        if input_buf.accepts(stack.item) {
-            input_buf.fill_slot(stack.item);
-            let remaining = stack.count - 1;
-            inv.insert(Stack::new(stack.item, remaining)).unwrap();
-        } else {
-            let _ = inv.insert(stack);
+        if interaction == Interaction::Pressed {
+            cmd.trigger(LoadMachineInput {
+                player_inventory_slot: slot_marker.0,
+                machine: furnace_entity,
+            });
         }
     }
 }
@@ -205,26 +190,17 @@ pub(super) fn handle_furnace_inventory_slot_clicks(
 pub(super) fn handle_furnace_output_slot_clicks(
     interactions: Query<(&Interaction, &FurnaceOutputSlot), Changed<Interaction>>,
     mode: Res<InteractionMode>,
-    player: Res<Player>,
-    mut inventories: Query<&mut Inventory>,
-    mut furnace_outputs: Query<&mut OutputBuffer, With<Furnace>>,
+    mut cmd: Commands,
 ) {
     let InteractionMode::InScreen(ScreenMode::Furnace(furnace_entity)) = *mode else {
         return;
     };
     for (&interaction, slot_marker) in &interactions {
-        if interaction != Interaction::Pressed {
-            continue;
-        }
-        let Ok(mut inv) = inventories.get_mut(player.0) else {
-            continue;
-        };
-        let Ok(mut output_buf) = furnace_outputs.get_mut(furnace_entity) else {
-            continue;
-        };
-        if slot_marker.0 < output_buf.items.len() {
-            let item = output_buf.items.remove(slot_marker.0);
-            let _ = inv.insert(Stack::new(item, 1.try_into().unwrap()));
+        if interaction == Interaction::Pressed {
+            cmd.trigger(UnloadMachineOutput {
+                machine: furnace_entity,
+                output_slot: slot_marker.0,
+            });
         }
     }
 }
