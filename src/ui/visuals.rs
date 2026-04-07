@@ -18,6 +18,11 @@ enum ModelDef {
     Random(Vec<ModelDef>),
 }
 
+enum ItemModelDef {
+    Color(Color, f32),
+    Mesh(Handle<Scene>, f32),
+}
+
 #[derive(Component)]
 pub(super) struct SceneTint(pub(super) Color);
 
@@ -38,6 +43,23 @@ struct BlockModels {
     furnace: ModelDef,
     assembler: ModelDef,
 }
+
+#[derive(Resource)]
+struct ItemModels {
+    belt: ItemModelDef,
+    source: ItemModelDef,
+    sink: ItemModelDef,
+    rock: ItemModelDef,
+    dirt: ItemModelDef,
+    iron_ore: ItemModelDef,
+    copper_ore: ItemModelDef,
+    iron_ingot: ItemModelDef,
+    copper_ingot: ItemModelDef,
+    miner: ItemModelDef,
+    furnace: ItemModelDef,
+    assembler: ItemModelDef,
+}
+
 fn setup_models(mut cmd: Commands, asset_server: Res<AssetServer>) {
     let voxel = asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Voxel.glb"));
     cmd.insert_resource(BlockModels {
@@ -113,6 +135,22 @@ fn setup_models(mut cmd: Commands, asset_server: Res<AssetServer>) {
         assembler: ModelDef::Scene(
             asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Voxel.glb")),
         ),
+    });
+
+    let belt_straight = asset_server.load(GltfAssetLabel::Scene(2).from_asset("models/belt.glb"));
+    cmd.insert_resource(ItemModels {
+        belt: ItemModelDef::Mesh(belt_straight, 1.0),
+        source: ItemModelDef::Color(Color::srgb(0.2, 0.8, 0.2), 1.0),
+        sink: ItemModelDef::Color(Color::srgb(0.8, 0.2, 0.2), 1.0),
+        rock: ItemModelDef::Color(Color::srgb(0.55, 0.55, 0.55), 1.0),
+        dirt: ItemModelDef::Color(Color::srgb(0.55, 0.35, 0.15), 1.0),
+        iron_ore: ItemModelDef::Color(Color::srgb(0.6, 0.4, 0.3), 1.0),
+        copper_ore: ItemModelDef::Color(Color::srgb(0.7, 0.4, 0.15), 1.0),
+        iron_ingot: ItemModelDef::Color(Color::srgb(0.7, 0.7, 0.75), 1.0),
+        copper_ingot: ItemModelDef::Color(Color::srgb(0.8, 0.5, 0.2), 1.0),
+        miner: ItemModelDef::Color(Color::srgb(0.3, 0.3, 0.5), 1.0),
+        furnace: ItemModelDef::Color(Color::srgb(0.8, 0.4, 0.1), 1.0),
+        assembler: ItemModelDef::Color(Color::srgb(0.6, 0.4, 0.5), 1.0),
     });
 }
 
@@ -206,28 +244,45 @@ fn attach_models(
     }
 }
 
-fn on_place_item(event: On<PlaceItem>, mut cmd: Commands, asset_server: Res<AssetServer>) {
-    let color = match event.item {
-        Item::Belt => Color::srgb(0.5, 0.5, 0.5),
-        Item::Source => Color::srgb(0.2, 0.8, 0.2),
-        Item::Sink => Color::srgb(0.8, 0.2, 0.2),
-        Item::Rock => Color::srgb(0.55, 0.55, 0.55),
-        Item::Dirt => Color::srgb(0.55, 0.35, 0.15),
-        Item::IronOre => Color::srgb(0.6, 0.4, 0.3),
-        Item::CopperOre => Color::srgb(0.7, 0.4, 0.15),
-        Item::IronIngot => Color::srgb(0.7, 0.7, 0.75),
-        Item::CopperIngot => Color::srgb(0.8, 0.5, 0.2),
-        Item::Miner => Color::srgb(0.3, 0.3, 0.5),
-        Item::Furnace => Color::srgb(0.8, 0.4, 0.1),
-        Item::Assembler => Color::srgb(0.6, 0.4, 0.5),
+fn on_place_item(
+    event: On<PlaceItem>,
+    mut cmd: Commands,
+    item_models: Res<ItemModels>,
+    asset_server: Res<AssetServer>,
+) {
+    let model = match event.item {
+        Item::Belt => &item_models.belt,
+        Item::Source => &item_models.source,
+        Item::Sink => &item_models.sink,
+        Item::Rock => &item_models.rock,
+        Item::Dirt => &item_models.dirt,
+        Item::IronOre => &item_models.iron_ore,
+        Item::CopperOre => &item_models.copper_ore,
+        Item::IronIngot => &item_models.iron_ingot,
+        Item::CopperIngot => &item_models.copper_ingot,
+        Item::Miner => &item_models.miner,
+        Item::Furnace => &item_models.furnace,
+        Item::Assembler => &item_models.assembler,
     };
-    let visual = cmd
-        .spawn((
-            SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Voxel.glb"))),
-            Transform::from_scale(Vec3::splat(ITEM_SIZE * 0.95)),
-            SceneTint(color),
-            Visibility::Hidden,
-        ))
-        .id();
+
+    let visual = match model {
+        ItemModelDef::Color(color, scale) => cmd
+            .spawn((
+                SceneRoot(
+                    asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Voxel.glb")),
+                ),
+                Transform::from_scale(Vec3::splat(ITEM_SIZE * 0.95 * scale)),
+                SceneTint(*color),
+                Visibility::Hidden,
+            ))
+            .id(),
+        ItemModelDef::Mesh(handle, scale) => cmd
+            .spawn((
+                SceneRoot(handle.clone()),
+                Transform::from_scale(Vec3::splat(ITEM_SIZE * scale * 0.95)),
+            ))
+            .id(),
+    };
+
     cmd.entity(event.entity).add_child(visual);
 }
