@@ -226,6 +226,7 @@ fn attach_models(
             WorldBlock::Miner => &all_models.miner,
             WorldBlock::Furnace => &all_models.furnace,
             WorldBlock::Assembler => &all_models.assembler,
+            WorldBlock::Collector => &all_models.assembler,
             WorldBlock::Belt => match shape {
                 Some(BeltShape::Straight(_)) => &all_models.belt_straight,
                 Some(BeltShape::Curve(c)) => {
@@ -263,6 +264,7 @@ fn on_place_item(
         Item::Miner => &item_models.miner,
         Item::Furnace => &item_models.furnace,
         Item::Assembler => &item_models.assembler,
+        Item::Collector => &item_models.assembler,
     };
 
     let visual = match model {

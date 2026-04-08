@@ -15,6 +15,7 @@ impl Plugin for HotbarPlugin {
         hotbar[5] = Some(Item::Furnace);
         hotbar[6] = Some(Item::Assembler);
         hotbar[7] = Some(Item::Miner);
+        hotbar[8] = Some(Item::Collector);
         app.insert_resource(Hotbar(hotbar));
 
         app.add_systems(Startup, setup_hotbar);

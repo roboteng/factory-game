@@ -31,6 +31,7 @@ pub const BELT_HEIGHT_FROM_CENTER: f32 = BELT_HEIGHT - 0.5;
 pub const ITEM_SIZE: f32 = 1.0 / (ITEMS_PER_BELT as f32);
 pub const HALF_ITEM_SIZE: f32 = ITEM_SIZE / 2.0;
 pub const MINER_TICKS_PER_EXTRACT: u32 = 60;
+pub const COLLECTOR_MOVE_TICKS: u32 = 15;
 pub const ITEM_SPACING: i32 = POSITIONS_PER_BELT / ITEMS_PER_BELT;
 pub const BASE_ITEM_MOVEMENT: f32 = BASE_BELT_SPEED as f32 / POSITIONS_PER_BELT as f32;
 pub const POSITIONS_PER_INNER_CURVE: i32 =
@@ -79,6 +80,7 @@ impl Plugin for CorePlugin {
                 fill_miners,
                 push_to_belt,
                 pull_from_belt,
+                tick_collectors,
                 process_furnace,
                 process_assembler,
                 consume_sink_buffer,
@@ -159,6 +161,19 @@ pub struct SetAssemblerRecipe {
 
 #[derive(Component)]
 pub struct Belt;
+
+#[derive(Debug)]
+pub enum CollectorState {
+    ReadyToPickUp,
+    MovingItem { item: Item, visual: Entity, start: Vec3, end: Vec3, ticks: u32 },
+    ReadyToDropOff { item: Item },
+    MovingToStart { ticks: u32 },
+}
+
+#[derive(Component)]
+pub struct Collector {
+    pub state: CollectorState,
+}
 
 #[derive(Component)]
 pub struct Source;
@@ -404,6 +419,7 @@ pub enum Item {
     Miner,
     Furnace,
     Assembler,
+    Collector,
 }
 
 impl Item {
@@ -421,6 +437,7 @@ impl Item {
             Item::Miner => "Miner",
             Item::Furnace => "Furnace",
             Item::Assembler => "Assembler",
+            Item::Collector => "Collector",
         }
     }
 
@@ -435,6 +452,7 @@ impl Item {
             Item::Miner => Some(WorldBlock::Miner),
             Item::Furnace => Some(WorldBlock::Furnace),
             Item::Assembler => Some(WorldBlock::Assembler),
+            Item::Collector => Some(WorldBlock::Collector),
             Item::IronOre | Item::CopperOre | Item::IronIngot | Item::CopperIngot => None,
         }
     }
@@ -454,6 +472,7 @@ pub enum WorldBlock {
     Miner,
     Furnace,
     Assembler,
+    Collector,
 }
 
 impl WorldBlock {
@@ -469,6 +488,7 @@ impl WorldBlock {
             WorldBlock::Miner => "Miner",
             WorldBlock::Furnace => "Furnace",
             WorldBlock::Assembler => "Assembler",
+            WorldBlock::Collector => "Collector",
         }
     }
 
@@ -492,6 +512,7 @@ impl WorldBlock {
             WorldBlock::Miner => Some(Item::Miner),
             WorldBlock::Furnace => Some(Item::Furnace),
             WorldBlock::Assembler => Some(Item::Assembler),
+            WorldBlock::Collector => Some(Item::Collector),
             WorldBlock::IronOreDeposit | WorldBlock::CopperOreDeposit => None,
         }
     }
@@ -513,7 +534,8 @@ impl WorldBlock {
             | WorldBlock::IronOreDeposit
             | WorldBlock::CopperOreDeposit
             | WorldBlock::Assembler
-            | WorldBlock::Miner => BlockSize::FULL_BLOCK,
+            | WorldBlock::Miner
+            | WorldBlock::Collector => BlockSize::FULL_BLOCK,
             WorldBlock::Furnace => BlockSize {
                 height: 6,
                 width: 2,
@@ -671,6 +693,14 @@ fn on_place_block(
                 OutputBuffer::default(),
                 OutputsToBelt {
                     at: event.coords.step(event.dir),
+                },
+                rt,
+            ));
+        }
+        WorldBlock::Collector => {
+            cmd.entity(event.entity).insert((
+                Collector {
+                    state: CollectorState::ReadyToPickUp,
                 },
                 rt,
             ));
@@ -876,7 +906,9 @@ fn on_set_assembler_recipe(
     match event.recipe {
         Some(ref recipe) => {
             assembler.recipe = Some(recipe.clone());
-            filter.set_if_neq(Filter::from_recipe(&Recipe::AssemblerRecipe(recipe.clone())));
+            filter.set_if_neq(Filter::from_recipe(&Recipe::AssemblerRecipe(
+                recipe.clone(),
+            )));
             cmd.entity(event.assembler)
                 .insert(InputBuffer::new(recipe.input.len()));
         }
@@ -1230,6 +1262,101 @@ fn pull_from_belt(
             if buffer.is_ready() {
                 break;
             }
+        }
+    }
+}
+
+fn tick_collectors(
+    mut collectors: Query<(&mut Collector, &WorldCoords, &HDir)>,
+    mut belts: Query<&mut ItemLanes, With<Belt>>,
+    items: Query<&Item, With<OnBelt>>,
+    mut machines: Query<&mut InputBuffer>,
+    mut transforms: Query<&mut Transform>,
+    coord_map: Res<CoordsMap>,
+    mut cmd: Commands,
+) {
+    for (mut collector, coords, dir) in &mut collectors {
+        let dir = *dir;
+        let new_state = match &collector.state {
+            CollectorState::ReadyToPickUp => {
+                let belt_coords = coords.step(dir.opposite());
+                let Some(&belt_entity) = coord_map.0.get(&belt_coords) else {
+                    continue;
+                };
+                let Ok(mut lanes) = belts.get_mut(belt_entity) else {
+                    continue;
+                };
+                let mut grabbed = None;
+                for side in SIDES {
+                    let Some(lead) = lanes.0[side].get(0) else {
+                        continue;
+                    };
+                    if lead.0 != 0 {
+                        continue;
+                    }
+                    let item_entity = lead.1;
+                    let Ok(&item) = items.get(item_entity) else {
+                        continue;
+                    };
+                    let start = transforms
+                        .get(item_entity)
+                        .map(|t| t.translation)
+                        .unwrap_or_default();
+                    let end = Vec3::from(coords.step(dir));
+                    lanes.0[side].remove(0);
+                    cmd.entity(item_entity).remove::<OnBelt>();
+                    grabbed = Some((item, item_entity, start, end));
+                    break;
+                }
+                grabbed.map(|(item, visual, start, end)| CollectorState::MovingItem {
+                    item,
+                    visual,
+                    start,
+                    end,
+                    ticks: 0,
+                })
+            }
+            CollectorState::MovingItem { item, visual, start, end, ticks } => {
+                let (item, visual, start, end) = (*item, *visual, *start, *end);
+                let ticks = *ticks + 1;
+                let t = (ticks as f32 / COLLECTOR_MOVE_TICKS as f32).min(1.0);
+                if let Ok(mut transform) = transforms.get_mut(visual) {
+                    transform.translation = start.lerp(end, t);
+                }
+                if ticks >= COLLECTOR_MOVE_TICKS {
+                    cmd.entity(visual).despawn_children();
+                    cmd.entity(visual).despawn();
+                    Some(CollectorState::ReadyToDropOff { item })
+                } else {
+                    Some(CollectorState::MovingItem { item, visual, start, end, ticks })
+                }
+            }
+            CollectorState::ReadyToDropOff { item } => {
+                let item = *item;
+                let machine_coords = coords.step(dir);
+                let Some(&machine_entity) = coord_map.0.get(&machine_coords) else {
+                    continue;
+                };
+                let Ok(mut input) = machines.get_mut(machine_entity) else {
+                    continue;
+                };
+                if input.slots.iter().all(|s| s.is_some()) {
+                    continue;
+                }
+                input.fill_slot(item);
+                Some(CollectorState::MovingToStart { ticks: 0 })
+            }
+            CollectorState::MovingToStart { ticks } => {
+                let ticks = *ticks + 1;
+                if ticks >= COLLECTOR_MOVE_TICKS {
+                    Some(CollectorState::ReadyToPickUp)
+                } else {
+                    Some(CollectorState::MovingToStart { ticks })
+                }
+            }
+        };
+        if let Some(state) = new_state {
+            collector.state = state;
         }
     }
 }
