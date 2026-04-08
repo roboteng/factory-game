@@ -42,6 +42,7 @@ struct BlockModels {
     miner: ModelDef,
     furnace: ModelDef,
     assembler: ModelDef,
+    collector: ModelDef,
 }
 
 #[derive(Resource)]
@@ -58,6 +59,7 @@ struct ItemModels {
     miner: ItemModelDef,
     furnace: ItemModelDef,
     assembler: ItemModelDef,
+    collector: ItemModelDef,
 }
 
 fn setup_models(mut cmd: Commands, asset_server: Res<AssetServer>) {
@@ -135,6 +137,9 @@ fn setup_models(mut cmd: Commands, asset_server: Res<AssetServer>) {
         assembler: ModelDef::Scene(
             asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Voxel.glb")),
         ),
+        collector: ModelDef::Scene(
+            asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Collector.glb")),
+        ),
     });
 
     let belt_straight = asset_server.load(GltfAssetLabel::Scene(2).from_asset("models/belt.glb"));
@@ -151,6 +156,10 @@ fn setup_models(mut cmd: Commands, asset_server: Res<AssetServer>) {
         miner: ItemModelDef::Color(Color::srgb(0.3, 0.3, 0.5), 1.0),
         furnace: ItemModelDef::Color(Color::srgb(0.8, 0.4, 0.1), 1.0),
         assembler: ItemModelDef::Color(Color::srgb(0.6, 0.4, 0.5), 1.0),
+        collector: ItemModelDef::Mesh(
+            asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Collector.glb")),
+            1.0,
+        ),
     });
 }
 
@@ -226,7 +235,7 @@ fn attach_models(
             WorldBlock::Miner => &all_models.miner,
             WorldBlock::Furnace => &all_models.furnace,
             WorldBlock::Assembler => &all_models.assembler,
-            WorldBlock::Collector => &all_models.assembler,
+            WorldBlock::Collector => &all_models.collector,
             WorldBlock::Belt => match shape {
                 Some(BeltShape::Straight(_)) => &all_models.belt_straight,
                 Some(BeltShape::Curve(c)) => {
@@ -264,7 +273,7 @@ fn on_place_item(
         Item::Miner => &item_models.miner,
         Item::Furnace => &item_models.furnace,
         Item::Assembler => &item_models.assembler,
-        Item::Collector => &item_models.assembler,
+        Item::Collector => &item_models.collector,
     };
 
     let visual = match model {

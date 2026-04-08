@@ -6,9 +6,8 @@ use crate::core::{
 };
 
 use super::common::{
-    pane_node, section_label, spawn_inventory_panel, spawn_slot, spawn_title_bar, InventorySlot,
-    CLOSE_BTN_BG, CLOSE_BTN_FONT_SIZE, CLOSE_BTN_SIZE, LABEL_COLOR, LABEL_FONT_SIZE, SLOT_BG,
-    SLOT_BORDER, SLOT_FONT_SIZE, TITLE_FONT_SIZE,
+    CLOSE_BTN_BG, CLOSE_BTN_FONT_SIZE, CLOSE_BTN_SIZE, InventorySlot, LABEL_FONT_SIZE, SLOT_BG,
+    SLOT_BORDER, pane_node, section_label, spawn_inventory_panel, spawn_slot, spawn_title_bar,
 };
 use super::{InteractionMode, ScreenMode, WorldMode};
 

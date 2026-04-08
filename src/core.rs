@@ -26,12 +26,10 @@ pub const BASE_BELT_SPEED: i32 = 8;
 pub const LANE_OFFSET: f32 = 0.25;
 /// How far from the bottom of the voxel the belt surface is.
 pub const BELT_HEIGHT: f32 = 0.25;
-pub const BELT_HEIGHT_FROM_CENTER: f32 = BELT_HEIGHT - 0.5;
 
 pub const ITEM_SIZE: f32 = 1.0 / (ITEMS_PER_BELT as f32);
-pub const HALF_ITEM_SIZE: f32 = ITEM_SIZE / 2.0;
 pub const MINER_TICKS_PER_EXTRACT: u32 = 60;
-pub const COLLECTOR_MOVE_TICKS: u32 = 15;
+pub const COLLECTOR_MOVE_TICKS: u32 = 60;
 pub const ITEM_SPACING: i32 = POSITIONS_PER_BELT / ITEMS_PER_BELT;
 pub const BASE_ITEM_MOVEMENT: f32 = BASE_BELT_SPEED as f32 / POSITIONS_PER_BELT as f32;
 pub const POSITIONS_PER_INNER_CURVE: i32 =
@@ -374,7 +372,11 @@ impl InputBuffer {
     }
 
     pub fn fill_slot(&mut self, item: Item) {
-        if let Some(slot) = self.slots.iter_mut().find(|s| matches!(s, Some(s) if s.item == item)) {
+        if let Some(slot) = self
+            .slots
+            .iter_mut()
+            .find(|s| matches!(s, Some(s) if s.item == item))
+        {
             slot.as_mut().unwrap().count += 1;
             return;
         }
@@ -384,9 +386,10 @@ impl InputBuffer {
     }
 
     pub fn is_ready(&self) -> bool {
-        self.slots.iter().zip(&self.required).all(|(s, &r)| {
-            s.map_or(false, |s| s.count >= r)
-        })
+        self.slots
+            .iter()
+            .zip(&self.required)
+            .all(|(s, &r)| s.map_or(false, |s| s.count >= r))
     }
 }
 
@@ -1213,7 +1216,7 @@ fn push_to_belt(
     coord_map: Res<CoordsMap>,
     mut cmd: Commands,
 ) {
-    for (mut buffer, coords, output_dir) in &mut pushers {
+    for (mut buffer, _coords, output_dir) in &mut pushers {
         let Some(&item) = buffer.items.first() else {
             continue;
         };
