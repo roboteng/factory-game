@@ -1270,7 +1270,7 @@ fn tick_collectors(
     mut collectors: Query<(&mut Collector, &WorldCoords, &HDir)>,
     mut belts: Query<&mut ItemLanes, With<Belt>>,
     items: Query<&Item, With<OnBelt>>,
-    mut machines: Query<&mut InputBuffer>,
+    mut machines: Query<(&mut InputBuffer, Option<&Filter>)>,
     mut transforms: Query<&mut Transform>,
     coord_map: Res<CoordsMap>,
     mut cmd: Commands,
@@ -1279,7 +1279,14 @@ fn tick_collectors(
         let dir = *dir;
         let new_state = match &collector.state {
             CollectorState::ReadyToPickUp => {
+                let machine_coords = coords.step(dir);
                 let belt_coords = coords.step(dir.opposite());
+                let machine_filter = coord_map
+                    .0
+                    .get(&machine_coords)
+                    .and_then(|&e| machines.get(e).ok())
+                    .and_then(|(_, f)| f)
+                    .map(|f| f.0.clone());
                 let Some(&belt_entity) = coord_map.0.get(&belt_coords) else {
                     continue;
                 };
@@ -1298,6 +1305,11 @@ fn tick_collectors(
                     let Ok(&item) = items.get(item_entity) else {
                         continue;
                     };
+                    if let Some(ref filter) = machine_filter {
+                        if !filter.contains(&item) {
+                            continue;
+                        }
+                    }
                     let start = transforms
                         .get(item_entity)
                         .map(|t| t.translation)
@@ -1337,7 +1349,7 @@ fn tick_collectors(
                 let Some(&machine_entity) = coord_map.0.get(&machine_coords) else {
                     continue;
                 };
-                let Ok(mut input) = machines.get_mut(machine_entity) else {
+                let Ok((mut input, _)) = machines.get_mut(machine_entity) else {
                     continue;
                 };
                 if input.slots.iter().all(|s| s.is_some()) {
