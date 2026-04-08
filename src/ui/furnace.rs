@@ -1,8 +1,7 @@
 use bevy::prelude::*;
 
 use crate::core::{
-    Furnace, InputBuffer, LoadMachineInput, OutputBuffer, ProcessingMethod, UnloadMachineOutput,
-    RECIPES,
+    Furnace, InputBuffer, LoadMachineInput, OutputBuffer, Recipe, Recipes, UnloadMachineOutput,
 };
 
 use super::common::{pane_node, section_label, spawn_screen_layout, spawn_slot, InventorySlot};
@@ -98,6 +97,7 @@ pub(super) fn update_furnace_pane(
     output_slots: Query<(&FurnaceOutputSlot, &Children)>,
     mut fill_node: Single<&mut Node, With<FurnaceProgressFill>>,
     mut texts: Query<&mut Text>,
+    recipes: Res<Recipes>,
 ) {
     let InteractionMode::InScreen(ScreenMode::Furnace(furnace_entity)) = *mode else {
         **pane = Visibility::Hidden;
@@ -110,16 +110,19 @@ pub(super) fn update_furnace_pane(
     };
 
     let progress_fraction = {
-        let active_recipe = RECIPES
-            .iter()
-            .filter(|r| r.method == ProcessingMethod::Furnace)
-            .find(|r| {
-                r.inputs.len() == input_buf.slots.len()
-                    && r.inputs
-                        .iter()
-                        .zip(&input_buf.slots)
-                        .all(|(exp, slot)| slot.as_ref().map(|&s| s == exp.item) == Some(true))
-            });
+        let active_recipe = recipes.0.iter().find_map(|r| {
+            if let Recipe::FurnaceRecipe(fr) = r {
+                let matches = input_buf.slots.len() == 1
+                    && input_buf.slots[0].map(|s| s.item == fr.input.item) == Some(true);
+                if matches {
+                    Some(fr)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        });
         match active_recipe {
             Some(r) if r.ticks > 0 => furnace.ticks as f32 / r.ticks as f32,
             _ => 0.0,
@@ -131,8 +134,8 @@ pub(super) fn update_furnace_pane(
         let label = input_buf
             .slots
             .get(slot_marker.0)
-            .and_then(|s| *s)
-            .map(|item| item.name())
+            .and_then(|s| s.as_ref())
+            .map(|stack| stack.item.name())
             .unwrap_or("");
         if let Some(&child) = children.first() {
             if let Ok(mut text) = texts.get_mut(child) {

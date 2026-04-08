@@ -1,8 +1,8 @@
 use bevy::prelude::*;
 
 use crate::core::{
-    Assembler, InputBuffer, LoadMachineInput, OutputBuffer, ProcessingMethod, SetAssemblerRecipe,
-    UnloadMachineOutput, RECIPES,
+    Assembler, InputBuffer, LoadMachineInput, OutputBuffer, Recipe, Recipes, SetAssemblerRecipe,
+    UnloadMachineOutput,
 };
 
 use super::common::{
@@ -46,15 +46,18 @@ pub(super) struct AssemblerInventoryPanel;
 #[derive(Component)]
 pub(super) struct ClearAssemblerRecipeButton;
 
-fn recipe_label(recipe: &crate::core::Recipe) -> String {
-    let inputs = recipe
-        .inputs
+fn recipe_label(recipe: &Recipe) -> String {
+    let Recipe::AssemblerRecipe(ar) = recipe else {
+        return String::new();
+    };
+    let inputs = ar
+        .input
         .iter()
         .map(|s| s.item.name())
         .collect::<Vec<_>>()
         .join(" + ");
-    let outputs = recipe
-        .outputs
+    let outputs = ar
+        .output
         .iter()
         .map(|s| s.item.name())
         .collect::<Vec<_>>()
@@ -62,7 +65,7 @@ fn recipe_label(recipe: &crate::core::Recipe) -> String {
     format!("{} \u{2192} {}", inputs, outputs)
 }
 
-pub(super) fn setup_assembler_pane(mut cmd: Commands) {
+pub(super) fn setup_assembler_pane(mut cmd: Commands, recipes: Res<Recipes>) {
     cmd.spawn((
         pane_node(
             Val::Percent(5.0),
@@ -87,10 +90,11 @@ pub(super) fn setup_assembler_pane(mut cmd: Commands) {
             ))
             .with_children(|parent| {
                 section_label(parent, "Select a Recipe");
-                for (i, recipe) in RECIPES
+                for (i, recipe) in recipes
+                    .0
                     .iter()
                     .enumerate()
-                    .filter(|(_, r)| r.method == ProcessingMethod::Assembler)
+                    .filter(|(_, r)| matches!(r, Recipe::AssemblerRecipe(_)))
                 {
                     let label = recipe_label(recipe);
                     parent
@@ -278,7 +282,9 @@ pub(super) fn update_assembler_pane(
     **recipe_panel = Visibility::Hidden;
     **processing_panel = Visibility::Inherited;
 
-    let recipe = assembler.recipe.unwrap();
+    let Some(ref recipe) = assembler.recipe else {
+        return;
+    };
 
     let progress_fraction = if recipe.ticks > 0 {
         assembler.ticks as f32 / recipe.ticks as f32
@@ -291,8 +297,8 @@ pub(super) fn update_assembler_pane(
         let label = input_buf
             .slots
             .get(slot_marker.0)
-            .and_then(|s| *s)
-            .map(|item| item.name())
+            .and_then(|s| s.as_ref())
+            .map(|stack| stack.item.name())
             .unwrap_or("");
         if let Some(&child) = children.first() {
             if let Ok(mut text) = texts.get_mut(child) {
@@ -330,16 +336,19 @@ pub(super) fn handle_assembler_recipe_button(
     interactions: Query<(&Interaction, &AssemblerRecipeButton), Changed<Interaction>>,
     mode: Res<InteractionMode>,
     mut cmd: Commands,
+    recipes: Res<Recipes>,
 ) {
     let InteractionMode::InScreen(ScreenMode::Assembler(assembler_entity)) = *mode else {
         return;
     };
     for (&interaction, recipe_btn) in &interactions {
         if interaction == Interaction::Pressed {
-            cmd.trigger(SetAssemblerRecipe {
-                assembler: assembler_entity,
-                recipe: Some(&RECIPES[recipe_btn.0]),
-            });
+            if let Recipe::AssemblerRecipe(ar) = &recipes.0[recipe_btn.0] {
+                cmd.trigger(SetAssemblerRecipe {
+                    assembler: assembler_entity,
+                    recipe: Some(ar.clone()),
+                });
+            }
         }
     }
 }
