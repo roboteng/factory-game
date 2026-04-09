@@ -1,13 +1,13 @@
 use bevy::prelude::*;
 
 use crate::core::{
-    Assembler, InputBuffer, LoadMachineInput, OutputBuffer, Recipe, Recipes, SetAssemblerRecipe,
-    UnloadMachineOutput,
+    Assembler, InputBuffer, LoadMachineInput, MachineStatus, OutputBuffer, Recipe, Recipes,
+    SetAssemblerRecipe, UnloadMachineOutput,
 };
 
 use super::common::{
-    CLOSE_BTN_BG, CLOSE_BTN_FONT_SIZE, CLOSE_BTN_SIZE, InventorySlot, LABEL_FONT_SIZE, SLOT_BG,
-    SLOT_BORDER, pane_node, section_label, spawn_inventory_panel, spawn_slot, spawn_title_bar,
+    pane_node, section_label, spawn_inventory_panel, spawn_slot, spawn_title_bar, InventorySlot,
+    CLOSE_BTN_BG, CLOSE_BTN_FONT_SIZE, CLOSE_BTN_SIZE, LABEL_FONT_SIZE, SLOT_BG, SLOT_BORDER,
 };
 use super::{InteractionMode, ScreenMode, WorldMode};
 
@@ -86,6 +86,7 @@ pub(super) fn setup_assembler_pane(mut cmd: Commands, recipes: Res<Recipes>) {
                     ..default()
                 },
                 AssemblerRecipePanel,
+                Visibility::Inherited,
             ))
             .with_children(|parent| {
                 section_label(parent, "Select a Recipe");
@@ -131,6 +132,7 @@ pub(super) fn setup_assembler_pane(mut cmd: Commands, recipes: Res<Recipes>) {
                     ..default()
                 },
                 AssemblerProcessingPanel,
+                Visibility::Inherited,
             ))
             .with_children(|parent| {
                 // Left panel: slots + progress + clear button
@@ -272,7 +274,7 @@ pub(super) fn update_assembler_pane(
         return;
     };
 
-    if assembler.recipe.is_none() {
+    if assembler.configured_recipe.is_none() {
         **recipe_panel = Visibility::Inherited;
         **processing_panel = Visibility::Hidden;
         return;
@@ -281,14 +283,12 @@ pub(super) fn update_assembler_pane(
     **recipe_panel = Visibility::Hidden;
     **processing_panel = Visibility::Inherited;
 
-    let Some(ref recipe) = assembler.recipe else {
-        return;
-    };
-
-    let progress_fraction = if recipe.ticks > 0 {
-        assembler.ticks as f32 / recipe.ticks as f32
-    } else {
-        0.0
+    let progress_fraction = match &assembler.status {
+        MachineStatus::Processing {
+            recipe,
+            elapsed_ticks,
+        } if recipe.ticks > 0 => *elapsed_ticks as f32 / recipe.ticks as f32,
+        _ => 0.0,
     };
     fill_node.width = Val::Percent(progress_fraction * 100.0);
 
@@ -296,7 +296,6 @@ pub(super) fn update_assembler_pane(
         let label = input_buf
             .slots
             .get(slot_marker.0)
-            .and_then(|s| s.as_ref())
             .map(|stack| stack.item.name())
             .unwrap_or("");
         if let Some(&child) = children.first() {
@@ -306,11 +305,11 @@ pub(super) fn update_assembler_pane(
         }
     }
 
+    let view = output_buf.view();
     for (slot_marker, children) in &output_slots {
-        let label = output_buf
-            .items
+        let label = view
             .get(slot_marker.0)
-            .map(|item| item.name())
+            .map(|item| item.item.name())
             .unwrap_or("");
         if let Some(&child) = children.first() {
             if let Ok(mut text) = texts.get_mut(child) {

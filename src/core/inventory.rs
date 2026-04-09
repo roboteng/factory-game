@@ -99,6 +99,12 @@ impl Stack {
     }
 }
 
+impl From<Item> for Stack {
+    fn from(item: Item) -> Self {
+        Self { item, count: 1 }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

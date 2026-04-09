@@ -1,4 +1,7 @@
-use crate::core::inventory::{Inventory, Stack};
+use crate::core::{
+    inventory::{Inventory, Stack},
+    machine::FurnaceRecipe,
+};
 use bevy::{math::ops::sin_cos, prelude::*};
 use derivative::Derivative;
 use std::collections::HashMap;
@@ -6,6 +9,7 @@ use std::f32::consts::PI;
 
 pub mod dir;
 pub mod inventory;
+pub mod machine;
 
 #[cfg(feature = "invariant-check")]
 pub mod invariants;
@@ -13,6 +17,8 @@ pub mod invariants;
 // Re-export direction types; explicit `use` for `Curve` to shadow `bevy::prelude::Curve`.
 use dir::Curve;
 pub use dir::*;
+
+pub use machine::*;
 
 #[cfg(all(test, feature = "proptests"))]
 mod proptest_actions;
@@ -154,36 +160,13 @@ pub struct UnloadMachineOutput {
 #[derive(Event, Debug, Clone)]
 pub struct SetAssemblerRecipe {
     pub assembler: Entity,
-    pub recipe: Option<AssemblerRecipe>,
+    pub recipe: Option<machine::AssemblerRecipe>,
 }
 
 #[derive(Component)]
 pub struct Belt;
 
-#[derive(Debug)]
-pub enum CollectorState {
-    ReadyToPickUp,
-    MovingItem {
-        item: Item,
-        visual: Entity,
-        start: Vec3,
-        end: Vec3,
-        ticks: u32,
-    },
-    ReadyToDropOff {
-        item: Item,
-    },
-    MovingToStart {
-        ticks: u32,
-    },
-}
-
-#[derive(Component)]
-pub struct Collector {
-    pub state: CollectorState,
-}
-
-#[derive(Component)]
+#[derive(Debug, Component)]
 pub struct Source;
 
 #[derive(Component)]
@@ -195,9 +178,14 @@ pub struct Miner {
 #[derive(Component)]
 pub struct Sink;
 
-#[derive(Component, Default)]
-pub struct OutputBuffer {
-    pub items: Vec<Item>,
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
+pub enum MachineStatus<R> {
+    #[default]
+    Idle,
+    Processing {
+        recipe: R,
+        elapsed_ticks: u32,
+    },
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -208,22 +196,35 @@ pub enum ProcessingMethod {
 
 #[derive(Debug, Clone)]
 pub enum Recipe {
-    FurnaceRecipe(FurnaceRecipe),
-    AssemblerRecipe(AssemblerRecipe),
+    FurnaceRecipe(machine::FurnaceRecipe),
+    AssemblerRecipe(machine::AssemblerRecipe),
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct FurnaceRecipe {
-    pub input: Stack,
-    pub output: Stack,
-    pub ticks: u32,
+impl Recipe {
+    pub fn inputs(&self) -> Vec<Stack> {
+        match self {
+            Recipe::FurnaceRecipe(r) => vec![r.input],
+            Recipe::AssemblerRecipe(r) => r.input.clone(),
+        }
+    }
+    pub fn outputs(&self) -> Vec<Stack> {
+        match self {
+            Recipe::FurnaceRecipe(r) => vec![r.output],
+            Recipe::AssemblerRecipe(r) => r.output.clone(),
+        }
+    }
 }
 
-#[derive(Debug, Clone)]
-pub struct AssemblerRecipe {
-    pub input: Vec<Stack>,
-    pub output: Vec<Stack>,
-    pub ticks: u32,
+impl From<machine::AssemblerRecipe> for Recipe {
+    fn from(value: machine::AssemblerRecipe) -> Self {
+        Recipe::AssemblerRecipe(value)
+    }
+}
+
+impl From<machine::FurnaceRecipe> for Recipe {
+    fn from(value: machine::FurnaceRecipe) -> Self {
+        Recipe::FurnaceRecipe(value)
+    }
 }
 
 #[derive(Resource)]
@@ -232,7 +233,7 @@ pub struct Recipes(pub Vec<Recipe>);
 impl Recipes {
     fn new() -> Self {
         Self(vec![
-            Recipe::FurnaceRecipe(FurnaceRecipe {
+            Recipe::FurnaceRecipe(machine::FurnaceRecipe {
                 input: Stack {
                     item: Item::IronOre,
                     count: 1,
@@ -243,7 +244,7 @@ impl Recipes {
                 },
                 ticks: 100,
             }),
-            Recipe::FurnaceRecipe(FurnaceRecipe {
+            Recipe::FurnaceRecipe(machine::FurnaceRecipe {
                 input: Stack {
                     item: Item::CopperOre,
                     count: 1,
@@ -254,7 +255,7 @@ impl Recipes {
                 },
                 ticks: 100,
             }),
-            Recipe::AssemblerRecipe(AssemblerRecipe {
+            Recipe::AssemblerRecipe(machine::AssemblerRecipe {
                 input: vec![Stack {
                     item: Item::IronIngot,
                     count: 2,
@@ -265,7 +266,7 @@ impl Recipes {
                 }],
                 ticks: 60,
             }),
-            Recipe::AssemblerRecipe(AssemblerRecipe {
+            Recipe::AssemblerRecipe(machine::AssemblerRecipe {
                 input: vec![
                     Stack {
                         item: Item::IronIngot,
@@ -282,7 +283,7 @@ impl Recipes {
                 }],
                 ticks: 120,
             }),
-            Recipe::AssemblerRecipe(AssemblerRecipe {
+            Recipe::AssemblerRecipe(machine::AssemblerRecipe {
                 input: vec![
                     Stack {
                         item: Item::IronIngot,
@@ -300,96 +301,6 @@ impl Recipes {
                 ticks: 150,
             }),
         ])
-    }
-}
-
-#[derive(Component, Default)]
-pub struct Furnace {
-    pub ticks: u32,
-}
-
-#[derive(Component, Default)]
-pub struct Assembler {
-    pub ticks: u32,
-    pub recipe: Option<AssemblerRecipe>,
-}
-
-#[derive(Component, PartialEq)]
-pub struct Filter(pub Vec<Item>);
-
-impl Filter {
-    pub fn accepts(&self, item: Item) -> bool {
-        self.0.contains(&item)
-    }
-
-    pub fn none() -> Self {
-        Self(Vec::new())
-    }
-
-    pub fn from_recipe(recipe: &Recipe) -> Self {
-        match recipe {
-            Recipe::FurnaceRecipe(fr) => Self(vec![fr.input.item]),
-            Recipe::AssemblerRecipe(ar) => Self(ar.input.iter().map(|s| s.item).collect()),
-        }
-    }
-
-    pub fn for_method(method: ProcessingMethod, recipes: &[Recipe]) -> Self {
-        let mut items: Vec<Item> = recipes
-            .iter()
-            .flat_map(|r| match (r, method) {
-                (Recipe::FurnaceRecipe(fr), ProcessingMethod::Furnace) => vec![fr.input.item],
-                (Recipe::AssemblerRecipe(ar), ProcessingMethod::Assembler) => {
-                    ar.input.iter().map(|s| s.item).collect()
-                }
-                _ => vec![],
-            })
-            .collect();
-        items.sort();
-        items.dedup();
-        Self(items)
-    }
-}
-
-#[derive(Component)]
-pub struct InputBuffer {
-    pub slots: Vec<Option<Stack>>,
-    required: Vec<u16>,
-}
-
-impl InputBuffer {
-    pub fn new(size: usize) -> Self {
-        Self {
-            slots: vec![None; size],
-            required: vec![1; size],
-        }
-    }
-
-    pub fn from_recipe(inputs: &[Stack]) -> Self {
-        Self {
-            slots: vec![None; inputs.len()],
-            required: inputs.iter().map(|s| s.count).collect(),
-        }
-    }
-
-    pub fn fill_slot(&mut self, item: Item) {
-        if let Some(slot) = self
-            .slots
-            .iter_mut()
-            .find(|s| matches!(s, Some(s) if s.item == item))
-        {
-            slot.as_mut().unwrap().count += 1;
-            return;
-        }
-        if let Some(slot) = self.slots.iter_mut().find(|s| s.is_none()) {
-            *slot = Some(Stack::new(item, 1));
-        }
-    }
-
-    pub fn is_ready(&self) -> bool {
-        self.slots
-            .iter()
-            .zip(&self.required)
-            .all(|(s, &r)| s.map_or(false, |s| s.count >= r))
     }
 }
 
@@ -467,6 +378,10 @@ impl Item {
             Item::Assembler => "Assembler",
             Item::Collector => "Collector",
         }
+    }
+
+    pub fn stack_size(self) -> u16 {
+        100
     }
 
     /// Returns the world block this item places, or `None` if the item cannot be placed.
@@ -686,7 +601,7 @@ fn on_place_block(
         }
         WorldBlock::Sink => {
             cmd.entity(event.entity)
-                .insert((Sink, InputBuffer::new(1), rt));
+                .insert((Sink, InputBuffer::default(), rt));
         }
         WorldBlock::Miner => {
             cmd.entity(event.entity).insert((
@@ -704,7 +619,7 @@ fn on_place_block(
         WorldBlock::Furnace => {
             cmd.entity(event.entity).insert((
                 Furnace::default(),
-                InputBuffer::new(1),
+                InputBuffer::default(),
                 Filter::for_method(ProcessingMethod::Furnace, &recipes.0),
                 OutputBuffer::default(),
                 OutputsToBelt {
@@ -716,8 +631,7 @@ fn on_place_block(
         WorldBlock::Assembler => {
             cmd.entity(event.entity).insert((
                 Assembler::default(),
-                InputBuffer::new(1),
-                Filter::none(),
+                InputBuffer::default(),
                 OutputBuffer::default(),
                 OutputsToBelt {
                     at: event.coords.step(event.dir),
@@ -887,18 +801,7 @@ fn on_load_machine_input(
     let Ok((mut input_buf, filter)) = machine_q.get_mut(event.machine) else {
         return;
     };
-    let Some(stack) = inv.take_slot(event.player_inventory_slot) else {
-        return;
-    };
-    let can_accept = input_buf.slots.iter().any(|s| s.is_none())
-        && filter.map_or(true, |f| f.accepts(stack.item));
-    if can_accept {
-        input_buf.fill_slot(stack.item);
-        let remaining = stack.count - 1;
-        inv.insert(Stack::new(stack.item, remaining)).unwrap();
-    } else {
-        let _ = inv.insert(stack);
-    }
+    todo!()
 }
 
 fn on_unload_machine_output(
@@ -913,39 +816,17 @@ fn on_unload_machine_output(
     let Ok(mut output_buf) = output_bufs.get_mut(event.machine) else {
         return;
     };
-    if event.output_slot < output_buf.items.len() {
-        let item = output_buf.items.remove(event.output_slot);
-        let _ = inv.insert(Stack::new(item, 1.try_into().unwrap()));
+    if event.output_slot < output_buf.buffer.slots.len() {
+        let item = output_buf.buffer.slots.remove(event.output_slot);
+        let _ = inv.insert(item);
     }
 }
 
-fn on_set_assembler_recipe(
-    event: On<SetAssemblerRecipe>,
-    mut assemblers: Query<(&mut Assembler, &mut OutputBuffer, &mut Filter)>,
-    mut cmd: Commands,
-    recipes: Res<Recipes>,
-) {
-    let Ok((mut assembler, mut output_buf, mut filter)) = assemblers.get_mut(event.assembler)
-    else {
+fn on_set_assembler_recipe(event: On<SetAssemblerRecipe>, mut assemblers: Query<(&mut Assembler)>) {
+    let Ok(mut assembler) = assemblers.get_mut(event.assembler) else {
         return;
     };
-    assembler.ticks = 0;
-    output_buf.items.clear();
-    match event.recipe {
-        Some(ref recipe) => {
-            assembler.recipe = Some(recipe.clone());
-            filter.set_if_neq(Filter::from_recipe(&Recipe::AssemblerRecipe(
-                recipe.clone(),
-            )));
-            cmd.entity(event.assembler)
-                .insert(InputBuffer::from_recipe(&recipe.input));
-        }
-        None => {
-            assembler.recipe = None;
-            filter.set_if_neq(Filter::for_method(ProcessingMethod::Assembler, &recipes.0));
-            cmd.entity(event.assembler).insert(InputBuffer::new(1));
-        }
-    }
+    assembler.configured_recipe = event.recipe.clone();
 }
 
 fn determine_belt_shape(
@@ -1176,9 +1057,7 @@ fn set_item_transforms(
 
 fn fill_sources(mut sources: Query<&mut OutputBuffer, With<Source>>) {
     for mut buffer in &mut sources {
-        if buffer.items.is_empty() {
-            buffer.items.push(Item::Belt);
-        }
+        buffer.insert(&[Item::Belt.into()]);
     }
 }
 
@@ -1188,9 +1067,6 @@ fn fill_miners(
     coord_map: Res<CoordsMap>,
 ) {
     for (miner_coords, mut miner, mut buffer) in &mut miners {
-        if !buffer.items.is_empty() {
-            continue;
-        }
         miner.ticks += 1;
         if miner.ticks < MINER_TICKS_PER_EXTRACT {
             continue;
@@ -1206,7 +1082,7 @@ fn fill_miners(
         let Some(item) = block.mine() else {
             continue;
         };
-        buffer.items.push(item);
+        buffer.insert(&[item.into()]);
     }
 }
 
@@ -1217,7 +1093,7 @@ fn push_to_belt(
     mut cmd: Commands,
 ) {
     for (mut buffer, _coords, output_dir) in &mut pushers {
-        let Some(&item) = buffer.items.first() else {
+        let Some(item) = buffer.remove_any() else {
             continue;
         };
         let target = output_dir.at;
@@ -1230,11 +1106,10 @@ fn push_to_belt(
         if lanes.0.left.len() >= ITEMS_PER_BELT as usize {
             continue;
         }
-        buffer.items.remove(0);
         let entity = cmd.spawn_empty().id();
         cmd.trigger(PlaceItem {
             entity,
-            item,
+            item: item.item,
             belt: belt_entity,
             lane: Side::Left,
             position: POSITIONS_PER_BELT,
@@ -1251,9 +1126,6 @@ fn pull_from_belt(
     mut cmd: Commands,
 ) {
     for (mut buffer, sink_coords, filter) in &mut sinks {
-        if buffer.is_ready() {
-            continue;
-        }
         for d in [HDir::North, HDir::South, HDir::East, HDir::West] {
             let neighbor = sink_coords.step(d.opposite());
             let Some(&belt_entity) = coord_map.0.get(&neighbor) else {
@@ -1276,18 +1148,12 @@ fn pull_from_belt(
                 let Ok(&item) = items.get(item_entity) else {
                     continue;
                 };
-                if buffer.slots.iter().all(|s| s.is_some()) {
-                    continue;
-                }
                 if !filter.map_or(true, |f| f.accepts(item)) {
                     continue;
                 }
                 lanes.0[side].remove(0);
                 cmd.entity(item_entity).despawn();
-                buffer.fill_slot(item);
-                break;
-            }
-            if buffer.is_ready() {
+                buffer.insert(&[item.into()]);
                 break;
             }
         }
@@ -1313,8 +1179,7 @@ fn tick_collectors(
                     .0
                     .get(&machine_coords)
                     .and_then(|&e| machines.get(e).ok())
-                    .and_then(|(_, f)| f)
-                    .map(|f| f.0.clone());
+                    .and_then(|(_, f)| f);
                 let Some(&belt_entity) = coord_map.0.get(&belt_coords) else {
                     continue;
                 };
@@ -1334,7 +1199,7 @@ fn tick_collectors(
                         continue;
                     };
                     if let Some(ref filter) = machine_filter {
-                        if !filter.contains(&item) {
+                        if !filter.accepts(item) {
                             continue;
                         }
                     }
@@ -1392,10 +1257,8 @@ fn tick_collectors(
                 let Ok((mut input, _)) = machines.get_mut(machine_entity) else {
                     continue;
                 };
-                if input.slots.iter().all(|s| s.is_some()) {
-                    continue;
-                }
-                input.fill_slot(item);
+
+                input.insert(&[item.into()]);
                 Some(CollectorState::MovingToStart { ticks: 0 })
             }
             CollectorState::MovingToStart { ticks } => {
@@ -1417,86 +1280,30 @@ fn process_furnace(
     mut furnaces: Query<(&mut Furnace, &mut InputBuffer, &mut OutputBuffer)>,
     recipes: Res<Recipes>,
 ) {
+    let furnace_recipes: Vec<FurnaceRecipe> = recipes
+        .0
+        .iter()
+        .filter_map(|r| match r {
+            Recipe::FurnaceRecipe(fr) => Some(*fr),
+            _ => None,
+        })
+        .collect();
+
     for (mut furnace, mut input, mut output) in &mut furnaces {
-        if !input.is_ready() {
-            furnace.ticks = 0;
-            continue;
-        }
-        if !output.items.is_empty() {
-            continue;
-        }
-        let recipe = recipes.0.iter().find_map(|r| {
-            if let Recipe::FurnaceRecipe(fr) = r {
-                let matches = input.slots.len() == 1
-                    && input.slots[0].map(|s| s.item == fr.input.item) == Some(true);
-                if matches { Some(fr) } else { None }
-            } else {
-                None
-            }
-        });
-        let Some(recipe) = recipe else {
-            continue;
-        };
-        furnace.ticks += 1;
-        if furnace.ticks < recipe.ticks {
-            continue;
-        }
-        furnace.ticks = 0;
-        for _ in 0..recipe.output.count {
-            output.items.push(recipe.output.item);
-        }
-        // Consume only the required amount, leaving excess items
-        if let Some(slot) = &mut input.slots[0] {
-            slot.count -= recipe.input.count;
-            if slot.count == 0 {
-                input.slots[0] = None;
-            }
-        }
+        furnace.tick(&mut input, &mut output, &furnace_recipes);
     }
 }
 
 fn process_assembler(mut assemblers: Query<(&mut Assembler, &mut InputBuffer, &mut OutputBuffer)>) {
     for (mut assembler, mut input, mut output) in &mut assemblers {
-        let recipe = match &assembler.recipe {
-            Some(r) => r.clone(),
-            None => {
-                assembler.ticks = 0;
-                continue;
-            }
-        };
-        if !input.is_ready() {
-            assembler.ticks = 0;
-            continue;
-        }
-        if !output.items.is_empty() {
-            continue;
-        }
-        assembler.ticks += 1;
-        if assembler.ticks < recipe.ticks {
-            continue;
-        }
-        assembler.ticks = 0;
-        for stack in &recipe.output {
-            for _ in 0..stack.count {
-                output.items.push(stack.item);
-            }
-        }
-        let required: Vec<u16> = input.required.clone();
-        for (slot, req) in input.slots.iter_mut().zip(required) {
-            if let Some(s) = slot.as_mut() {
-                s.count -= req;
-                if s.count == 0 {
-                    *slot = None;
-                }
-            }
-        }
+        assembler.tick(&mut input, &mut output);
     }
 }
 
 fn consume_sink_buffer(mut sinks: Query<&mut InputBuffer, With<Sink>>) {
     for mut buffer in &mut sinks {
         for slot in &mut buffer.slots {
-            *slot = None;
+            slot.count = 0;
         }
     }
 }
@@ -2238,279 +2045,5 @@ mod tests {
 
         let (c, _) = app.find_belt(ramp).unwrap();
         assert_eq!(c, BeltShape::RampUp(HDir::North));
-    }
-
-    // --- Assembler input buffer consumption tests ---
-
-    fn place_assembler(app: &mut App) -> Entity {
-        app.add_world_block(WorldCoords::ORIGIN, WorldBlock::Assembler)
-    }
-
-    fn set_assembler_recipe(app: &mut App, assembler: Entity, recipe: AssemblerRecipe) {
-        app.world_mut().trigger(SetAssemblerRecipe {
-            assembler,
-            recipe: Some(recipe),
-        });
-        app.update(); // flush deferred Commands (InputBuffer resize, Filter update)
-    }
-
-    fn miner_recipe() -> AssemblerRecipe {
-        // 1x IronIngot + 1x CopperIngot → 1x Miner (120 ticks)
-        AssemblerRecipe {
-            input: vec![
-                Stack::new(Item::IronIngot, 1),
-                Stack::new(Item::CopperIngot, 1),
-            ],
-            output: vec![Stack::new(Item::Miner, 1)],
-            ticks: 120,
-        }
-    }
-
-    fn belt_recipe() -> AssemblerRecipe {
-        // 2x IronIngot → 1x Belt (60 ticks)
-        AssemblerRecipe {
-            input: vec![Stack::new(Item::IronIngot, 2)],
-            output: vec![Stack::new(Item::Belt, 1)],
-            ticks: 60,
-        }
-    }
-
-    #[test]
-    fn assembler_consumes_inputs_and_produces_output() {
-        let mut app = test_app();
-        let assembler = place_assembler(&mut app);
-        app.update();
-        set_assembler_recipe(&mut app, assembler, miner_recipe());
-
-        {
-            let world = app.world_mut();
-            let mut input = world.get_mut::<InputBuffer>(assembler).unwrap();
-            input.slots[0] = Some(Stack::new(Item::IronIngot, 1));
-            input.slots[1] = Some(Stack::new(Item::CopperIngot, 1));
-        }
-
-        for _ in 0..120 {
-            app.update();
-        }
-
-        let world = app.world_mut();
-        let output = world.get::<OutputBuffer>(assembler).unwrap();
-        assert_eq!(output.items, vec![Item::Miner]);
-        let input = world.get::<InputBuffer>(assembler).unwrap();
-        assert!(
-            input.slots.iter().all(|s| s.is_none()),
-            "expected all input slots to be cleared after recipe completion"
-        );
-    }
-
-    #[test]
-    fn assembler_does_not_process_with_partial_inputs() {
-        let mut app = test_app();
-        let assembler = place_assembler(&mut app);
-        app.update();
-        set_assembler_recipe(&mut app, assembler, miner_recipe());
-
-        // Only fill one of the two required slots
-        {
-            let world = app.world_mut();
-            let mut input = world.get_mut::<InputBuffer>(assembler).unwrap();
-            input.slots[0] = Some(Stack::new(Item::IronIngot, 1));
-            // slots[1] left as None
-        }
-
-        for _ in 0..200 {
-            app.update();
-        }
-
-        let world = app.world_mut();
-        let output = world.get::<OutputBuffer>(assembler).unwrap();
-        assert!(
-            output.items.is_empty(),
-            "assembler should not produce output with incomplete inputs"
-        );
-
-        let input = world.get::<InputBuffer>(assembler).unwrap();
-        assert!(
-            input.slots[0].is_some(),
-            "partial input should not be consumed"
-        );
-    }
-
-    #[test]
-    fn assembler_does_not_process_when_output_blocked() {
-        let mut app = test_app();
-        let assembler = place_assembler(&mut app);
-        app.update();
-        set_assembler_recipe(&mut app, assembler, miner_recipe());
-
-        {
-            let world = app.world_mut();
-            let mut input = world.get_mut::<InputBuffer>(assembler).unwrap();
-            input.slots[0] = Some(Stack::new(Item::IronIngot, 1));
-            input.slots[1] = Some(Stack::new(Item::CopperIngot, 1));
-            // Pre-fill output buffer to block processing
-            world
-                .get_mut::<OutputBuffer>(assembler)
-                .unwrap()
-                .items
-                .push(Item::Belt);
-        }
-
-        for _ in 0..200 {
-            app.update();
-        }
-
-        let world = app.world_mut();
-        let input = world.get::<InputBuffer>(assembler).unwrap();
-        assert!(
-            input.slots.iter().all(|s| s.is_some()),
-            "inputs should not be consumed when output is blocked"
-        );
-    }
-
-    #[test]
-    fn assembler_resets_ticks_when_input_becomes_incomplete() {
-        let mut app = test_app();
-        let assembler = place_assembler(&mut app);
-        app.update();
-        set_assembler_recipe(&mut app, assembler, miner_recipe());
-
-        {
-            let world = app.world_mut();
-            let mut input = world.get_mut::<InputBuffer>(assembler).unwrap();
-            input.slots[0] = Some(Stack::new(Item::IronIngot, 1));
-            input.slots[1] = Some(Stack::new(Item::CopperIngot, 1));
-        }
-
-        // Tick partway through recipe
-        for _ in 0..60 {
-            app.update();
-        }
-
-        // Remove one input mid-recipe
-        {
-            let world = app.world_mut();
-            world.get_mut::<InputBuffer>(assembler).unwrap().slots[0] = None;
-        }
-
-        app.update();
-
-        let world = app.world_mut();
-        let assembler_state = world.get::<Assembler>(assembler).unwrap();
-        assert_eq!(
-            assembler_state.ticks, 0,
-            "ticks should reset when input becomes incomplete"
-        );
-    }
-
-    #[test]
-    fn assembler_input_buffer_sized_for_total_ingredient_kind_count() {
-        let mut app = test_app();
-        let assembler = place_assembler(&mut app);
-        app.update();
-        set_assembler_recipe(&mut app, assembler, belt_recipe());
-
-        let world = app.world_mut();
-        let input = world.get::<InputBuffer>(assembler).unwrap();
-        assert_eq!(input.slots.len(), 1,);
-    }
-
-    #[test]
-    fn assembler_consumes_correct_count_for_multi_count_recipe() {
-        // Belt recipe: 2x IronIngot → 1x Belt. Both IronIngots must be consumed.
-        let mut app = test_app();
-        let assembler = place_assembler(&mut app);
-        app.update();
-        set_assembler_recipe(&mut app, assembler, belt_recipe());
-
-        {
-            let world = app.world_mut();
-            let mut input = world.get_mut::<InputBuffer>(assembler).unwrap();
-            input.slots[0].replace(Stack::new(Item::IronIngot, 2));
-        }
-
-        for _ in 0..60 {
-            app.update();
-        }
-
-        let world = app.world_mut();
-        let output = world.get::<OutputBuffer>(assembler).unwrap();
-        assert_eq!(output.items, vec![Item::Belt]);
-
-        let input = world.get::<InputBuffer>(assembler).unwrap();
-        assert!(
-            input.slots.iter().all(|s| s.is_none()),
-            "both IronIngot slots should be consumed to craft one Belt"
-        );
-    }
-
-    #[test]
-    fn assembler_leaves_excess_items_in_slot_after_craft() {
-        // Belt recipe needs 2x IronIngot; slot has 5 — 3 should remain after crafting.
-        let mut app = test_app();
-        let assembler = place_assembler(&mut app);
-        app.update();
-        set_assembler_recipe(&mut app, assembler, belt_recipe());
-
-        {
-            let world = app.world_mut();
-            world.get_mut::<InputBuffer>(assembler).unwrap().slots[0] =
-                Some(Stack::new(Item::IronIngot, 5));
-        }
-
-        for _ in 0..60 {
-            app.update();
-        }
-
-        let world = app.world_mut();
-        let output = world.get::<OutputBuffer>(assembler).unwrap();
-        assert_eq!(output.items, vec![Item::Belt]);
-        let input = world.get::<InputBuffer>(assembler).unwrap();
-        assert_eq!(
-            input.slots[0],
-            Some(Stack::new(Item::IronIngot, 3)),
-            "3 IronIngots should remain after consuming 2"
-        );
-    }
-
-    // --- Furnace input buffer consumption tests ---
-
-    fn place_furnace(app: &mut App) -> Entity {
-        app.add_world_block(WorldCoords::ORIGIN, WorldBlock::Furnace)
-    }
-
-    #[test]
-    fn furnace_leaves_excess_items_in_slot_after_craft() {
-        // Furnace recipe needs 1x IronOre; slot has 5 — 4 should remain after crafting.
-        // This test demonstrates the current (incorrect) behavior where the furnace
-        // empties all input slots instead of only consuming what the recipe requires.
-        let mut app = test_app();
-        let furnace = place_furnace(&mut app);
-        app.update();
-
-        {
-            let world = app.world_mut();
-            world.get_mut::<InputBuffer>(furnace).unwrap().slots[0] =
-                Some(Stack::new(Item::IronOre, 5));
-        }
-
-        for _ in 0..100 {
-            app.update();
-        }
-
-        let world = app.world_mut();
-        let output = world.get::<OutputBuffer>(furnace).unwrap();
-        assert_eq!(
-            output.items,
-            vec![Item::IronIngot],
-            "furnace should produce 1 IronIngot"
-        );
-
-        let input = world.get::<InputBuffer>(furnace).unwrap();
-        assert_eq!(
-            input.slots[0],
-            Some(Stack::new(Item::IronOre, 4)),
-            "4 IronOre should remain after consuming 1 (furnace should only consume what recipe needs)"
-        );
     }
 }

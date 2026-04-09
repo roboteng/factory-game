@@ -1,10 +1,10 @@
 use bevy::prelude::*;
 
 use crate::core::{
-    Furnace, InputBuffer, LoadMachineInput, OutputBuffer, Recipe, Recipes, UnloadMachineOutput,
+    Furnace, InputBuffer, LoadMachineInput, MachineStatus, OutputBuffer, UnloadMachineOutput,
 };
 
-use super::common::{pane_node, section_label, spawn_screen_layout, spawn_slot, InventorySlot};
+use super::common::{InventorySlot, pane_node, section_label, spawn_screen_layout, spawn_slot};
 use super::{InteractionMode, ScreenMode, WorldMode};
 
 #[derive(Component)]
@@ -97,7 +97,6 @@ pub(super) fn update_furnace_pane(
     output_slots: Query<(&FurnaceOutputSlot, &Children)>,
     mut fill_node: Single<&mut Node, With<FurnaceProgressFill>>,
     mut texts: Query<&mut Text>,
-    recipes: Res<Recipes>,
 ) {
     let InteractionMode::InScreen(ScreenMode::Furnace(furnace_entity)) = *mode else {
         **pane = Visibility::Hidden;
@@ -109,24 +108,12 @@ pub(super) fn update_furnace_pane(
         return;
     };
 
-    let progress_fraction = {
-        let active_recipe = recipes.0.iter().find_map(|r| {
-            if let Recipe::FurnaceRecipe(fr) = r {
-                let matches = input_buf.slots.len() == 1
-                    && input_buf.slots[0].map(|s| s.item == fr.input.item) == Some(true);
-                if matches {
-                    Some(fr)
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        });
-        match active_recipe {
-            Some(r) if r.ticks > 0 => furnace.ticks as f32 / r.ticks as f32,
-            _ => 0.0,
-        }
+    let progress_fraction = match furnace.status {
+        MachineStatus::Processing {
+            recipe,
+            elapsed_ticks,
+        } if recipe.ticks > 0 => elapsed_ticks as f32 / recipe.ticks as f32,
+        _ => 0.0,
     };
     fill_node.width = Val::Percent(progress_fraction * 100.0);
 
@@ -134,7 +121,6 @@ pub(super) fn update_furnace_pane(
         let label = input_buf
             .slots
             .get(slot_marker.0)
-            .and_then(|s| s.as_ref())
             .map(|stack| stack.item.name())
             .unwrap_or("");
         if let Some(&child) = children.first() {
@@ -144,11 +130,11 @@ pub(super) fn update_furnace_pane(
         }
     }
 
+    let view = output_buf.view();
     for (slot_marker, children) in &output_slots {
-        let label = output_buf
-            .items
+        let label = view
             .get(slot_marker.0)
-            .map(|item| item.name())
+            .map(|item| item.item.name())
             .unwrap_or("");
         if let Some(&child) = children.first() {
             if let Ok(mut text) = texts.get_mut(child) {
