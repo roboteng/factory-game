@@ -1093,9 +1093,6 @@ fn push_to_belt(
     mut cmd: Commands,
 ) {
     for (mut buffer, _coords, output_dir) in &mut pushers {
-        let Some(item) = buffer.remove_any() else {
-            continue;
-        };
         let target = output_dir.at;
         let Some(&belt_entity) = coord_map.0.get(&target) else {
             continue;
@@ -1106,6 +1103,9 @@ fn push_to_belt(
         if lanes.0.left.len() >= ITEMS_PER_BELT as usize {
             continue;
         }
+        let Some(item) = buffer.remove_any() else {
+            continue;
+        };
         let entity = cmd.spawn_empty().id();
         cmd.trigger(PlaceItem {
             entity,
