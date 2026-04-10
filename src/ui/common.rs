@@ -1,3 +1,4 @@
+use crate::core::inventory::Stack;
 use bevy::prelude::*;
 
 // ── Theme ─────────────────────────────────────────────────────────────────────
@@ -23,6 +24,38 @@ pub(super) const PLAYER_INVENTORY_SLOTS: u16 = 64;
 /// Shared by the inventory screen and the furnace screen's inventory panel.
 #[derive(Component)]
 pub(super) struct InventorySlot(pub(super) u16);
+
+/// Marker component for slot UI elements that display a Stack.
+/// Encapsulates all visual styling (background, border, text colors).
+/// Slots are always spawned with this component to manage appearance consistently.
+#[derive(Component)]
+pub(super) struct StackView;
+
+/// Formats a slot label showing item name and count, or empty string for empty slots.
+pub(super) fn stack_label(stack: Option<Stack>) -> String {
+    match stack {
+        Some(s) => format!("{}\n\u{00d7}{}", s.item.name(), s.count),
+        None => String::new(),
+    }
+}
+
+/// Returns the components that define a stack slot's appearance.
+/// Useful for changing all slot styling in one place.
+pub(super) fn stack_view_style() -> (Node, BackgroundColor, BorderColor) {
+    (
+        Node {
+            width: Val::Px(SLOT_SIZE),
+            height: Val::Px(SLOT_SIZE),
+            border: UiRect::all(Val::Px(2.0)),
+            justify_content: JustifyContent::Center,
+            align_items: AlignItems::Center,
+            margin: UiRect::all(Val::Px(4.0)),
+            ..default()
+        },
+        BackgroundColor(SLOT_BG),
+        BorderColor::all(SLOT_BORDER),
+    )
+}
 
 // ── Layout helpers ────────────────────────────────────────────────────────────
 
@@ -100,22 +133,9 @@ pub(super) fn spawn_title_bar(
 
 /// 64×64 button slot with a dark background, border, and an empty text child.
 pub(super) fn spawn_slot(parent: &mut ChildSpawnerCommands, marker: impl Bundle) {
+    let (node, bg, border) = stack_view_style();
     parent
-        .spawn((
-            Button,
-            Node {
-                width: Val::Px(SLOT_SIZE),
-                height: Val::Px(SLOT_SIZE),
-                border: UiRect::all(Val::Px(2.0)),
-                justify_content: JustifyContent::Center,
-                align_items: AlignItems::Center,
-                margin: UiRect::all(Val::Px(4.0)),
-                ..default()
-            },
-            BackgroundColor(SLOT_BG),
-            BorderColor::all(SLOT_BORDER),
-            marker,
-        ))
+        .spawn((Button, node, bg, border, StackView, marker))
         .with_children(|parent| {
             parent.spawn((
                 Text::new(""),

@@ -4,8 +4,10 @@ use crate::core::{
     Furnace, InputBuffer, LoadMachineInput, MachineStatus, OutputBuffer, UnloadMachineOutput,
 };
 
-use super::common::{InventorySlot, pane_node, section_label, spawn_screen_layout, spawn_slot};
-use super::{InteractionMode, ScreenMode, WorldMode};
+use super::common::{
+    pane_node, section_label, spawn_screen_layout, spawn_slot, stack_label, InventorySlot,
+};
+use super::{InteractionMode, ScreenMode};
 
 #[derive(Component)]
 pub(super) struct FurnacePane;
@@ -118,11 +120,7 @@ pub(super) fn update_furnace_pane(
     fill_node.width = Val::Percent(progress_fraction * 100.0);
 
     for (slot_marker, children) in &input_slots {
-        let label = input_buf
-            .slots
-            .get(slot_marker.0)
-            .map(|stack| stack.item.name())
-            .unwrap_or("");
+        let label = stack_label(input_buf.slots.get(slot_marker.0).copied());
         if let Some(&child) = children.first() {
             if let Ok(mut text) = texts.get_mut(child) {
                 **text = label.into();
@@ -132,25 +130,11 @@ pub(super) fn update_furnace_pane(
 
     let view = output_buf.view();
     for (slot_marker, children) in &output_slots {
-        let label = view
-            .get(slot_marker.0)
-            .map(|item| item.item.name())
-            .unwrap_or("");
+        let label = stack_label(view.get(slot_marker.0).copied());
         if let Some(&child) = children.first() {
             if let Ok(mut text) = texts.get_mut(child) {
                 **text = label.into();
             }
-        }
-    }
-}
-
-pub(super) fn handle_furnace_close_button(
-    interaction: Query<&Interaction, (Changed<Interaction>, With<CloseFurnaceButton>)>,
-    mut mode: ResMut<InteractionMode>,
-) {
-    for &interaction in interaction.iter() {
-        if interaction == Interaction::Pressed {
-            *mode = InteractionMode::InWorld(WorldMode::None);
         }
     }
 }

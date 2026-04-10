@@ -12,18 +12,18 @@ mod player_controller;
 mod visuals;
 
 use assembler::{
-    handle_assembler_close_button, handle_assembler_inventory_slot_clicks,
-    handle_assembler_output_slot_clicks, handle_assembler_recipe_button,
-    handle_clear_assembler_recipe, setup_assembler_pane, update_assembler_pane,
+    handle_assembler_inventory_slot_clicks, handle_assembler_output_slot_clicks,
+    handle_assembler_recipe_button, handle_clear_assembler_recipe, setup_assembler_pane,
+    update_assembler_pane, CloseAssemblerButton,
 };
-use common::InventorySlot;
+use common::{stack_label, InventorySlot};
 use furnace::{
-    handle_furnace_close_button, handle_furnace_inventory_slot_clicks,
-    handle_furnace_output_slot_clicks, setup_furnace_pane, update_furnace_pane,
+    handle_furnace_inventory_slot_clicks, handle_furnace_output_slot_clicks, setup_furnace_pane,
+    update_furnace_pane, CloseFurnaceButton,
 };
 use hotbar::PlacementItem;
-use inventory::{handle_inventory_close_button, setup_inventory_pane, update_inventory_pane};
-use menu::{handle_menu_resume_button, setup_menu_pane, update_menu_pane};
+use inventory::{setup_inventory_pane, update_inventory_pane, CloseInventoryButton};
+use menu::{setup_menu_pane, update_menu_pane, ResumeButton};
 
 pub struct UiPlugin;
 impl Plugin for UiPlugin {
@@ -41,24 +41,24 @@ impl Plugin for UiPlugin {
             Update,
             update_inventory_pane.after(player_controller::cursor_grab),
         );
-        app.add_systems(Update, handle_inventory_close_button);
+        app.add_systems(Update, handle_close_button::<CloseInventoryButton>);
         app.add_systems(
             Update,
             update_menu_pane.after(player_controller::cursor_grab),
         );
-        app.add_systems(Update, handle_menu_resume_button);
+        app.add_systems(Update, handle_close_button::<ResumeButton>);
         app.add_systems(
             Update,
             update_furnace_pane.after(player_controller::cursor_grab),
         );
-        app.add_systems(Update, handle_furnace_close_button);
+        app.add_systems(Update, handle_close_button::<CloseFurnaceButton>);
         app.add_systems(Update, handle_furnace_inventory_slot_clicks);
         app.add_systems(Update, handle_furnace_output_slot_clicks);
         app.add_systems(
             Update,
             update_assembler_pane.after(player_controller::cursor_grab),
         );
-        app.add_systems(Update, handle_assembler_close_button);
+        app.add_systems(Update, handle_close_button::<CloseAssemblerButton>);
         app.add_systems(Update, handle_assembler_recipe_button);
         app.add_systems(Update, handle_clear_assembler_recipe);
         app.add_systems(Update, handle_assembler_inventory_slot_clicks);
@@ -96,6 +96,19 @@ impl Default for InteractionMode {
     }
 }
 
+/// Generic close button handler for all screen close buttons.
+/// Closes the current screen and returns to world mode.
+fn handle_close_button<T: Component>(
+    interaction: Query<&Interaction, (Changed<Interaction>, With<T>)>,
+    mut mode: ResMut<InteractionMode>,
+) {
+    for &interaction in interaction.iter() {
+        if interaction == Interaction::Pressed {
+            *mode = InteractionMode::InWorld(WorldMode::None);
+        }
+    }
+}
+
 /// Updates all InventorySlot labels whenever the player's inventory changes.
 /// Shared by the inventory screen and the furnace screen's inventory panel.
 fn update_inventory_slots(
@@ -108,10 +121,7 @@ fn update_inventory_slots(
         return;
     };
     for (slot_marker, children) in &inv_slots {
-        let label = match inventory.get(slot_marker.0) {
-            Some(stack) => format!("{}\n\u{00d7}{}", stack.item.name(), stack.count),
-            None => String::new(),
-        };
+        let label = stack_label(inventory.get(slot_marker.0));
         if let Some(&child) = children.first() {
             if let Ok(mut text) = texts.get_mut(child) {
                 **text = label.into();

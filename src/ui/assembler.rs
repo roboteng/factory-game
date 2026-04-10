@@ -6,10 +6,11 @@ use crate::core::{
 };
 
 use super::common::{
-    pane_node, section_label, spawn_inventory_panel, spawn_slot, spawn_title_bar, InventorySlot,
-    CLOSE_BTN_BG, CLOSE_BTN_FONT_SIZE, CLOSE_BTN_SIZE, LABEL_FONT_SIZE, SLOT_BG, SLOT_BORDER,
+    pane_node, section_label, spawn_inventory_panel, spawn_slot, spawn_title_bar, stack_label,
+    InventorySlot, CLOSE_BTN_BG, CLOSE_BTN_FONT_SIZE, CLOSE_BTN_SIZE, LABEL_FONT_SIZE, SLOT_BG,
+    SLOT_BORDER,
 };
-use super::{InteractionMode, ScreenMode, WorldMode};
+use super::{InteractionMode, ScreenMode};
 
 const MAX_INPUT_SLOTS: usize = 4;
 const MAX_OUTPUT_SLOTS: usize = 4;
@@ -293,11 +294,7 @@ pub(super) fn update_assembler_pane(
     fill_node.width = Val::Percent(progress_fraction * 100.0);
 
     for (slot_marker, children) in &input_slots {
-        let label = input_buf
-            .slots
-            .get(slot_marker.0)
-            .map(|stack| stack.item.name())
-            .unwrap_or("");
+        let label = stack_label(input_buf.slots.get(slot_marker.0).copied());
         if let Some(&child) = children.first() {
             if let Ok(mut text) = texts.get_mut(child) {
                 **text = label.into();
@@ -307,25 +304,11 @@ pub(super) fn update_assembler_pane(
 
     let view = output_buf.view();
     for (slot_marker, children) in &output_slots {
-        let label = view
-            .get(slot_marker.0)
-            .map(|item| item.item.name())
-            .unwrap_or("");
+        let label = stack_label(view.get(slot_marker.0).copied());
         if let Some(&child) = children.first() {
             if let Ok(mut text) = texts.get_mut(child) {
                 **text = label.into();
             }
-        }
-    }
-}
-
-pub(super) fn handle_assembler_close_button(
-    interaction: Query<&Interaction, (Changed<Interaction>, With<CloseAssemblerButton>)>,
-    mut mode: ResMut<InteractionMode>,
-) {
-    for &interaction in interaction.iter() {
-        if interaction == Interaction::Pressed {
-            *mode = InteractionMode::InWorld(WorldMode::None);
         }
     }
 }

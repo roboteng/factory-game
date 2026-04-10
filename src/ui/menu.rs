@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 
 use super::common::PANE_BG;
-use super::{InteractionMode, ScreenMode, WorldMode};
+use super::{InteractionMode, ScreenMode};
 
 #[derive(Component)]
 pub(super) struct MenuPane;
@@ -71,15 +71,4 @@ pub(super) fn update_menu_pane(
     } else {
         Visibility::Hidden
     };
-}
-
-pub(super) fn handle_menu_resume_button(
-    interaction: Query<&Interaction, (Changed<Interaction>, With<ResumeButton>)>,
-    mut mode: ResMut<InteractionMode>,
-) {
-    for &interaction in interaction.iter() {
-        if interaction == Interaction::Pressed {
-            *mode = InteractionMode::InWorld(WorldMode::None);
-        }
-    }
 }

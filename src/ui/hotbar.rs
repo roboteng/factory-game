@@ -1,6 +1,7 @@
 use crate::core::{inventory::Inventory, *};
 use bevy::prelude::*;
 
+use super::common::{StackView, SLOT_BG, SLOT_BORDER, SLOT_FONT_SIZE, SLOT_SIZE};
 use super::{InteractionMode, WorldMode};
 
 pub struct HotbarPlugin;
@@ -41,14 +42,10 @@ struct HotbarSlot(u16);
 #[derive(Component)]
 struct HotbarSlotCount(u16);
 
-const HOTBAR_SLOT_SIZE: f32 = 64.0;
 const HOTBAR_SLOT_GAP: f32 = 8.0;
-const HOTBAR_BORDER_NORMAL: Color = Color::srgba(0.3, 0.3, 0.3, 0.8);
 const HOTBAR_BORDER_SELECTED: Color = Color::srgba(1.0, 0.8, 0.2, 1.0);
-const HOTBAR_BG: Color = Color::srgba(0.1, 0.1, 0.1, 0.8);
 
 fn setup_hotbar(mut cmd: Commands, inv: Res<Hotbar>) {
-    // Root container at bottom center - uses full width with flexbox centering
     cmd.spawn(Node {
         position_type: PositionType::Absolute,
         bottom: Val::Px(20.0),
@@ -60,68 +57,69 @@ fn setup_hotbar(mut cmd: Commands, inv: Res<Hotbar>) {
     })
     .with_children(|parent| {
         for (index, &tool) in inv.0.iter().enumerate() {
-            // Slot container
-            parent
-                .spawn((
-                    Node {
-                        width: Val::Px(HOTBAR_SLOT_SIZE),
-                        height: Val::Px(HOTBAR_SLOT_SIZE),
-                        border: UiRect::all(Val::Px(3.0)),
-                        justify_content: JustifyContent::Center,
-                        align_items: AlignItems::Center,
-                        ..default()
-                    },
-                    BackgroundColor(HOTBAR_BG),
-                    BorderColor::all(HOTBAR_BORDER_NORMAL),
-                    HotbarSlot(index as u16),
-                ))
-                .with_children(|parent| {
-                    let Some(tool) = tool else { return };
-                    // Slot number label
-                    parent.spawn((
-                        Text::new(format!("{}", index + 1)),
-                        TextFont {
-                            font_size: 14.0,
-                            ..default()
-                        },
-                        TextColor(Color::WHITE),
-                        Node {
-                            position_type: PositionType::Absolute,
-                            top: Val::Px(2.0),
-                            left: Val::Px(4.0),
-                            ..default()
-                        },
-                    ));
-
-                    // Tool name label
-                    parent.spawn((
-                        Text::new(tool.name()),
-                        TextFont {
-                            font_size: 12.0,
-                            ..default()
-                        },
-                        TextColor(Color::WHITE),
-                    ));
-
-                    // Item count label (bottom-right)
-                    parent.spawn((
-                        Text::new("0"),
-                        TextFont {
-                            font_size: 12.0,
-                            ..default()
-                        },
-                        TextColor(Color::WHITE),
-                        Node {
-                            position_type: PositionType::Absolute,
-                            bottom: Val::Px(2.0),
-                            right: Val::Px(4.0),
-                            ..default()
-                        },
-                        HotbarSlotCount(index as u16),
-                    ));
-                });
+            spawn_hotbar_slot(parent, index, tool);
         }
     });
+}
+
+fn spawn_hotbar_slot(parent: &mut ChildSpawnerCommands, index: usize, tool: Option<Item>) {
+    parent
+        .spawn((
+            Node {
+                width: Val::Px(SLOT_SIZE),
+                height: Val::Px(SLOT_SIZE),
+                border: UiRect::all(Val::Px(3.0)),
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::Center,
+                ..default()
+            },
+            BackgroundColor(SLOT_BG),
+            BorderColor::all(SLOT_BORDER),
+            StackView,
+            HotbarSlot(index as u16),
+        ))
+        .with_children(|parent| {
+            let Some(tool) = tool else { return };
+            parent.spawn((
+                Text::new(format!("{}", index + 1)),
+                TextFont {
+                    font_size: 14.0,
+                    ..default()
+                },
+                TextColor(Color::WHITE),
+                Node {
+                    position_type: PositionType::Absolute,
+                    top: Val::Px(2.0),
+                    left: Val::Px(4.0),
+                    ..default()
+                },
+            ));
+
+            parent.spawn((
+                Text::new(tool.name()),
+                TextFont {
+                    font_size: SLOT_FONT_SIZE,
+                    ..default()
+                },
+                TextColor(Color::WHITE),
+            ));
+
+            parent.spawn((
+                Text::new("0"),
+                TextFont {
+                    font_size: SLOT_FONT_SIZE,
+                    ..default()
+                },
+                TextColor(Color::WHITE),
+                Node {
+                    position_type: PositionType::Absolute,
+                    bottom: Val::Px(2.0),
+                    right: Val::Px(4.0),
+                    ..default()
+                },
+                HotbarSlotCount(index as u16),
+            ));
+        });
 }
 
 const DIGITS: [KeyCode; 10] = [
@@ -171,7 +169,7 @@ fn update_hotbar_selection(
         let target = BorderColor::all(if selected_slot == Some(&slot.0) {
             HOTBAR_BORDER_SELECTED
         } else {
-            HOTBAR_BORDER_NORMAL
+            SLOT_BORDER
         });
         *border = target;
     }

@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 
 use super::common::{pane_node, spawn_screen_layout};
-use super::{InteractionMode, ScreenMode, WorldMode};
+use super::{InteractionMode, ScreenMode};
 
 #[derive(Component)]
 pub(super) struct InventoryPane;
@@ -33,15 +33,4 @@ pub(super) fn update_inventory_pane(
     } else {
         Visibility::Hidden
     };
-}
-
-pub(super) fn handle_inventory_close_button(
-    interaction: Query<&Interaction, (Changed<Interaction>, With<CloseInventoryButton>)>,
-    mut mode: ResMut<InteractionMode>,
-) {
-    for &interaction in interaction.iter() {
-        if interaction == Interaction::Pressed {
-            *mode = InteractionMode::InWorld(WorldMode::None);
-        }
-    }
 }
