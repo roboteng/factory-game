@@ -245,18 +245,26 @@ pub(super) fn update_assembler_pane(
             ),
         ),
     >,
-    mut recipe_panel: Single<
-        &mut Visibility,
+    recipe_panel: Single<
+        (&mut Visibility, &mut Node),
         (
             With<AssemblerRecipePanel>,
-            (Without<AssemblerPane>, Without<AssemblerProcessingPanel>),
+            (
+                Without<AssemblerPane>,
+                Without<AssemblerProcessingPanel>,
+                Without<AssemblerProgressFill>,
+            ),
         ),
     >,
-    mut processing_panel: Single<
-        &mut Visibility,
+    processing_panel: Single<
+        (&mut Visibility, &mut Node),
         (
             With<AssemblerProcessingPanel>,
-            (Without<AssemblerPane>, Without<AssemblerRecipePanel>),
+            (
+                Without<AssemblerPane>,
+                Without<AssemblerRecipePanel>,
+                Without<AssemblerProgressFill>,
+            ),
         ),
     >,
     assembler_q: Query<(&Assembler, &InputBuffer, &OutputBuffer)>,
@@ -276,13 +284,21 @@ pub(super) fn update_assembler_pane(
     };
 
     if assembler.configured_recipe.is_none() {
-        **recipe_panel = Visibility::Inherited;
-        **processing_panel = Visibility::Hidden;
+        let (mut vis, mut node) = recipe_panel.into_inner();
+        vis.set_if_neq(Visibility::Inherited);
+        node.display = Display::Flex;
+        let (mut vis, mut node) = processing_panel.into_inner();
+        vis.set_if_neq(Visibility::Hidden);
+        node.display = Display::None;
         return;
     }
 
-    **recipe_panel = Visibility::Hidden;
-    **processing_panel = Visibility::Inherited;
+    let (mut vis, mut node) = recipe_panel.into_inner();
+    vis.set_if_neq(Visibility::Hidden);
+    node.display = Display::None;
+    let (mut vis, mut node) = processing_panel.into_inner();
+    vis.set_if_neq(Visibility::Inherited);
+    node.display = Display::Flex;
 
     let progress_fraction = match &assembler.status {
         MachineStatus::Processing {
