@@ -1,5 +1,6 @@
 use crate::core::{inventory::Inventory, Player};
 
+use avian3d::prelude::*;
 use bevy::prelude::*;
 
 mod assembler;
@@ -28,6 +29,7 @@ use menu::{setup_menu_pane, update_menu_pane, ResumeButton};
 pub struct UiPlugin;
 impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(PhysicsPlugins::default());
         app.add_plugins(hotbar::HotbarPlugin);
         app.add_plugins(player_controller::PlayerControllerPlugin);
         app.add_plugins(visuals::VisualsPlugin);

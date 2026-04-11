@@ -6,9 +6,17 @@ mod core;
 #[cfg(feature = "ui")]
 mod ui;
 
+/// When present and `true`, the player uses a free-flying noclip camera
+/// instead of the physics-based controller. Set via the `--fly` CLI flag.
+#[derive(Resource)]
+pub struct FlyMode(pub bool);
+
 fn main() {
+    let fly_mode = std::env::args().any(|a| a == "--fly");
+
     let mut app = App::new();
 
+    app.insert_resource(FlyMode(fly_mode));
     app.add_plugins((DefaultPlugins, core::CorePlugin));
 
     #[cfg(feature = "dev")]

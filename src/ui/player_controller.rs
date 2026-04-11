@@ -1,7 +1,9 @@
 use crate::core::{inventory::Inventory, *};
 use crate::ui::hotbar::{Hotbar, PlacementItem};
 use crate::ui::{InteractionMode, ScreenMode, WorldMode};
+use crate::FlyMode;
 
+use avian3d::prelude::*;
 use bevy::{
     input::mouse::AccumulatedMouseMotion,
     prelude::*,
@@ -18,8 +20,14 @@ impl Plugin for PlayerControllerPlugin {
         app.add_systems(Startup, setup_delete_preview);
         app.add_systems(Startup, setup_incline_preview);
 
+        app.add_systems(Update, add_block_colliders);
+
         // Systems that trigger events must run in PreUpdate
-        app.add_systems(PreUpdate, camera_movement);
+        app.add_systems(
+            PreUpdate,
+            player_movement.run_if(|fly: Res<FlyMode>| !fly.0),
+        );
+        app.add_systems(PreUpdate, fly_movement.run_if(|fly: Res<FlyMode>| fly.0));
         app.add_systems(
             PreUpdate,
             (
@@ -70,44 +78,94 @@ struct DeletePreview;
 #[derive(Component)]
 struct InclinePreview;
 
+/// The physics body for the player. The camera is a child entity.
+#[derive(Component)]
+struct PlayerBody {
+    speed: f32,
+    jump_impulse: f32,
+}
+
 #[derive(Component)]
 struct FirstPersonCamera {
     pitch: f32,
     yaw: f32,
     sensitivity: f32,
-    speed: f32,
 }
 
 fn setup(
     mut cmd: Commands,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut meshes: ResMut<Assets<Mesh>>,
+    fly_mode: Res<FlyMode>,
 ) {
-    // Transform for the camera and lighting, looking at (0,0,0) (the position of the mesh).
-    let camera_transform = Transform::from_xyz(1.8, 1.8, 1.8).looking_at(Vec3::ZERO, Vec3::Y);
-    let light_transform = camera_transform;
+    if fly_mode.0 {
+        // Free-fly (noclip) mode: camera is a standalone entity, no physics body.
+        cmd.spawn((
+            Camera3d::default(),
+            Transform::from_xyz(1.5, 2.0, 1.5),
+            FirstPersonCamera {
+                pitch: 0.0,
+                yaw: 0.0,
+                sensitivity: 0.002,
+            },
+            AmbientLight {
+                color: Color::WHITE,
+                brightness: 100.0,
+                affects_lightmapped_meshes: true,
+            },
+        ));
+        cmd.spawn((PointLight::default(), Transform::from_xyz(1.5, 2.5, 1.5)));
+    } else {
+        // Physics mode: capsule body with camera as child at eye height.
+        // Capsule: radius 0.3, cylinder height 1.2 → total height 1.8.
+        let body = cmd
+            .spawn((
+                PlayerBody {
+                    speed: 5.0,
+                    jump_impulse: 8.0,
+                },
+                RigidBody::Dynamic,
+                Collider::capsule(0.3, 1.2),
+                LockedAxes::ROTATION_LOCKED,
+                LinearDamping(0.0),
+                Friction::ZERO,
+                Restitution::ZERO,
+                GravityScale(2.5),
+                Transform::from_xyz(1.5, 2.0, 1.5),
+                // Ground sensor: small sphere cast downward from inside the bottom of the capsule.
+                ShapeCaster::new(
+                    Collider::sphere(0.25),
+                    Vec3::new(0.0, -0.7, 0.0),
+                    Quat::IDENTITY,
+                    Dir3::NEG_Y,
+                )
+                .with_max_distance(0.25),
+            ))
+            .id();
 
-    // Camera in 3D space with first-person controls.
-    cmd.spawn((
-        Camera3d::default(),
-        camera_transform,
-        FirstPersonCamera {
-            pitch: 0.0,
-            yaw: 0.0,
-            sensitivity: 0.002,
-            speed: 5.0,
-        },
-        AmbientLight {
-            color: Color::WHITE,
-            brightness: 100.0,
-            affects_lightmapped_meshes: true,
-        },
-    ));
+        cmd.spawn((
+            Camera3d::default(),
+            Transform::from_xyz(0.0, 0.6, 0.0),
+            FirstPersonCamera {
+                pitch: 0.0,
+                yaw: 0.0,
+                sensitivity: 0.002,
+            },
+            AmbientLight {
+                color: Color::WHITE,
+                brightness: 100.0,
+                affects_lightmapped_meshes: true,
+            },
+            ChildOf(body),
+        ));
 
-    // Light up the scene.
-    cmd.spawn((PointLight::default(), light_transform));
+        cmd.spawn((
+            PointLight::default(),
+            Transform::from_xyz(0.0, 0.5, 0.0),
+            ChildOf(body),
+        ));
+    }
 
-    // Generate stars
     spawn_stars(&mut cmd, &mut meshes, &mut materials);
 }
 
@@ -269,7 +327,56 @@ fn camera_look(
     }
 }
 
-fn camera_movement(
+fn player_movement(
+    keys: Res<ButtonInput<KeyCode>>,
+    camera_q: Query<&FirstPersonCamera>,
+    mut body_q: Query<(&PlayerBody, &mut LinearVelocity, &ShapeHits)>,
+    mode: Res<InteractionMode>,
+) {
+    if matches!(*mode, InteractionMode::InScreen(_)) {
+        return;
+    }
+    let Ok(camera) = camera_q.single() else {
+        return;
+    };
+    let Ok((body, mut vel, hits)) = body_q.single_mut() else {
+        return;
+    };
+
+    let grounded = hits.iter().next().is_some();
+
+    let forward = Vec3::new(-camera.yaw.sin(), 0.0, -camera.yaw.cos());
+    let right = Vec3::new(camera.yaw.cos(), 0.0, -camera.yaw.sin());
+
+    let mut dir = Vec3::ZERO;
+    if keys.pressed(KeyCode::KeyW) {
+        dir += forward;
+    }
+    if keys.pressed(KeyCode::KeyS) {
+        dir -= forward;
+    }
+    if keys.pressed(KeyCode::KeyA) {
+        dir -= right;
+    }
+    if keys.pressed(KeyCode::KeyD) {
+        dir += right;
+    }
+
+    if dir.length_squared() > 0.0 {
+        dir = dir.normalize();
+    }
+
+    // Set horizontal velocity directly for responsive movement.
+    vel.x = dir.x * body.speed;
+    vel.z = dir.z * body.speed;
+
+    if grounded && keys.just_pressed(KeyCode::Space) {
+        vel.y = body.jump_impulse;
+    }
+}
+
+/// Free-fly (noclip) movement: WASD moves horizontally, Space/Shift moves vertically.
+fn fly_movement(
     time: Res<Time>,
     keys: Res<ButtonInput<KeyCode>>,
     mut query: Query<(&mut Transform, &FirstPersonCamera)>,
@@ -278,13 +385,12 @@ fn camera_movement(
     if matches!(*mode, InteractionMode::InScreen(_)) {
         return;
     }
+    let speed = 5.0;
     for (mut transform, camera) in query.iter_mut() {
-        let mut direction = Vec3::ZERO;
-
-        // Get forward and right directions based on yaw only (no pitch)
         let forward = Vec3::new(-camera.yaw.sin(), 0.0, -camera.yaw.cos());
         let right = Vec3::new(camera.yaw.cos(), 0.0, -camera.yaw.sin());
 
+        let mut direction = Vec3::ZERO;
         if keys.pressed(KeyCode::KeyW) {
             direction += forward;
         }
@@ -297,19 +403,35 @@ fn camera_movement(
         if keys.pressed(KeyCode::KeyD) {
             direction += right;
         }
-
         if direction.length_squared() > 0.0 {
             direction = direction.normalize();
         }
-
-        transform.translation += direction * camera.speed * time.delta_secs();
+        transform.translation += direction * speed * time.delta_secs();
 
         if keys.pressed(KeyCode::Space) {
-            transform.translation.y += camera.speed * time.delta_secs();
+            transform.translation.y += speed * time.delta_secs();
         }
         if keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight) {
-            transform.translation.y -= camera.speed * time.delta_secs();
+            transform.translation.y -= speed * time.delta_secs();
         }
+    }
+}
+
+/// Gives static physics colliders to every world block as it is placed.
+fn add_block_colliders(
+    mut cmd: Commands,
+    blocks: Query<(Entity, &RaycastTarget), Added<RaycastTarget>>,
+) {
+    for (entity, rt) in &blocks {
+        let half = rt.half_extents;
+        cmd.entity(entity).insert(RigidBody::Static);
+        // The block's Transform is at its bottom corner, so we offset the
+        // collider child up by half_extents.y to centre it on the block.
+        cmd.spawn((
+            Collider::cuboid(half.x * 2.0, half.y * 2.0, half.z * 2.0),
+            Transform::from_xyz(0.0, half.y, 0.0),
+            ChildOf(entity),
+        ));
     }
 }
 
@@ -332,14 +454,13 @@ struct ResolvedHit {
 }
 
 fn raycast_and_resolve(
-    camera_transform: &Transform,
+    origin: Vec3,
+    forward: Vec3,
     targets: impl Iterator<Item = RayTarget>,
     coord_map: &CoordsMap,
     find_entity: impl Fn(Entity) -> Option<(WorldCoords, Vec3)>,
 ) -> Option<ResolvedHit> {
-    let origin = camera_transform.translation;
-    let ray_dir = *camera_transform.forward();
-    let hit = cast_ray(origin, ray_dir, targets)?;
+    let hit = cast_ray(origin, forward, targets)?;
     let &entity = coord_map.0.get(&hit.hit_coords)?;
     let (coords, half_extents) = find_entity(entity)?;
     Some(ResolvedHit {
@@ -466,7 +587,7 @@ fn handle_mode_inputs(
 fn handle_click_to_place(
     mouse: Res<ButtonInput<MouseButton>>,
     cursor_options: Single<&CursorOptions>,
-    camera_query: Single<&Transform, With<FirstPersonCamera>>,
+    camera_query: Single<(&Transform, &GlobalTransform), With<FirstPersonCamera>>,
     player: Res<Player>,
     hotbar: Res<Hotbar>,
     mut invs: Query<&mut Inventory>,
@@ -499,9 +620,9 @@ fn handle_click_to_place(
         return;
     }
 
-    let camera_transform = camera_query.into_inner();
-    let origin = camera_transform.translation;
-    let ray_dir = *camera_transform.forward();
+    let (cam_local, cam_global) = camera_query.into_inner();
+    let origin = cam_global.translation();
+    let ray_dir = *cam_local.forward();
 
     let Some(hit) = cast_ray(
         origin,
@@ -533,7 +654,7 @@ fn update_delete_preview(
     mode: Res<InteractionMode>,
     mouse: Res<ButtonInput<MouseButton>>,
     cursor_options: Single<&CursorOptions>,
-    camera_q: Single<&Transform, With<FirstPersonCamera>>,
+    camera_q: Single<(&Transform, &GlobalTransform), With<FirstPersonCamera>>,
     coord_map: Res<CoordsMap>,
     mut preview_q: Single<
         (&mut Transform, &mut Visibility),
@@ -550,8 +671,10 @@ fn update_delete_preview(
         return;
     }
 
+    let (cam_local, cam_global) = camera_q.into_inner();
     let Some(resolved) = raycast_and_resolve(
-        camera_q.into_inner(),
+        cam_global.translation(),
+        *cam_local.forward(),
         targets.iter().map(|(c, tr, rt)| RayTarget {
             coords: *c,
             center: tr.translation,
@@ -586,7 +709,7 @@ fn handle_change_incline(
     mode: Res<InteractionMode>,
     mouse: Res<ButtonInput<MouseButton>>,
     cursor_options: Single<&CursorOptions>,
-    camera_q: Single<&Transform, With<FirstPersonCamera>>,
+    camera_q: Single<(&Transform, &GlobalTransform), With<FirstPersonCamera>>,
     coord_map: Res<CoordsMap>,
     mut preview_q: Single<
         (&mut Transform, &mut Visibility),
@@ -606,8 +729,10 @@ fn handle_change_incline(
         return;
     }
 
+    let (cam_local, cam_global) = camera_q.into_inner();
     let Some(resolved) = raycast_and_resolve(
-        camera_q.into_inner(),
+        cam_global.translation(),
+        *cam_local.forward(),
         targets.iter().map(|(c, tr, rt)| RayTarget {
             coords: *c,
             center: tr.translation,
@@ -729,7 +854,7 @@ fn handle_right_click_assembler(
 fn handle_right_click_block_ui<T: BlockUIScreen>(
     mouse: Res<ButtonInput<MouseButton>>,
     cursor_options: Single<&CursorOptions>,
-    camera_q: Single<&Transform, With<FirstPersonCamera>>,
+    camera_q: Single<(&Transform, &GlobalTransform), With<FirstPersonCamera>>,
     coord_map: Res<CoordsMap>,
     targets: Query<(&WorldCoords, &Transform, &RaycastTarget)>,
     blocks: Query<(), With<T>>,
@@ -745,9 +870,9 @@ fn handle_right_click_block_ui<T: BlockUIScreen>(
         return;
     }
 
-    let camera_transform = camera_q.into_inner();
-    let origin = camera_transform.translation;
-    let ray_dir = *camera_transform.forward();
+    let (cam_local, cam_global) = camera_q.into_inner();
+    let origin = cam_global.translation();
+    let ray_dir = *cam_local.forward();
 
     let Some(hit) = cast_ray(
         origin,
@@ -773,7 +898,7 @@ fn handle_right_click_block_ui<T: BlockUIScreen>(
 fn draw_crosshair_gizmo(
     mut gizmos: Gizmos,
     cursor_options: Single<&CursorOptions>,
-    camera_q: Single<&Transform, With<FirstPersonCamera>>,
+    camera_q: Single<(&Transform, &GlobalTransform), With<FirstPersonCamera>>,
     targets: Query<(&WorldCoords, &Transform, &RaycastTarget)>,
     coord_map: Res<CoordsMap>,
 ) {
@@ -781,8 +906,10 @@ fn draw_crosshair_gizmo(
         return;
     }
 
+    let (cam_local, cam_global) = camera_q.into_inner();
     let Some(resolved) = raycast_and_resolve(
-        camera_q.into_inner(),
+        cam_global.translation(),
+        *cam_local.forward(),
         targets.iter().map(|(c, t, rt)| RayTarget {
             coords: *c,
             center: t.translation,
@@ -814,7 +941,7 @@ fn draw_placement_preview(
     mode: Res<InteractionMode>,
     placement_dir: Res<PlacementDirection>,
     cursor_options: Single<&CursorOptions>,
-    camera_q: Single<&Transform, With<FirstPersonCamera>>,
+    camera_q: Single<(&Transform, &GlobalTransform), With<FirstPersonCamera>>,
     targets: Query<(&WorldCoords, &Transform, &RaycastTarget)>,
 ) {
     if !matches!(*mode, InteractionMode::InWorld(WorldMode::Placing(_)))
@@ -823,9 +950,9 @@ fn draw_placement_preview(
         return;
     }
 
-    let camera_transform = camera_q.into_inner();
-    let origin = camera_transform.translation;
-    let ray_dir = *camera_transform.forward();
+    let (cam_local, cam_global) = camera_q.into_inner();
+    let origin = cam_global.translation();
+    let ray_dir = *cam_local.forward();
 
     let Some(hit) = cast_ray(
         origin,
