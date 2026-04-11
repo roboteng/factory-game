@@ -134,6 +134,7 @@ fn setup(
                 Restitution::ZERO,
                 GravityScale(2.5),
                 Transform::from_xyz(1.5, 2.0, 1.5),
+                Visibility::Inherited,
                 // Ground sensor: small sphere cast downward from inside the bottom of the capsule.
                 ShapeCaster::new(
                     Collider::sphere(0.25),

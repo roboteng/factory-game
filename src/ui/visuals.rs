@@ -295,5 +295,7 @@ fn on_place_item(
             .id(),
     };
 
-    cmd.entity(event.entity).add_child(visual);
+    cmd.entity(event.entity)
+        .insert(Visibility::Inherited)
+        .add_child(visual);
 }
