@@ -11,12 +11,19 @@ mod ui;
 #[derive(Resource)]
 pub struct FlyMode(pub bool);
 
+/// When present and `true`, spawns a small flat 11×11 test world instead of
+/// Perlin noise terrain. Set via the `--flat` CLI flag.
+#[derive(Resource)]
+pub struct FlatMode(pub bool);
+
 fn main() {
     let fly_mode = std::env::args().any(|a| a == "--fly");
+    let flat_mode = std::env::args().any(|a| a == "--flat");
 
     let mut app = App::new();
 
     app.insert_resource(FlyMode(fly_mode));
+    app.insert_resource(FlatMode(flat_mode));
     app.add_plugins((DefaultPlugins, core::CorePlugin));
 
     #[cfg(feature = "dev")]
@@ -66,11 +73,11 @@ fn screenshot_on_f10(
     }
 }
 
-fn setup(mut cmd: Commands) {
+fn setup(mut cmd: Commands, flat_mode: Res<FlatMode>) {
     let o = WorldCoords::ORIGIN;
 
     #[cfg(feature = "ui")]
-    {
+    if flat_mode.0 {
         use rand::Rng;
         let mut rng = rand::thread_rng();
         let ground_height = WorldCoordsDelta::ZERO.height(-2);
@@ -91,7 +98,6 @@ fn setup(mut cmd: Commands) {
             }
         }
 
-        // Ore deposits for mining — placed outside the rock/dirt grid.
         for (ns, ew, block) in [
             (6i32, 0i32, WorldBlock::IronOreDeposit),
             (6, 1, WorldBlock::IronOreDeposit),
@@ -100,12 +106,39 @@ fn setup(mut cmd: Commands) {
             (-6, 1, WorldBlock::CopperOreDeposit),
         ] {
             let entity = cmd.spawn_empty().id();
-            cmd.trigger(crate::core::PlaceBlock {
+            cmd.trigger(PlaceBlock {
                 entity,
                 block,
                 coords: o + WorldCoordsDelta::ZERO.north(ns).east(ew),
                 dir: HDir::North,
             });
+        }
+    } else {
+        use noise::{NoiseFn, Perlin};
+        let perlin = Perlin::new(42);
+        let scale = 0.05_f64;
+        let amplitude = 5.0_f64;
+
+        for ns in -50_i32..=50 {
+            for ew in -50_i32..=50 {
+                let noise_val = perlin.get([ns as f64 * scale, ew as f64 * scale]);
+                let height_full = (noise_val * amplitude).round() as i32;
+                let height_half = height_full * 2;
+
+                let block = if height_half <= 0 {
+                    WorldBlock::Rock
+                } else {
+                    WorldBlock::Dirt
+                };
+
+                let entity = cmd.spawn_empty().id();
+                cmd.trigger(PlaceBlock {
+                    entity,
+                    block,
+                    coords: o + WorldCoordsDelta::ZERO.height(height_half).north(ns).east(ew),
+                    dir: HDir::North,
+                });
+            }
         }
     }
     let entity = cmd.spawn_empty().id();
