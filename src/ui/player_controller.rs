@@ -83,6 +83,7 @@ struct InclinePreview;
 struct PlayerBody {
     speed: f32,
     jump_impulse: f32,
+    jump_cooldown: f32,
 }
 
 #[derive(Component)]
@@ -123,6 +124,7 @@ fn setup(
                 PlayerBody {
                     speed: 5.0,
                     jump_impulse: 8.0,
+                    jump_cooldown: 0.0,
                 },
                 RigidBody::Dynamic,
                 Collider::capsule(0.3, 1.2),
@@ -328,9 +330,10 @@ fn camera_look(
 }
 
 fn player_movement(
+    time: Res<Time>,
     keys: Res<ButtonInput<KeyCode>>,
     camera_q: Query<&FirstPersonCamera>,
-    mut body_q: Query<(&PlayerBody, &mut LinearVelocity, &ShapeHits)>,
+    mut body_q: Query<(&mut PlayerBody, &mut LinearVelocity, &ShapeHits)>,
     mode: Res<InteractionMode>,
 ) {
     if matches!(*mode, InteractionMode::InScreen(_)) {
@@ -339,10 +342,11 @@ fn player_movement(
     let Ok(camera) = camera_q.single() else {
         return;
     };
-    let Ok((body, mut vel, hits)) = body_q.single_mut() else {
+    let Ok((mut body, mut vel, hits)) = body_q.single_mut() else {
         return;
     };
 
+    body.jump_cooldown = (body.jump_cooldown - time.delta_secs()).max(0.0);
     let grounded = hits.iter().next().is_some();
 
     let forward = Vec3::new(-camera.yaw.sin(), 0.0, -camera.yaw.cos());
@@ -370,8 +374,12 @@ fn player_movement(
     vel.x = dir.x * body.speed;
     vel.z = dir.z * body.speed;
 
-    if grounded && keys.just_pressed(KeyCode::Space) {
+    let can_interact_with_ground = grounded && body.jump_cooldown <= 0.0;
+    if can_interact_with_ground && keys.just_pressed(KeyCode::Space) {
         vel.y = body.jump_impulse;
+        body.jump_cooldown = 0.25;
+    } else if can_interact_with_ground {
+        vel.y = vel.y.min(0.0);
     }
 }
 
