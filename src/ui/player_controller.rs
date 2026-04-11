@@ -99,6 +99,12 @@ fn setup(
     mut meshes: ResMut<Assets<Mesh>>,
     fly_mode: Res<FlyMode>,
 ) {
+    let ambient = AmbientLight {
+        color: Color::WHITE,
+        brightness: 500.0,
+        ..Default::default()
+    };
+
     if fly_mode.0 {
         // Free-fly (noclip) mode: camera is a standalone entity, no physics body.
         cmd.spawn((
@@ -109,13 +115,8 @@ fn setup(
                 yaw: 0.0,
                 sensitivity: 0.002,
             },
-            AmbientLight {
-                color: Color::WHITE,
-                brightness: 100.0,
-                affects_lightmapped_meshes: true,
-            },
+            ambient,
         ));
-        cmd.spawn((PointLight::default(), Transform::from_xyz(1.5, 2.5, 1.5)));
     } else {
         // Physics mode: capsule body with camera as child at eye height.
         // Capsule: radius 0.3, cylinder height 1.2 → total height 1.8.
@@ -154,17 +155,7 @@ fn setup(
                 yaw: 0.0,
                 sensitivity: 0.002,
             },
-            AmbientLight {
-                color: Color::WHITE,
-                brightness: 100.0,
-                affects_lightmapped_meshes: true,
-            },
-            ChildOf(body),
-        ));
-
-        cmd.spawn((
-            PointLight::default(),
-            Transform::from_xyz(0.0, 0.5, 0.0),
+            ambient,
             ChildOf(body),
         ));
     }

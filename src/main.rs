@@ -74,6 +74,16 @@ fn screenshot_on_f10(
 }
 
 fn setup(mut cmd: Commands, flat_mode: Res<FlatMode>) {
+    #[cfg(feature = "ui")]
+    cmd.spawn((
+        DirectionalLight {
+            illuminance: 10000.0,
+            shadows_enabled: true,
+            ..Default::default()
+        },
+        Transform::from_xyz(3.0, 10.0, 5.0).looking_at(Vec3::ZERO, Vec3::Z),
+    ));
+
     let o = WorldCoords::ORIGIN;
 
     #[cfg(feature = "ui")]
@@ -135,7 +145,10 @@ fn setup(mut cmd: Commands, flat_mode: Res<FlatMode>) {
                 cmd.trigger(PlaceBlock {
                     entity,
                     block,
-                    coords: o + WorldCoordsDelta::ZERO.height(height_half).north(ns).east(ew),
+                    coords: o + WorldCoordsDelta::ZERO
+                        .height(height_half)
+                        .north(ns)
+                        .east(ew),
                     dir: HDir::North,
                 });
             }
