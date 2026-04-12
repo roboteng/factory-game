@@ -196,31 +196,10 @@ pub enum MachineStatus<R> {
     },
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub enum ProcessingMethod {
-    Furnace,
-    Assembler,
-}
-
 #[derive(Debug, Clone)]
 pub enum Recipe {
     FurnaceRecipe(machine::FurnaceRecipe),
     AssemblerRecipe(machine::AssemblerRecipe),
-}
-
-impl Recipe {
-    pub fn inputs(&self) -> Vec<Stack> {
-        match self {
-            Recipe::FurnaceRecipe(r) => vec![r.input],
-            Recipe::AssemblerRecipe(r) => r.input.clone(),
-        }
-    }
-    pub fn outputs(&self) -> Vec<Stack> {
-        match self {
-            Recipe::FurnaceRecipe(r) => vec![r.output],
-            Recipe::AssemblerRecipe(r) => r.output.clone(),
-        }
-    }
 }
 
 impl From<machine::AssemblerRecipe> for Recipe {
@@ -427,6 +406,7 @@ pub enum WorldBlock {
 }
 
 impl WorldBlock {
+    #[expect(unused)]
     pub fn name(self) -> &'static str {
         match self {
             WorldBlock::Belt => "Belt",
@@ -474,46 +454,6 @@ impl WorldBlock {
             _ => RaycastTarget::FULL_BLOCK,
         }
     }
-
-    pub fn size(&self) -> BlockSize {
-        match self {
-            WorldBlock::Belt => BlockSize::HALF_BLOCK,
-            WorldBlock::Source
-            | WorldBlock::Sink
-            | WorldBlock::Rock
-            | WorldBlock::Dirt
-            | WorldBlock::IronOreDeposit
-            | WorldBlock::CopperOreDeposit
-            | WorldBlock::Assembler
-            | WorldBlock::Miner
-            | WorldBlock::Collector => BlockSize::FULL_BLOCK,
-            WorldBlock::Furnace => BlockSize {
-                height: 6,
-                width: 2,
-                depth: 2,
-            },
-        }
-    }
-}
-
-pub struct BlockSize {
-    /// How many half blocks it takes up
-    height: u8,
-    width: u8,
-    depth: u8,
-}
-
-impl BlockSize {
-    pub const HALF_BLOCK: Self = BlockSize {
-        height: 1,
-        width: 1,
-        depth: 1,
-    };
-    pub const FULL_BLOCK: Self = BlockSize {
-        height: 2,
-        width: 1,
-        depth: 1,
-    };
 }
 
 #[derive(Component, Debug, PartialEq, Eq, Clone, Default)]
@@ -543,7 +483,6 @@ fn on_place_block(
     mut cmd: Commands,
     mut coord_map: ResMut<CoordsMap>,
     belts_q: Query<&ItemLanes, With<Belt>>,
-    recipes: Res<Recipes>,
 ) {
     let rt = event.block.raycast_target();
     let is_full = rt.half_extents.y > 0.25;

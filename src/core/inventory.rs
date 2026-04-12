@@ -20,6 +20,7 @@ impl Inventory {
         }
     }
 
+    #[expect(unused)]
     pub fn take_slot(&mut self, slot: u16) -> Option<Stack> {
         match self.0.get_mut(slot as usize) {
             Some(entry) => entry.take(),

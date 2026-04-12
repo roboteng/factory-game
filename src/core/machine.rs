@@ -180,11 +180,7 @@ impl Furnace {
         } else {
             // Selected on specific item(s); accept only those that aren't full (< 2x needed)
             Filter::from_iter(selected.into_iter().filter_map(|(item, count, needed)| {
-                if count < needed * 2 {
-                    Some(item)
-                } else {
-                    None
-                }
+                if count < needed * 2 { Some(item) } else { None }
             }))
         }
     }
@@ -267,22 +263,6 @@ impl Filter {
 
     pub fn none() -> Self {
         Self(HashSet::new())
-    }
-
-    pub fn for_method(method: ProcessingMethod, recipes: &[Recipe]) -> Self {
-        let mut items: Vec<Item> = recipes
-            .iter()
-            .flat_map(|r| match (r, method) {
-                (Recipe::FurnaceRecipe(fr), ProcessingMethod::Furnace) => vec![fr.input.item],
-                (Recipe::AssemblerRecipe(ar), ProcessingMethod::Assembler) => {
-                    ar.input.iter().map(|s| s.item).collect()
-                }
-                _ => vec![],
-            })
-            .collect();
-        items.sort();
-        items.dedup();
-        Self(HashSet::from_iter(items))
     }
 }
 
