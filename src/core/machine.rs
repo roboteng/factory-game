@@ -154,6 +154,40 @@ impl Furnace {
             }
         }
     }
+
+    pub fn allowed_items(&self, input: &InputBuffer, recipes: &[FurnaceRecipe]) -> Filter {
+        // Find recipe inputs currently in the buffer (auto-selected)
+        let selected: Vec<(Item, u16, u16)> = recipes
+            .iter()
+            .filter_map(|r| {
+                let buffer_count = input
+                    .slots
+                    .iter()
+                    .find(|s| s.item == r.input.item)
+                    .map(|s| s.count)
+                    .unwrap_or(0);
+                if buffer_count > 0 {
+                    Some((r.input.item, buffer_count, r.input.count))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        if selected.is_empty() {
+            // Nothing selected yet — accept any recipe input
+            Filter::from_iter(recipes.iter().map(|r| r.input.item))
+        } else {
+            // Selected on specific item(s); accept only those that aren't full (< 2x needed)
+            Filter::from_iter(selected.into_iter().filter_map(|(item, count, needed)| {
+                if count < needed * 2 {
+                    Some(item)
+                } else {
+                    None
+                }
+            }))
+        }
+    }
 }
 
 #[derive(Component, Default)]
@@ -196,9 +230,28 @@ impl Assembler {
         }
     }
 
-    pub fn allowed_items(&self) -> Filter {
+    pub fn allowed_items(&self, input: &InputBuffer) -> Filter {
         match &self.configured_recipe {
-            Some(r) => Filter::from_iter(r.input.iter().map(|s| s.item)),
+            Some(r) => {
+                let items: Vec<Item> = r
+                    .input
+                    .iter()
+                    .filter_map(|stack| {
+                        let buffer_count = input
+                            .slots
+                            .iter()
+                            .find(|s| s.item == stack.item)
+                            .map(|s| s.count as u32)
+                            .unwrap_or(0);
+                        if buffer_count < stack.count as u32 * 2 {
+                            Some(stack.item)
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                Filter::from_iter(items)
+            }
             None => Filter::none(),
         }
     }
@@ -394,7 +447,7 @@ mod tests {
     #[test]
     fn filter_for_emtpy_assembler() {
         let a = Assembler::default();
-        let actual = a.allowed_items();
+        let actual = a.allowed_items(&InputBuffer::default());
         let expected = Filter::none();
         assert_eq!(actual, expected);
     }
@@ -409,8 +462,93 @@ mod tests {
         let mut a = Assembler::default();
         a.configured_recipe = Some(recipe.clone());
 
-        let actual = a.allowed_items();
+        let actual = a.allowed_items(&InputBuffer::default());
         let expected = Filter::from_iter([Item::Source]);
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn filter_for_configured_assembler_with_items() {
+        let recipe = AssemblerRecipe {
+            input: vec![Item::Source.into(), Item::IronOre.into()],
+            output: vec![Item::Sink.into()],
+            ticks: 2,
+        };
+        let mut a = Assembler::default();
+        a.configured_recipe = Some(recipe.clone());
+
+        let mut buffer = InputBuffer::default();
+        buffer.insert(&[Stack {
+            item: Item::Source,
+            count: 2,
+        }]);
+        let actual = a.allowed_items(&buffer);
+        let expected = Filter::from_iter([Item::IronOre]);
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn filter_all_inputs_fully_stocked() {
+        let recipe = AssemblerRecipe {
+            input: vec![Item::Source.into(), Item::IronOre.into()],
+            output: vec![Item::Sink.into()],
+            ticks: 1,
+        };
+        let mut a = Assembler::default();
+        a.configured_recipe = Some(recipe.clone());
+
+        let mut buffer = InputBuffer::default();
+        buffer.insert(&[
+            Stack {
+                item: Item::Source,
+                count: 2,
+            },
+            Stack {
+                item: Item::IronOre,
+                count: 2,
+            },
+        ]);
+        let actual = a.allowed_items(&buffer);
+        let expected = Filter::none();
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn filter_allow_items_for_two_crafts() {
+        let recipe = AssemblerRecipe {
+            input: vec![
+                Stack {
+                    item: Item::Source,
+                    count: 1,
+                },
+                Stack {
+                    item: Item::IronOre,
+                    count: 2,
+                },
+                Stack {
+                    item: Item::Belt,
+                    count: 3,
+                },
+            ],
+            output: vec![Item::Sink.into()],
+            ticks: 2,
+        };
+        let mut a = Assembler::default();
+        a.configured_recipe = Some(recipe.clone());
+
+        let mut buffer = InputBuffer::default();
+        buffer.insert(&[
+            Stack {
+                item: Item::Source,
+                count: 2,
+            },
+            Stack {
+                item: Item::IronOre,
+                count: 2,
+            },
+        ]);
+        let actual = a.allowed_items(&buffer);
+        let expected = Filter::from_iter([Item::IronOre, Item::Belt]);
         assert_eq!(actual, expected);
     }
 
@@ -498,5 +636,114 @@ mod tests {
             output.insert(&[recipe.output]);
             output
         });
+    }
+
+    #[test]
+    fn filter_for_emtpy_furnace_no_recipes() {
+        let a = Furnace::default();
+
+        let actual = a.allowed_items(&InputBuffer::default(), &[]);
+
+        let expected = Filter::none();
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn filter_for_emtpy_furnace_one_recipe() {
+        let a = Furnace::default();
+
+        let actual = a.allowed_items(
+            &InputBuffer::default(),
+            &[FurnaceRecipe {
+                input: Item::IronOre.into(),
+                output: Item::IronIngot.into(),
+                ticks: 1,
+            }],
+        );
+
+        let expected = Filter::from_iter([Item::IronOre]);
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn filter_for_emtpy_furnace_two_recipe() {
+        let a = Furnace::default();
+
+        let actual = a.allowed_items(
+            &InputBuffer::default(),
+            &[
+                FurnaceRecipe {
+                    input: Item::IronOre.into(),
+                    output: Item::IronIngot.into(),
+                    ticks: 1,
+                },
+                FurnaceRecipe {
+                    input: Item::Source.into(),
+                    output: Item::Sink.into(),
+                    ticks: 1,
+                },
+            ],
+        );
+
+        let expected = Filter::from_iter([Item::IronOre, Item::Source]);
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn filter_for_emtpy_furnace_two_recipe_partial() {
+        let a = Furnace::default();
+
+        let mut input = InputBuffer::default();
+        input.insert(&[Stack {
+            item: Item::Source,
+            count: 1,
+        }]);
+        let actual = a.allowed_items(
+            &input,
+            &[
+                FurnaceRecipe {
+                    input: Item::IronOre.into(),
+                    output: Item::IronIngot.into(),
+                    ticks: 1,
+                },
+                FurnaceRecipe {
+                    input: Item::Source.into(),
+                    output: Item::Sink.into(),
+                    ticks: 1,
+                },
+            ],
+        );
+
+        let expected = Filter::from_iter([Item::Source]);
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn filter_for_emtpy_furnace_two_recipe_meets_minimum() {
+        let a = Furnace::default();
+
+        let mut input = InputBuffer::default();
+        input.insert(&[Stack {
+            item: Item::Source,
+            count: 2,
+        }]);
+        let actual = a.allowed_items(
+            &input,
+            &[
+                FurnaceRecipe {
+                    input: Item::IronOre.into(),
+                    output: Item::IronIngot.into(),
+                    ticks: 1,
+                },
+                FurnaceRecipe {
+                    input: Item::Source.into(),
+                    output: Item::Sink.into(),
+                    ticks: 1,
+                },
+            ],
+        );
+
+        let expected = Filter::from_iter([]);
+        assert_eq!(actual, expected);
     }
 }
