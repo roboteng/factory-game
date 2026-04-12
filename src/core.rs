@@ -37,7 +37,6 @@ pub const ITEM_SIZE: f32 = 1.0 / (ITEMS_PER_BELT as f32);
 pub const MINER_TICKS_PER_EXTRACT: u32 = 60;
 pub const COLLECTOR_MOVE_TICKS: u32 = 60;
 pub const ITEM_SPACING: i32 = POSITIONS_PER_BELT / ITEMS_PER_BELT;
-pub const BASE_ITEM_MOVEMENT: f32 = BASE_BELT_SPEED as f32 / POSITIONS_PER_BELT as f32;
 pub const POSITIONS_PER_INNER_CURVE: i32 =
     ((0.5 - LANE_OFFSET) * POSITIONS_PER_BELT as f32 * PI / 2.0).round() as i32;
 pub const POSITIONS_PER_OUTER_CURVE: i32 =
@@ -795,10 +794,10 @@ fn on_load_machine_input(
     mut inventories: Query<&mut Inventory>,
     mut machine_q: Query<(&mut InputBuffer, Option<&Filter>)>,
 ) {
-    let Ok(mut inv) = inventories.get_mut(player.0) else {
+    let Ok(_inv) = inventories.get_mut(player.0) else {
         return;
     };
-    let Ok((mut input_buf, filter)) = machine_q.get_mut(event.machine) else {
+    let Ok((_input_buf, _filter)) = machine_q.get_mut(event.machine) else {
         return;
     };
     todo!()
@@ -822,7 +821,7 @@ fn on_unload_machine_output(
     }
 }
 
-fn on_set_assembler_recipe(event: On<SetAssemblerRecipe>, mut assemblers: Query<(&mut Assembler)>) {
+fn on_set_assembler_recipe(event: On<SetAssemblerRecipe>, mut assemblers: Query<&mut Assembler>) {
     let Ok(mut assembler) = assemblers.get_mut(event.assembler) else {
         return;
     };

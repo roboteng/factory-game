@@ -136,10 +136,7 @@ impl Furnace {
                     };
                 }
             }
-            MachineStatus::Processing {
-                recipe,
-                elapsed_ticks,
-            } => {
+            MachineStatus::Processing { elapsed_ticks, .. } => {
                 *elapsed_ticks += 1;
             }
         }
@@ -180,10 +177,7 @@ impl Assembler {
                     }
                 }
             }
-            MachineStatus::Processing {
-                recipe,
-                elapsed_ticks,
-            } => {
+            MachineStatus::Processing { elapsed_ticks, .. } => {
                 *elapsed_ticks += 1;
             }
         }
