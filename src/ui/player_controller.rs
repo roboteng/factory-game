@@ -22,9 +22,8 @@ impl Plugin for PlayerControllerPlugin {
 
         app.add_systems(Update, add_block_colliders);
 
-        // Systems that trigger events must run in PreUpdate
         app.add_systems(
-            PreUpdate,
+            FixedUpdate,
             player_movement.run_if(|fly: Res<FlyMode>| !fly.0),
         );
         app.add_systems(PreUpdate, fly_movement.run_if(|fly: Res<FlyMode>| fly.0));
@@ -84,6 +83,10 @@ struct PlayerBody {
     speed: f32,
     jump_impulse: f32,
     jump_cooldown: f32,
+    /// Seconds remaining in which the player can still jump after walking off a ledge.
+    coyote_timer: f32,
+    /// Seconds remaining on a buffered jump input (pressed slightly before landing).
+    jump_buffer: f32,
 }
 
 #[derive(Component)]
@@ -118,22 +121,22 @@ fn setup(
             ambient,
         ));
     } else {
-        // Physics mode: capsule body with camera as child at eye height.
-        // Capsule: radius 0.3, cylinder height 1.2 → total height 1.8.
+        // Physics mode: kinematic body with camera as child at eye height.
+        // Cylinder: radius 0.3, height 1.8. Flat bottom/top for stable edge contact.
+        // CustomPositionIntegration: we own all position updates via MoveAndSlide.
         let body = cmd
             .spawn((
                 PlayerBody {
                     speed: 5.0,
                     jump_impulse: 8.0,
                     jump_cooldown: 0.0,
+                    coyote_timer: 0.0,
+                    jump_buffer: 0.0,
                 },
-                RigidBody::Dynamic,
-                Collider::capsule(0.3, 1.2),
+                RigidBody::Kinematic,
+                CustomPositionIntegration,
+                Collider::cylinder(0.3, 1.8),
                 LockedAxes::ROTATION_LOCKED,
-                LinearDamping(0.0),
-                Friction::ZERO,
-                Restitution::ZERO,
-                GravityScale(2.5),
                 Transform::from_xyz(1.5, 2.0, 1.5),
                 Visibility::Inherited,
                 // Ground sensor: small sphere cast downward from inside the bottom of the capsule.
@@ -325,8 +328,16 @@ fn player_movement(
     time: Res<Time>,
     keys: Res<ButtonInput<KeyCode>>,
     camera_q: Query<&FirstPersonCamera>,
-    mut body_q: Query<(&mut PlayerBody, &mut LinearVelocity, &ShapeHits)>,
+    mut body_q: Query<(
+        Entity,
+        &mut PlayerBody,
+        &mut LinearVelocity,
+        &ShapeHits,
+        &Collider,
+        &mut Transform,
+    )>,
     mode: Res<InteractionMode>,
+    move_and_slide: MoveAndSlide,
 ) {
     if matches!(*mode, InteractionMode::InScreen(_)) {
         return;
@@ -334,13 +345,35 @@ fn player_movement(
     let Ok(camera) = camera_q.single() else {
         return;
     };
-    let Ok((mut body, mut vel, hits)) = body_q.single_mut() else {
+    let Ok((entity, mut body, mut vel, hits, collider, mut transform)) = body_q.single_mut() else {
         return;
     };
 
-    body.jump_cooldown = (body.jump_cooldown - time.delta_secs()).max(0.0);
+    let dt = time.delta_secs();
+
+    body.jump_cooldown = (body.jump_cooldown - dt).max(0.0);
+    body.jump_buffer = (body.jump_buffer - dt).max(0.0);
+
     let grounded = hits.iter().next().is_some();
 
+    // Coyote time: reset while grounded, count down while airborne.
+    if grounded {
+        body.coyote_timer = 0.15;
+    } else {
+        body.coyote_timer = (body.coyote_timer - dt).max(0.0);
+    }
+
+    // Buffer a jump input so it executes on the next landing if pressed slightly early.
+    if keys.just_pressed(KeyCode::Space) {
+        body.jump_buffer = 0.15;
+    }
+
+    // Apply gravity manually (kinematic bodies receive no automatic gravity).
+    const GRAVITY: f32 = 9.81 * 2.5; // matches the old GravityScale(2.5)
+    const TERMINAL_VELOCITY: f32 = -50.0;
+    vel.y = (vel.y - GRAVITY * dt).max(TERMINAL_VELOCITY);
+
+    // Horizontal velocity from WASD input.
     let forward = Vec3::new(-camera.yaw.sin(), 0.0, -camera.yaw.cos());
     let right = Vec3::new(camera.yaw.cos(), 0.0, -camera.yaw.sin());
 
@@ -357,22 +390,39 @@ fn player_movement(
     if keys.pressed(KeyCode::KeyD) {
         dir += right;
     }
-
     if dir.length_squared() > 0.0 {
         dir = dir.normalize();
     }
 
-    // Set horizontal velocity directly for responsive movement.
     vel.x = dir.x * body.speed;
     vel.z = dir.z * body.speed;
 
-    let can_interact_with_ground = grounded && body.jump_cooldown <= 0.0;
-    if can_interact_with_ground && keys.just_pressed(KeyCode::Space) {
+    // Jump.
+    let can_jump = body.coyote_timer > 0.0 && body.jump_cooldown <= 0.0;
+    if can_jump && body.jump_buffer > 0.0 {
         vel.y = body.jump_impulse;
         body.jump_cooldown = 0.25;
-    } else if can_interact_with_ground {
-        vel.y = vel.y.min(0.0);
+        body.coyote_timer = 0.0;
+        body.jump_buffer = 0.0;
     }
+
+    // Move and slide: sweeps the shape, resolves contacts, and projects velocity along surfaces.
+    // This replaces the dynamic rigid body's constraint solver for player movement.
+    let output = move_and_slide.move_and_slide(
+        collider,
+        transform.translation,
+        transform.rotation,
+        vel.0,
+        time.delta(),
+        &MoveAndSlideConfig::default(),
+        &SpatialQueryFilter::from_excluded_entities([entity]),
+        |_| MoveAndSlideHitResponse::Accept,
+    );
+
+    transform.translation = output.position;
+    // Preserve the projected vertical velocity (floor/ceiling contacts zero it naturally).
+    // Horizontal velocity is always fresh from input, so projected_velocity.x/z are ignored.
+    vel.y = output.projected_velocity.y;
 }
 
 /// Free-fly (noclip) movement: WASD moves horizontally, Space/Shift moves vertically.
