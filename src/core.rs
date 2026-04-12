@@ -82,8 +82,7 @@ impl Plugin for CorePlugin {
                 fill_sources,
                 fill_miners,
                 push_to_belt,
-                pull_from_belt,
-                tick_collectors,
+                (recalculate_filters, pull_from_belt, tick_collectors).chain(),
                 process_furnace,
                 process_assembler,
                 consume_sink_buffer,
@@ -619,7 +618,7 @@ fn on_place_block(
             cmd.entity(event.entity).insert((
                 Furnace::default(),
                 InputBuffer::default(),
-                Filter::for_method(ProcessingMethod::Furnace, &recipes.0),
+                Filter::none(),
                 OutputBuffer::default(),
                 OutputsToBelt {
                     at: event.coords.step(event.dir),
@@ -631,6 +630,7 @@ fn on_place_block(
             cmd.entity(event.entity).insert((
                 Assembler::default(),
                 InputBuffer::default(),
+                Filter::none(),
                 OutputBuffer::default(),
                 OutputsToBelt {
                     at: event.coords.step(event.dir),
@@ -1272,6 +1272,32 @@ fn tick_collectors(
         if let Some(state) = new_state {
             collector.state = state;
         }
+    }
+}
+
+fn recalculate_filters(
+    mut furnaces: Query<(&Furnace, &InputBuffer, &mut Filter), Without<Assembler>>,
+    mut assemblers: Query<(&Assembler, &InputBuffer, &mut Filter), Without<Furnace>>,
+    recipes: Res<Recipes>,
+) {
+    let furnace_recipes: Vec<machine::FurnaceRecipe> = recipes
+        .0
+        .iter()
+        .filter_map(|r| {
+            if let Recipe::FurnaceRecipe(fr) = r {
+                Some(*fr)
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    for (furnace, input, mut filter) in &mut furnaces {
+        *filter = furnace.allowed_items(input, &furnace_recipes);
+    }
+
+    for (assembler, input, mut filter) in &mut assemblers {
+        *filter = assembler.allowed_items(input);
     }
 }
 
