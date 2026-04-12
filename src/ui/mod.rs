@@ -10,6 +10,7 @@ mod hotbar;
 mod inventory;
 mod menu;
 mod player_controller;
+mod source;
 mod visuals;
 
 use assembler::{
@@ -25,6 +26,7 @@ use furnace::{
 use hotbar::PlacementItem;
 use inventory::{setup_inventory_pane, update_inventory_pane, CloseInventoryButton};
 use menu::{setup_menu_pane, update_menu_pane, ResumeButton};
+use source::{handle_source_item_button, setup_source_pane, update_source_pane, CloseSourceButton};
 
 pub struct UiPlugin;
 impl Plugin for UiPlugin {
@@ -65,6 +67,13 @@ impl Plugin for UiPlugin {
         app.add_systems(Update, handle_clear_assembler_recipe);
         app.add_systems(Update, handle_assembler_inventory_slot_clicks);
         app.add_systems(Update, handle_assembler_output_slot_clicks);
+        app.add_systems(Startup, setup_source_pane);
+        app.add_systems(
+            Update,
+            update_source_pane.after(player_controller::cursor_grab),
+        );
+        app.add_systems(Update, handle_close_button::<CloseSourceButton>);
+        app.add_systems(Update, handle_source_item_button);
         app.add_systems(Update, update_inventory_slots);
     }
 }
@@ -84,6 +93,7 @@ pub(super) enum ScreenMode {
     Menu,
     Furnace(Entity),
     Assembler(Entity),
+    Source(Entity),
 }
 
 #[derive(Resource, PartialEq, Eq)]

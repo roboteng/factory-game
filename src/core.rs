@@ -65,6 +65,7 @@ impl Plugin for CorePlugin {
         app.add_observer(on_load_machine_input);
         app.add_observer(on_unload_machine_output);
         app.add_observer(on_set_assembler_recipe);
+        app.add_observer(on_set_source_item);
 
         let mut inv = Inventory::new();
         inv.insert(Stack::new(Item::Belt, 15)).unwrap();
@@ -154,6 +155,13 @@ pub struct UnloadMachineOutput {
     pub output_slot: usize,
 }
 
+/// Player selected an item for a source to produce. `None` clears the selection.
+#[derive(Event, Debug, Clone)]
+pub struct SetSourceItem {
+    pub source: Entity,
+    pub item: Option<Item>,
+}
+
 /// Player set or cleared an assembler's recipe. `None` clears the recipe.
 #[derive(Event, Debug, Clone)]
 pub struct SetAssemblerRecipe {
@@ -164,8 +172,10 @@ pub struct SetAssemblerRecipe {
 #[derive(Component)]
 pub struct Belt;
 
-#[derive(Debug, Component)]
-pub struct Source;
+#[derive(Debug, Component, Default)]
+pub struct Source {
+    pub configured_item: Option<Item>,
+}
 
 #[derive(Component)]
 pub struct Miner {
@@ -589,7 +599,7 @@ fn on_place_block(
         }
         WorldBlock::Source => {
             cmd.entity(event.entity).insert((
-                Source,
+                Source::default(),
                 OutputBuffer::default(),
                 OutputsToBelt {
                     at: event.coords.step(event.dir),
@@ -1054,10 +1064,19 @@ fn set_item_transforms(
     }
 }
 
-fn fill_sources(mut sources: Query<&mut OutputBuffer, With<Source>>) {
-    for mut buffer in &mut sources {
-        buffer.insert(&[Item::Belt.into()]);
+fn fill_sources(mut sources: Query<(&Source, &mut OutputBuffer)>) {
+    for (source, mut buffer) in &mut sources {
+        if let Some(item) = source.configured_item {
+            buffer.insert(&[item.into()]);
+        }
     }
+}
+
+fn on_set_source_item(event: On<SetSourceItem>, mut sources: Query<&mut Source>) {
+    let Ok(mut source) = sources.get_mut(event.source) else {
+        return;
+    };
+    source.configured_item = event.item;
 }
 
 fn fill_miners(

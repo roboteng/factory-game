@@ -1,7 +1,7 @@
-use crate::FlyMode;
 use crate::core::{inventory::Inventory, *};
 use crate::ui::hotbar::{Hotbar, PlacementItem};
 use crate::ui::{InteractionMode, ScreenMode, WorldMode};
+use crate::FlyMode;
 
 use avian3d::prelude::*;
 use bevy::{
@@ -33,6 +33,7 @@ impl Plugin for PlayerControllerPlugin {
                 handle_mode_inputs,
                 handle_right_click_block_ui::<Furnace>.after(handle_mode_inputs),
                 handle_right_click_block_ui::<Assembler>.after(handle_mode_inputs),
+                handle_right_click_block_ui::<Source>.after(handle_mode_inputs),
                 update_delete_preview.after(handle_mode_inputs),
                 handle_change_incline.after(handle_mode_inputs),
                 handle_click_to_place.after(handle_mode_inputs),
@@ -59,6 +60,12 @@ impl BlockUIScreen for Assembler {
 impl BlockUIScreen for Furnace {
     fn screen(entity: Entity) -> ScreenMode {
         ScreenMode::Furnace(entity)
+    }
+}
+
+impl BlockUIScreen for Source {
+    fn screen(entity: Entity) -> ScreenMode {
+        ScreenMode::Source(entity)
     }
 }
 
