@@ -34,15 +34,18 @@ fn main() {
     ));
 
     #[cfg(feature = "ui")]
-    app.add_plugins(ui::UiPlugin);
-
-    #[cfg(feature = "ui")]
-    app.add_systems(Update, screenshot_on_f10);
+    {
+        app.add_plugins(ui::UiPlugin);
+        app.add_systems(Update, screenshot_on_f10);
+        app.add_systems(Startup, spawn_terrain);
+        #[cfg(feature = "dev")]
+        {
+            // app.add_systems(Startup, max_framerate);
+            app.add_plugins(bevy::dev_tools::fps_overlay::FpsOverlayPlugin::default());
+        }
+    }
 
     app.add_systems(Startup, setup);
-
-    #[cfg(all(feature = "ui", feature = "dev"))]
-    app.add_systems(Startup, max_framerate);
 
     app.run();
 }
@@ -73,20 +76,9 @@ fn screenshot_on_f10(
     }
 }
 
-fn setup(mut cmd: Commands, flat_mode: Res<FlatMode>) {
-    #[cfg(feature = "ui")]
-    cmd.spawn((
-        DirectionalLight {
-            illuminance: 10000.0,
-            shadows_enabled: true,
-            ..Default::default()
-        },
-        Transform::from_xyz(3.0, 10.0, 5.0).looking_at(Vec3::ZERO, Vec3::Z),
-    ));
-
+#[cfg(feature = "ui")]
+fn spawn_terrain(mut cmd: Commands, flat_mode: Res<FlatMode>) {
     let o = WorldCoords::ORIGIN;
-
-    #[cfg(feature = "ui")]
     if flat_mode.0 {
         use rand::Rng;
         let mut rng = rand::thread_rng();
@@ -154,6 +146,11 @@ fn setup(mut cmd: Commands, flat_mode: Res<FlatMode>) {
             }
         }
     }
+}
+
+fn setup(mut cmd: Commands) {
+    let o = WorldCoords::ORIGIN;
+
     let entity = cmd.spawn_empty().id();
     cmd.trigger(PlaceBlock {
         entity,

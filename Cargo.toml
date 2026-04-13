@@ -6,11 +6,10 @@ resolver = "2"
 
 [features]
 default = ["invariant-check", "ui"]
-ui = ["bevy/3d","bevy/bevy_color", "dep:rand", "dep:noise"]
+ui = ["bevy/3d","bevy/bevy_color", "dep:rand", "dep:noise", "bevy/debug"]
 invariant-check = []
 proptests = ["dep:proptest", "dep:rand"]
-dev = ["bevy/bevy_dev_tools"]
-debug = ["bevy/debug"]
+dev = ["bevy/bevy_dev_tools", "bevy/trace_chrome"]
 
 [dependencies]
 avian3d = "0.6.1"
