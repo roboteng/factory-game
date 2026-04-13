@@ -6,7 +6,7 @@ impl Plugin for VisualsPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(ClearColor(Color::srgb(0.01, 0.01, 0.05))); // Dark night sky
         app.add_systems(Startup, setup_models);
-        app.add_systems(Update, attach_models);
+        app.add_systems(Update, (attach_models, attach_corn_models));
         app.add_systems(Update, tint_ore_meshes);
         app.add_observer(on_place_item);
     }
@@ -43,6 +43,10 @@ struct BlockModels {
     furnace: ModelDef,
     assembler: ModelDef,
     collector: ModelDef,
+    corn_stage_a: ModelDef,
+    corn_stage_b: ModelDef,
+    corn_stage_c: ModelDef,
+    corn_stage_d: ModelDef,
 }
 
 #[derive(Resource)]
@@ -60,6 +64,9 @@ struct ItemModels {
     furnace: ItemModelDef,
     assembler: ItemModelDef,
     collector: ItemModelDef,
+    corn_kernels: ItemModelDef,
+    corn_stalk: ItemModelDef,
+    biomass: ItemModelDef,
 }
 
 fn setup_models(mut cmd: Commands, asset_server: Res<AssetServer>) {
@@ -140,6 +147,18 @@ fn setup_models(mut cmd: Commands, asset_server: Res<AssetServer>) {
         collector: ModelDef::Scene(
             asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Collector.glb")),
         ),
+        corn_stage_a: ModelDef::Scene(asset_server.load(
+            GltfAssetLabel::Scene(0).from_asset("models/kenney_nature_kit/crops_cornStageA.glb"),
+        )),
+        corn_stage_b: ModelDef::Scene(asset_server.load(
+            GltfAssetLabel::Scene(0).from_asset("models/kenney_nature_kit/crops_cornStageB.glb"),
+        )),
+        corn_stage_c: ModelDef::Scene(asset_server.load(
+            GltfAssetLabel::Scene(0).from_asset("models/kenney_nature_kit/crops_cornStageC.glb"),
+        )),
+        corn_stage_d: ModelDef::Scene(asset_server.load(
+            GltfAssetLabel::Scene(0).from_asset("models/kenney_nature_kit/crops_cornStageD.glb"),
+        )),
     });
 
     let belt_straight = asset_server.load(GltfAssetLabel::Scene(2).from_asset("models/belt.glb"));
@@ -160,6 +179,9 @@ fn setup_models(mut cmd: Commands, asset_server: Res<AssetServer>) {
             asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Collector.glb")),
             1.0,
         ),
+        corn_kernels: ItemModelDef::Color(Color::srgb(0.95, 0.85, 0.2), 1.0),
+        corn_stalk: ItemModelDef::Color(Color::srgb(0.3, 0.7, 0.2), 1.0),
+        biomass: ItemModelDef::Color(Color::srgb(0.3, 0.5, 0.15), 1.0),
     });
 }
 
@@ -226,6 +248,7 @@ fn attach_models(
 ) {
     for (entity, block, shape) in &world_blocks {
         let model = match block {
+            WorldBlock::Corn => continue, // handled by attach_corn_models
             WorldBlock::Source => &all_models.source,
             WorldBlock::Sink => &all_models.sink,
             WorldBlock::Rock => &all_models.rock,
@@ -274,6 +297,9 @@ fn on_place_item(
         Item::Furnace => &item_models.furnace,
         Item::Assembler => &item_models.assembler,
         Item::Collector => &item_models.collector,
+        Item::CornKernels => &item_models.corn_kernels,
+        Item::CornStalk => &item_models.corn_stalk,
+        Item::Biomass => &item_models.biomass,
     };
 
     let visual = match model {
@@ -298,4 +324,20 @@ fn on_place_item(
     cmd.entity(event.entity)
         .insert(Visibility::Inherited)
         .add_child(visual);
+}
+
+fn attach_corn_models(
+    corns: Query<(Entity, &Corn), Changed<Corn>>,
+    all_models: Res<BlockModels>,
+    mut cmd: Commands,
+) {
+    for (entity, corn) in &corns {
+        let model = match corn.visual_stage() {
+            0 => &all_models.corn_stage_a,
+            1 => &all_models.corn_stage_b,
+            2 => &all_models.corn_stage_c,
+            _ => &all_models.corn_stage_d,
+        };
+        apply_model(entity, cmd.reborrow(), model);
+    }
 }

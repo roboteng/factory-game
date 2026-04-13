@@ -70,6 +70,7 @@ impl Plugin for CorePlugin {
         let mut inv = Inventory::new();
         inv.insert(Stack::new(Item::Belt, 15)).unwrap();
         inv.insert(Stack::new(Item::IronOre, 5)).unwrap();
+        inv.insert(Stack::new(Item::CornKernels, 10)).unwrap();
         let player = app.world_mut().spawn(inv).id();
         app.insert_resource(Player(player));
 
@@ -88,6 +89,7 @@ impl Plugin for CorePlugin {
                 process_assembler,
                 consume_sink_buffer,
                 side_loading,
+                grow_corn,
             ),
         );
 
@@ -346,6 +348,9 @@ pub enum Item {
     Furnace,
     Assembler,
     Collector,
+    CornKernels,
+    CornStalk,
+    Biomass,
 }
 
 impl Item {
@@ -364,6 +369,9 @@ impl Item {
             Item::Furnace => "Furnace",
             Item::Assembler => "Assembler",
             Item::Collector => "Collector",
+            Item::CornKernels => "Corn Kernels",
+            Item::CornStalk => "Corn Stalk",
+            Item::Biomass => "Biomass",
         }
     }
 
@@ -383,7 +391,9 @@ impl Item {
             Item::Furnace => Some(WorldBlock::Furnace),
             Item::Assembler => Some(WorldBlock::Assembler),
             Item::Collector => Some(WorldBlock::Collector),
+            Item::CornKernels => Some(WorldBlock::Corn),
             Item::IronOre | Item::CopperOre | Item::IronIngot | Item::CopperIngot => None,
+            Item::CornStalk | Item::Biomass => None,
         }
     }
 }
@@ -403,6 +413,7 @@ pub enum WorldBlock {
     Furnace,
     Assembler,
     Collector,
+    Corn,
 }
 
 impl WorldBlock {
@@ -420,6 +431,7 @@ impl WorldBlock {
             WorldBlock::Furnace => "Furnace",
             WorldBlock::Assembler => "Assembler",
             WorldBlock::Collector => "Collector",
+            WorldBlock::Corn => "Corn",
         }
     }
 
@@ -445,6 +457,7 @@ impl WorldBlock {
             WorldBlock::Assembler => Some(Item::Assembler),
             WorldBlock::Collector => Some(Item::Collector),
             WorldBlock::IronOreDeposit | WorldBlock::CopperOreDeposit => None,
+            WorldBlock::Corn => Some(Item::CornKernels),
         }
     }
 
@@ -452,6 +465,26 @@ impl WorldBlock {
         match self {
             WorldBlock::Belt => RaycastTarget::HALF_BLOCK,
             _ => RaycastTarget::FULL_BLOCK,
+        }
+    }
+}
+
+pub const CORN_TICKS_PER_STAGE: u32 = 120;
+
+/// State of a planted corn block. `Growing` tracks total age in ticks across all stages;
+/// stages A/B/C are each `CORN_TICKS_PER_STAGE` ticks wide. `FullyGrown` is stage D.
+#[derive(Component, Debug)]
+pub enum Corn {
+    Growing { age: u32 },
+    FullyGrown,
+}
+
+impl Corn {
+    /// Returns 0..=3 mapping to stages A–D, for model selection.
+    pub fn visual_stage(&self) -> u8 {
+        match self {
+            Corn::FullyGrown => 3,
+            Corn::Growing { age } => (*age / CORN_TICKS_PER_STAGE).min(2) as u8,
         }
     }
 }
@@ -594,6 +627,10 @@ fn on_place_block(
                 },
                 rt,
             ));
+        }
+        WorldBlock::Corn => {
+            cmd.entity(event.entity)
+                .insert((Corn::Growing { age: 0 }, rt));
         }
         WorldBlock::Rock
         | WorldBlock::Dirt
@@ -1016,6 +1053,33 @@ fn on_set_source_item(event: On<SetSourceItem>, mut sources: Query<&mut Source>)
         return;
     };
     source.configured_item = event.item;
+}
+
+fn grow_corn(mut corns: Query<&mut Corn>) {
+    for mut corn in &mut corns {
+        let age = match corn.bypass_change_detection() {
+            Corn::Growing { age } => *age,
+            Corn::FullyGrown => continue,
+        };
+
+        let new_age = age + 1;
+        if new_age >= CORN_TICKS_PER_STAGE * 3 {
+            // Transition to fully grown — triggers Changed<Corn> for visual update
+            *corn = Corn::FullyGrown;
+        } else if new_age % CORN_TICKS_PER_STAGE == 0 {
+            // Stage boundary crossed — trigger Changed<Corn> for visual update
+            match &mut *corn {
+                Corn::Growing { age } => *age = new_age,
+                Corn::FullyGrown => {}
+            }
+        } else {
+            // Mid-stage tick — silent update, no visual change needed
+            match corn.bypass_change_detection() {
+                Corn::Growing { age } => *age = new_age,
+                Corn::FullyGrown => {}
+            }
+        }
+    }
 }
 
 fn fill_miners(
