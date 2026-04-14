@@ -1,4 +1,7 @@
-use crate::core::{inventory::Inventory, *};
+use crate::core::{
+    inventory::{Inventory, Stack},
+    *,
+};
 use crate::ui::hotbar::{Hotbar, PlacementItem};
 use crate::ui::{InteractionMode, ScreenMode, WorldMode};
 use crate::FlyMode;
@@ -656,10 +659,6 @@ fn handle_click_to_place(
     let InteractionMode::InWorld(WorldMode::Placing(tool)) = *mode else {
         return;
     };
-    let Ok(_) = invs.get_mut(player.0) else {
-        error!("Could not find the player");
-        return;
-    };
     let item = match tool {
         PlacementItem::HotbarSlot(slot) => match hotbar.0.get(slot as usize) {
             Some(Some(item)) => *item,
@@ -670,6 +669,17 @@ fn handle_click_to_place(
     let Some(block) = item.can_place() else {
         return;
     };
+
+    // Check that the player has this item in inventory.
+    {
+        let Ok(inv) = invs.get(player.0) else {
+            error!("Could not find the player");
+            return;
+        };
+        if inv.item_count(item) == 0 {
+            return;
+        }
+    }
 
     // Only handle clicks when cursor is grabbed (in game mode)
     if !mouse.just_pressed(MouseButton::Left) || cursor_options.grab_mode != CursorGrabMode::Locked
@@ -692,6 +702,13 @@ fn handle_click_to_place(
     ) else {
         return;
     };
+
+    // Consume one item from the player's inventory.
+    let Ok(mut inv) = invs.get_mut(player.0) else {
+        return;
+    };
+    inv.take_items(Stack::from(item));
+    drop(inv);
 
     let dir = placement_dir.0;
 

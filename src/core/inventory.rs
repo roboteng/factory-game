@@ -1,10 +1,8 @@
-use std::num::NonZeroU16;
-
 use bevy::prelude::*;
 
 use crate::core::Item;
 
-#[derive(Component)]
+#[derive(Component, Debug, PartialEq)]
 pub struct Inventory(Vec<Option<Stack>>);
 
 impl Inventory {
@@ -20,7 +18,6 @@ impl Inventory {
         }
     }
 
-    #[expect(unused)]
     pub fn take_slot(&mut self, slot: u16) -> Option<Stack> {
         match self.0.get_mut(slot as usize) {
             Some(entry) => entry.take(),
@@ -66,10 +63,28 @@ impl Inventory {
             .sum()
     }
 
-    /// Returns the number of items acutally taken from the inventory
-    #[expect(unused)]
-    pub fn take_n_items(&mut self, n: NonZeroU16, item: Item) -> u16 {
-        todo!()
+    /// Returns the number of items actually taken from the inventory
+    pub fn take_items(&mut self, item: Stack) -> u16 {
+        let mut remaining = item.count;
+        for slot in self.0.iter_mut() {
+            if remaining == 0 {
+                break;
+            }
+            if let Some(s) = slot {
+                if s.item == item.item {
+                    let take = remaining.min(s.count);
+                    s.count -= take;
+                    remaining -= take;
+                    if s.count == 0 {
+                        *slot = None;
+                    }
+                }
+            }
+        }
+        while matches!(self.0.last(), Some(None)) {
+            self.0.pop();
+        }
+        item.count - remaining
     }
 }
 
@@ -186,5 +201,56 @@ mod tests {
         };
         inv.insert(stack).unwrap();
         assert_eq!(inv.get(1), Some(stack));
+    }
+
+    #[test]
+    fn take_items_from_empty() {
+        let mut inv = Inventory::new();
+        let actual = inv.take_items(Stack {
+            item: Item::Belt,
+            count: 1,
+        });
+        assert_eq!(inv, Inventory::new());
+        assert_eq!(actual, 0);
+    }
+
+    #[test]
+    fn take_items_all() {
+        let mut inv = Inventory::new();
+        inv.insert(Stack {
+            item: Item::Belt,
+            count: 1,
+        })
+        .unwrap();
+        let actual = inv.take_items(Stack {
+            item: Item::Belt,
+            count: 1,
+        });
+        assert_eq!(inv, Inventory::new());
+        assert_eq!(actual, 1);
+    }
+
+    #[test]
+    fn take_items_partial() {
+        let mut inv = Inventory::new();
+        inv.insert(Stack {
+            item: Item::Belt,
+            count: 2,
+        })
+        .unwrap();
+        let actual = inv.take_items(Stack {
+            item: Item::Belt,
+            count: 1,
+        });
+        assert_eq!(inv, {
+            let mut inv = Inventory::new();
+            inv.insert(Stack {
+                item: Item::Belt,
+                count: 1,
+            })
+            .unwrap();
+            inv
+        });
+        assert_eq!(actual, 1);
     }
 }

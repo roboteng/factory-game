@@ -673,7 +673,10 @@ fn on_remove_block(
     outputs_to_belts: Query<Option<&OutputsToBelt>>,
     coords_q: Query<&WorldCoords>,
     lanes_q: Query<&ItemLanes>,
+    blocks_q: Query<&WorldBlock>,
     mut coord_map: ResMut<CoordsMap>,
+    mut invs: Query<&mut Inventory>,
+    player: Res<Player>,
     mut cmd: Commands,
 ) {
     debug!("Removing {:?}", event.entity);
@@ -695,6 +698,13 @@ fn on_remove_block(
         for (_, item) in lanes.0.left.iter().chain(lanes.0.right.iter()) {
             cmd.entity(*item).despawn();
         }
+    }
+    // Return the block's item to the player's inventory.
+    if let Ok(block) = blocks_q.get(event.entity)
+        && let Some(item) = block.break_drop()
+        && let Ok(mut inv) = invs.get_mut(player.0)
+    {
+        inv.insert(Stack::from(item)).unwrap();
     }
     cmd.entity(event.entity).despawn();
 }
