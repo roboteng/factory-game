@@ -114,8 +114,10 @@ pub struct AssemblerRecipe {
     pub ticks: u32,
 }
 
-#[derive(Component, Default)]
+#[derive(Component, Default, Reflect)]
+#[reflect(Component)]
 pub struct Furnace {
+    #[reflect(ignore)]
     pub status: MachineStatus<FurnaceRecipe>,
 }
 
@@ -180,15 +182,32 @@ impl Furnace {
         } else {
             // Selected on specific item(s); accept only those that aren't full (< 2x needed)
             Filter::from_iter(selected.into_iter().filter_map(|(item, count, needed)| {
-                if count < needed * 2 { Some(item) } else { None }
+                if count < needed * 2 {
+                    Some(item)
+                } else {
+                    None
+                }
             }))
         }
     }
 }
 
-#[derive(Component, Default)]
+impl WorldDrop for Furnace {
+    fn drop_items(&self) -> Vec<Stack> {
+        let mut drops = vec![Stack::from(Item::Furnace)];
+        if let MachineStatus::Processing { recipe, .. } = &self.status {
+            drops.push(recipe.input);
+        }
+        drops
+    }
+}
+
+#[derive(Component, Default, Reflect)]
+#[reflect(Component)]
 pub struct Assembler {
+    #[reflect(ignore)]
     pub status: MachineStatus<AssemblerRecipe>,
+    #[reflect(ignore)]
     pub configured_recipe: Option<AssemblerRecipe>,
 }
 
@@ -250,6 +269,16 @@ impl Assembler {
             }
             None => Filter::none(),
         }
+    }
+}
+
+impl WorldDrop for Assembler {
+    fn drop_items(&self) -> Vec<Stack> {
+        let mut drops = vec![Stack::from(Item::Assembler)];
+        if let MachineStatus::Processing { recipe, .. } = &self.status {
+            drops.extend(recipe.input.iter().cloned());
+        }
+        drops
     }
 }
 

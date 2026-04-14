@@ -57,7 +57,11 @@ impl Plugin for CorePlugin {
         app.add_plugins(crate::core::invariants::InvariantsPlugin);
 
         app.register_type::<Corn>()
-            .register_type_data::<Corn, ReflectWorldDrop>();
+            .register_type_data::<Corn, ReflectWorldDrop>()
+            .register_type::<Furnace>()
+            .register_type_data::<Furnace, ReflectWorldDrop>()
+            .register_type::<Assembler>()
+            .register_type_data::<Assembler, ReflectWorldDrop>();
 
         app.init_resource::<CoordsMap>();
         app.insert_resource(Recipes::new());
@@ -73,8 +77,16 @@ impl Plugin for CorePlugin {
 
         let mut inv = Inventory::new();
         inv.insert(Stack::new(Item::Belt, 15)).unwrap();
-        inv.insert(Stack::new(Item::IronOre, 5)).unwrap();
+        inv.insert(Stack::new(Item::Source, 5)).unwrap();
+        inv.insert(Stack::new(Item::Sink, 5)).unwrap();
+        inv.insert(Stack::new(Item::Rock, 5)).unwrap();
+        inv.insert(Stack::new(Item::Dirt, 5)).unwrap();
+        inv.insert(Stack::new(Item::Furnace, 5)).unwrap();
+        inv.insert(Stack::new(Item::Assembler, 5)).unwrap();
+        inv.insert(Stack::new(Item::Miner, 5)).unwrap();
+        inv.insert(Stack::new(Item::Collector, 5)).unwrap();
         inv.insert(Stack::new(Item::CornKernels, 10)).unwrap();
+        inv.insert(Stack::new(Item::IronOre, 5)).unwrap();
         let player = app.world_mut().spawn(inv).id();
         app.insert_resource(Player(player));
 
@@ -457,8 +469,8 @@ impl WorldBlock {
             WorldBlock::Rock => BreakDrop::Item(Item::Rock),
             WorldBlock::Dirt => BreakDrop::Item(Item::Dirt),
             WorldBlock::Miner => BreakDrop::Item(Item::Miner),
-            WorldBlock::Furnace => BreakDrop::Item(Item::Furnace),
-            WorldBlock::Assembler => BreakDrop::Item(Item::Assembler),
+            WorldBlock::Furnace => BreakDrop::Custom(TypeId::of::<Furnace>()),
+            WorldBlock::Assembler => BreakDrop::Custom(TypeId::of::<Assembler>()),
             WorldBlock::Collector => BreakDrop::Item(Item::Collector),
             WorldBlock::IronOreDeposit | WorldBlock::CopperOreDeposit => BreakDrop::None,
             WorldBlock::Corn => BreakDrop::Custom(TypeId::of::<Corn>()),
@@ -713,6 +725,7 @@ fn on_remove_block(
     type_registry: Res<AppTypeRegistry>,
     // EntityRef reads all components, so it conflicts with &mut Inventory — use ParamSet.
     mut params: ParamSet<(Query<EntityRef>, Query<&mut Inventory>)>,
+    buf_q: Query<(Option<&InputBuffer>, Option<&OutputBuffer>)>,
     mut cmd: Commands,
 ) {
     debug!("Removing {:?}", event.entity);
@@ -737,7 +750,7 @@ fn on_remove_block(
     }
     // Return the block's drops to the player's inventory.
     if let Ok(block) = blocks_q.get(event.entity) {
-        let stacks: Vec<Stack> = match block.break_drop() {
+        let mut stacks: Vec<Stack> = match block.break_drop() {
             BreakDrop::None => return,
             BreakDrop::Item(item) => vec![Stack::from(item)],
             BreakDrop::Custom(type_id) => {
@@ -756,6 +769,15 @@ fn on_remove_block(
                     .unwrap()
             }
         };
+        // Drain input/output buffers — general mechanism for all machines.
+        if let Ok((input_buf, output_buf)) = buf_q.get(event.entity) {
+            if let Some(buf) = input_buf {
+                stacks.extend(buf.slots.iter().cloned());
+            }
+            if let Some(buf) = output_buf {
+                stacks.extend(buf.slots.iter().cloned());
+            }
+        }
         if let Ok(mut inv) = params.p1().get_mut(player.0) {
             for stack in stacks {
                 inv.insert(stack).unwrap();
@@ -846,13 +868,16 @@ fn on_load_machine_input(
     mut inventories: Query<&mut Inventory>,
     mut machine_q: Query<(&mut InputBuffer, Option<&Filter>)>,
 ) {
-    let Ok(_inv) = inventories.get_mut(player.0) else {
+    let Ok(mut inv) = inventories.get_mut(player.0) else {
         return;
     };
-    let Ok((_input_buf, _filter)) = machine_q.get_mut(event.machine) else {
+    let Ok((mut input_buf, filter)) = machine_q.get_mut(event.machine) else {
         return;
     };
-    todo!()
+    let Some(stack) = inv.take_slot(event.player_inventory_slot) else {
+        return;
+    };
+    input_buf.insert(&[stack]);
 }
 
 fn on_unload_machine_output(
@@ -1680,6 +1705,8 @@ pub trait AppExtension {
     fn has_placement_errors(&self) -> bool;
     #[allow(unused)]
     fn take_placement_errors(&mut self) -> Vec<ItemPlacementError>;
+    /// Returns the player entity set up by CorePlugin.
+    fn spawn_player(&self) -> Entity;
 }
 
 #[cfg(test)]
@@ -1787,6 +1814,10 @@ impl AppExtension for App {
             })
             .collect();
         Layout { belts }
+    }
+
+    fn spawn_player(&self) -> Entity {
+        self.world().resource::<Player>().0
     }
 }
 
@@ -2158,5 +2189,46 @@ mod tests {
 
         let (c, _) = app.find_belt(ramp).unwrap();
         assert_eq!(c, BeltShape::RampUp(HDir::North));
+    }
+
+    #[test]
+    fn load_machine_input_moves_ore_to_furnace_input_buffer() {
+        let mut app = test_app();
+
+        let player = app.spawn_player();
+        let furnace = app.add_world_block(WorldCoords::ORIGIN, WorldBlock::Furnace);
+        app.update(); // flush deferred commands so InputBuffer is attached
+
+        // Give the player 2 iron ore and find which slot they land in.
+        {
+            let mut inv = app.world_mut().get_mut::<Inventory>(player).unwrap();
+            inv.insert(Stack::new(Item::IronOre, 2)).unwrap();
+        }
+        let ore_slot = {
+            let inv = app.world().get::<Inventory>(player).unwrap();
+            (0u16..64)
+                .find(|&s| {
+                    inv.get(s)
+                        .map(|st| st.item == Item::IronOre)
+                        .unwrap_or(false)
+                })
+                .expect("player should have iron ore")
+        };
+
+        app.world_mut().trigger(LoadMachineInput {
+            player_inventory_slot: ore_slot,
+            machine: furnace,
+        });
+        app.update();
+
+        let input_buf = app.world().get::<InputBuffer>(furnace).unwrap();
+        assert!(
+            input_buf
+                .slots
+                .iter()
+                .any(|s| s.item == Item::IronOre && s.count >= 1),
+            "expected at least 1 iron ore in furnace input buffer, got: {:?}",
+            input_buf.slots,
+        );
     }
 }
