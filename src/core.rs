@@ -2,8 +2,9 @@ use crate::core::{
     inventory::{Inventory, Stack},
     machine::FurnaceRecipe,
 };
-use bevy::{math::ops::sin_cos, prelude::*};
+use bevy::{math::ops::sin_cos, prelude::*, reflect::reflect_trait};
 use derivative::Derivative;
+use std::any::TypeId;
 use std::collections::HashMap;
 use std::f32::consts::PI;
 
@@ -54,6 +55,9 @@ impl Plugin for CorePlugin {
     fn build(&self, app: &mut App) {
         #[cfg(feature = "invariant-check")]
         app.add_plugins(crate::core::invariants::InvariantsPlugin);
+
+        app.register_type::<Corn>()
+            .register_type_data::<Corn, ReflectWorldDrop>();
 
         app.init_resource::<CoordsMap>();
         app.insert_resource(Recipes::new());
@@ -444,20 +448,20 @@ impl WorldBlock {
         }
     }
 
-    /// Item dropped when a player breaks this block. `None` means this block cannot be broken.
-    pub fn break_drop(self) -> Option<Item> {
+    /// What is dropped when a player breaks this block.
+    pub fn break_drop(self) -> BreakDrop {
         match self {
-            WorldBlock::Belt => Some(Item::Belt),
-            WorldBlock::Source => Some(Item::Source),
-            WorldBlock::Sink => Some(Item::Sink),
-            WorldBlock::Rock => Some(Item::Rock),
-            WorldBlock::Dirt => Some(Item::Dirt),
-            WorldBlock::Miner => Some(Item::Miner),
-            WorldBlock::Furnace => Some(Item::Furnace),
-            WorldBlock::Assembler => Some(Item::Assembler),
-            WorldBlock::Collector => Some(Item::Collector),
-            WorldBlock::IronOreDeposit | WorldBlock::CopperOreDeposit => None,
-            WorldBlock::Corn => Some(Item::CornKernels),
+            WorldBlock::Belt => BreakDrop::Item(Item::Belt),
+            WorldBlock::Source => BreakDrop::Item(Item::Source),
+            WorldBlock::Sink => BreakDrop::Item(Item::Sink),
+            WorldBlock::Rock => BreakDrop::Item(Item::Rock),
+            WorldBlock::Dirt => BreakDrop::Item(Item::Dirt),
+            WorldBlock::Miner => BreakDrop::Item(Item::Miner),
+            WorldBlock::Furnace => BreakDrop::Item(Item::Furnace),
+            WorldBlock::Assembler => BreakDrop::Item(Item::Assembler),
+            WorldBlock::Collector => BreakDrop::Item(Item::Collector),
+            WorldBlock::IronOreDeposit | WorldBlock::CopperOreDeposit => BreakDrop::None,
+            WorldBlock::Corn => BreakDrop::Custom(TypeId::of::<Corn>()),
         }
     }
 
@@ -469,14 +473,44 @@ impl WorldBlock {
     }
 }
 
+/// What is dropped when a player breaks a block.
+pub enum BreakDrop {
+    /// Block cannot be broken or drops nothing.
+    None,
+    /// Drops a single static item.
+    Item(Item),
+    /// Drops are determined by the `WorldDrop` reflect-trait implemented on the component
+    /// identified by the given `TypeId`. That component must be registered with both
+    /// `ReflectComponent` and `ReflectWorldDrop`.
+    Custom(TypeId),
+}
+
+/// Reflect-trait for components that produce variable item drops when their block is broken.
+/// Implement this on the stateful component (e.g. `Corn`) and register via
+/// `app.register_type_data::<T, ReflectWorldDrop>()`.
+#[reflect_trait]
+pub trait WorldDrop {
+    fn drop_items(&self) -> Vec<Stack>;
+}
+
 pub const CORN_TICKS_PER_STAGE: u32 = 120;
 
 /// State of a planted corn block. `Growing` tracks total age in ticks across all stages;
 /// stages A/B/C are each `CORN_TICKS_PER_STAGE` ticks wide. `FullyGrown` is stage D.
-#[derive(Component, Debug)]
+#[derive(Component, Debug, Reflect)]
+#[reflect(Component)]
 pub enum Corn {
     Growing { age: u32 },
     FullyGrown,
+}
+
+impl WorldDrop for Corn {
+    fn drop_items(&self) -> Vec<Stack> {
+        match self {
+            Corn::FullyGrown => vec![Stack::new(Item::CornStalk, 1), Stack::new(Item::Biomass, 1)],
+            Corn::Growing { .. } => vec![Stack::new(Item::CornKernels, 1)],
+        }
+    }
 }
 
 impl Corn {
@@ -675,8 +709,10 @@ fn on_remove_block(
     lanes_q: Query<&ItemLanes>,
     blocks_q: Query<&WorldBlock>,
     mut coord_map: ResMut<CoordsMap>,
-    mut invs: Query<&mut Inventory>,
     player: Res<Player>,
+    type_registry: Res<AppTypeRegistry>,
+    // EntityRef reads all components, so it conflicts with &mut Inventory — use ParamSet.
+    mut params: ParamSet<(Query<EntityRef>, Query<&mut Inventory>)>,
     mut cmd: Commands,
 ) {
     debug!("Removing {:?}", event.entity);
@@ -699,12 +735,32 @@ fn on_remove_block(
             cmd.entity(*item).despawn();
         }
     }
-    // Return the block's item to the player's inventory.
-    if let Ok(block) = blocks_q.get(event.entity)
-        && let Some(item) = block.break_drop()
-        && let Ok(mut inv) = invs.get_mut(player.0)
-    {
-        inv.insert(Stack::from(item)).unwrap();
+    // Return the block's drops to the player's inventory.
+    if let Ok(block) = blocks_q.get(event.entity) {
+        let stacks: Vec<Stack> = match block.break_drop() {
+            BreakDrop::None => return,
+            BreakDrop::Item(item) => vec![Stack::from(item)],
+            BreakDrop::Custom(type_id) => {
+                let registry = type_registry.read();
+                let entities = params.p0();
+                let entity_ref = entities.get(event.entity).unwrap();
+                registry
+                    .get_type_data::<ReflectComponent>(type_id)
+                    .and_then(|rc| rc.reflect(entity_ref))
+                    .and_then(|reflect_val| {
+                        registry
+                            .get_type_data::<ReflectWorldDrop>(type_id)
+                            .and_then(|rwd| rwd.get(reflect_val))
+                            .map(|world_drop| world_drop.drop_items())
+                    })
+                    .unwrap()
+            }
+        };
+        if let Ok(mut inv) = params.p1().get_mut(player.0) {
+            for stack in stacks {
+                inv.insert(stack).unwrap();
+            }
+        }
     }
     cmd.entity(event.entity).despawn();
 }
