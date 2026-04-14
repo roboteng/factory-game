@@ -2197,16 +2197,14 @@ mod tests {
 
         let player = app.spawn_player();
         let furnace = app.add_world_block(WorldCoords::ORIGIN, WorldBlock::Furnace);
-        app.update(); // flush deferred commands so InputBuffer is attached
+        app.update();
 
         // Give the player 2 iron ore and find which slot they land in.
-        {
+        let ore_slot = {
             let mut inv = app.world_mut().get_mut::<Inventory>(player).unwrap();
             inv.insert(Stack::new(Item::IronOre, 2)).unwrap();
-        }
-        let ore_slot = {
-            let inv = app.world().get::<Inventory>(player).unwrap();
-            (0u16..64)
+
+            (0..64)
                 .find(|&s| {
                     inv.get(s)
                         .map(|st| st.item == Item::IronOre)
