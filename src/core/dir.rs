@@ -5,7 +5,7 @@ use std::f32::consts::PI;
 /// A block aligned position in the world.
 /// Y represents height. Each y level is half block, so moving up by one block, is moving up by 2 y.
 ///
-/// The mappings between x-z and the cardnial directions are intentionall kept private.
+/// The mappings between x-z and the cardnial directions are intentionally kept private.
 /// This remove much of the burden of the rest of the codebase to know the mapping.
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct WorldCoords {
@@ -86,11 +86,9 @@ impl WorldCoords {
     }
 
     pub fn horizontal_neighbors(self) -> impl Iterator<Item = Self> {
-        let vec = (-1..=1i32)
-            .flat_map(|dx| (-1..=1i32).map(move |dz| self + WorldCoordsDelta::new(dx, 0, dz)))
-            .filter(|d| *d != self)
-            .collect::<Vec<_>>();
-        vec.into_iter()
+        (-1..=1i32)
+            .flat_map(move |dx| (-1..=1i32).map(move |dz| self + WorldCoordsDelta::new(dx, 0, dz)))
+            .filter(move |d| *d != self)
     }
 
     pub fn step(&self, dir: impl Into<WorldCoordsDelta>) -> Self {

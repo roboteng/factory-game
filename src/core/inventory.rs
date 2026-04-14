@@ -25,7 +25,7 @@ impl Inventory {
         }
     }
 
-    /// Add items to the first availible slot
+    /// Add items to the first available slot
     pub fn insert(&mut self, stack: Stack) -> Result<(), InventoryAddError> {
         for slot in self.0.iter_mut() {
             match slot {
@@ -126,7 +126,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn inventory_is_emtpt() {
+    fn inventory_is_empty() {
         let inv = Inventory::new();
         assert_eq!(inv.get(0), None);
     }

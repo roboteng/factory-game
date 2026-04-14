@@ -40,7 +40,7 @@ impl Buffer {
             {
                 self.slots[index].count += stack.count;
             } else {
-                self.slots.push(stack.clone());
+                self.slots.push(*stack);
             }
         }
     }
@@ -57,10 +57,9 @@ impl Buffer {
     pub fn remove(&mut self, items: &[Stack]) {
         assert!(self.contains(items));
         items.iter().for_each(|stack| {
-            self.slots
-                .iter_mut()
-                .find(|s| s.item == stack.item)
-                .map(|s| s.count -= stack.count);
+            if let Some(s) = self.slots.iter_mut().find(|s| s.item == stack.item) {
+                s.count -= stack.count;
+            }
         });
         self.clean();
     }
@@ -295,6 +294,12 @@ impl Filter {
     }
 }
 
+impl Default for Filter {
+    fn default() -> Self {
+        Self::none()
+    }
+}
+
 impl FromIterator<Item> for Filter {
     fn from_iter<T: IntoIterator<Item = Item>>(iter: T) -> Self {
         Self(HashSet::from_iter(iter))
@@ -454,7 +459,7 @@ mod tests {
     }
 
     #[test]
-    fn filter_for_emtpy_assembler() {
+    fn filter_for_empty_assembler() {
         let a = Assembler::default();
         let actual = a.allowed_items(&InputBuffer::default());
         let expected = Filter::none();
@@ -648,7 +653,7 @@ mod tests {
     }
 
     #[test]
-    fn filter_for_emtpy_furnace_no_recipes() {
+    fn filter_for_empty_furnace_no_recipes() {
         let a = Furnace::default();
 
         let actual = a.allowed_items(&InputBuffer::default(), &[]);
@@ -658,7 +663,7 @@ mod tests {
     }
 
     #[test]
-    fn filter_for_emtpy_furnace_one_recipe() {
+    fn filter_for_empty_furnace_one_recipe() {
         let a = Furnace::default();
 
         let actual = a.allowed_items(
@@ -675,7 +680,7 @@ mod tests {
     }
 
     #[test]
-    fn filter_for_emtpy_furnace_two_recipe() {
+    fn filter_for_empty_furnace_two_recipe() {
         let a = Furnace::default();
 
         let actual = a.allowed_items(
@@ -699,7 +704,7 @@ mod tests {
     }
 
     #[test]
-    fn filter_for_emtpy_furnace_two_recipe_partial() {
+    fn filter_for_empty_furnace_two_recipe_partial() {
         let a = Furnace::default();
 
         let mut input = InputBuffer::default();
@@ -728,7 +733,7 @@ mod tests {
     }
 
     #[test]
-    fn filter_for_emtpy_furnace_two_recipe_meets_minimum() {
+    fn filter_for_empty_furnace_two_recipe_meets_minimum() {
         let a = Furnace::default();
 
         let mut input = InputBuffer::default();
