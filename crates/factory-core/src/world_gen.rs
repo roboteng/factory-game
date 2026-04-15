@@ -58,7 +58,6 @@ pub struct FlatWorldPlugin;
 
 impl Plugin for FlatWorldPlugin {
     fn build(&self, app: &mut App) {
-        #[cfg(feature = "ui")]
         app.add_systems(Startup, (spawn_flat_terrain, spawn_flat_belts));
     }
 }
@@ -70,13 +69,10 @@ pub struct PerlinWorldPlugin;
 impl Plugin for PerlinWorldPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<WorldGenConfig>();
-
-        #[cfg(feature = "ui")]
         app.add_systems(Startup, spawn_perlin_terrain);
     }
 }
 
-#[cfg(feature = "ui")]
 fn spawn_flat_terrain(mut cmd: Commands) {
     use rand::Rng;
     let o = WorldCoords::ORIGIN;
@@ -117,7 +113,6 @@ fn spawn_flat_terrain(mut cmd: Commands) {
     }
 }
 
-#[cfg(feature = "ui")]
 fn spawn_flat_belts(mut cmd: Commands) {
     use crate::Dir;
     let o = WorldCoords::ORIGIN;
@@ -145,7 +140,6 @@ fn spawn_flat_belts(mut cmd: Commands) {
     });
 }
 
-#[cfg(feature = "ui")]
 fn spawn_perlin_terrain(mut cmd: Commands, config: Res<WorldGenConfig>) {
     use noise::{NoiseFn, Perlin};
     let o = WorldCoords::ORIGIN;

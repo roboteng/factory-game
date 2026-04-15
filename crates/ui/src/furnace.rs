@@ -1,11 +1,11 @@
 use bevy::prelude::*;
 
-use crate::{
+use factory_core::{
     Furnace, InputBuffer, LoadMachineInput, MachineStatus, OutputBuffer, UnloadMachineOutput,
 };
 
 use super::common::{
-    InventorySlot, pane_node, section_label, spawn_screen_layout, spawn_slot, stack_label,
+    pane_node, section_label, spawn_screen_layout, spawn_slot, stack_label, InventorySlot,
 };
 use super::{InteractionMode, ScreenMode};
 

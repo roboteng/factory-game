@@ -1,4 +1,4 @@
-use crate::{Player, inventory::Inventory};
+use factory_core::{Player, inventory::Inventory};
 
 use bevy::prelude::*;
 
@@ -82,7 +82,7 @@ impl Plugin for UiPlugin {
 pub struct FlyMode(pub bool);
 
 #[derive(Default, PartialEq, Eq)]
-pub(super) enum WorldMode {
+pub(crate) enum WorldMode {
     #[default]
     None,
     Placing(PlacementItem),
@@ -91,7 +91,7 @@ pub(super) enum WorldMode {
 }
 
 #[derive(PartialEq, Eq)]
-pub(super) enum ScreenMode {
+pub(crate) enum ScreenMode {
     Inventory,
     Menu,
     Furnace(Entity),
@@ -100,7 +100,7 @@ pub(super) enum ScreenMode {
 }
 
 #[derive(Resource, PartialEq, Eq)]
-pub(super) enum InteractionMode {
+pub(crate) enum InteractionMode {
     InWorld(WorldMode),
     InScreen(ScreenMode),
 }

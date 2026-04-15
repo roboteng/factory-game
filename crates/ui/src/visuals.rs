@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 
-use crate::{BeltShape, Corn, ITEM_SIZE, Item, PlaceItem, WorldBlock};
+use factory_core::{BeltShape, Corn, Item, PlaceItem, WorldBlock, ITEM_SIZE};
 
 pub(super) struct VisualsPlugin;
 impl Plugin for VisualsPlugin {

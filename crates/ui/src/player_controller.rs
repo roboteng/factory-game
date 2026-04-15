@@ -1,6 +1,6 @@
-use crate::ui::hotbar::{Hotbar, PlacementItem};
-use crate::ui::{FlyMode, InteractionMode, ScreenMode, WorldMode};
-use crate::{
+use crate::hotbar::{Hotbar, PlacementItem};
+use crate::{FlyMode, InteractionMode, ScreenMode, WorldMode};
+use factory_core::{
     inventory::{Inventory, Stack},
     *,
 };

@@ -1,5 +1,5 @@
-use crate::inventory::Stack;
 use bevy::prelude::*;
+use factory_core::inventory::Stack;
 
 // ── Theme ─────────────────────────────────────────────────────────────────────
 

@@ -1,0 +1,15 @@
+[package]
+name = "factory-game"
+version = "0.3.0"
+edition = "2024"
+
+[features]
+default = ["invariant-check", "dev"]
+invariant-check = ["factory-core/invariant-check"]
+dev = ["bevy/bevy_dev_tools", "bevy/trace_chrome"]
+
+[dependencies]
+factory-core = {path = "../factory-core"}
+ui = {path = "../ui"}
+physics = {path = "../physics"}
+bevy = {workspace = true, features = ["bevy_log", "debug"]}
