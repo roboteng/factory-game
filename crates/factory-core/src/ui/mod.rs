@@ -1,4 +1,4 @@
-use crate::core::{inventory::Inventory, Player};
+use crate::{Player, inventory::Inventory};
 
 use bevy::prelude::*;
 
@@ -13,19 +13,19 @@ mod source;
 mod visuals;
 
 use assembler::{
-    handle_assembler_inventory_slot_clicks, handle_assembler_output_slot_clicks,
-    handle_assembler_recipe_button, handle_clear_assembler_recipe, setup_assembler_pane,
-    update_assembler_pane, CloseAssemblerButton,
+    CloseAssemblerButton, handle_assembler_inventory_slot_clicks,
+    handle_assembler_output_slot_clicks, handle_assembler_recipe_button,
+    handle_clear_assembler_recipe, setup_assembler_pane, update_assembler_pane,
 };
-use common::{stack_label, InventorySlot};
+use common::{InventorySlot, stack_label};
 use furnace::{
-    handle_furnace_inventory_slot_clicks, handle_furnace_output_slot_clicks, setup_furnace_pane,
-    update_furnace_pane, CloseFurnaceButton,
+    CloseFurnaceButton, handle_furnace_inventory_slot_clicks, handle_furnace_output_slot_clicks,
+    setup_furnace_pane, update_furnace_pane,
 };
 use hotbar::PlacementItem;
-use inventory::{setup_inventory_pane, update_inventory_pane, CloseInventoryButton};
-use menu::{setup_menu_pane, update_menu_pane, ResumeButton};
-use source::{handle_source_item_button, setup_source_pane, update_source_pane, CloseSourceButton};
+use inventory::{CloseInventoryButton, setup_inventory_pane, update_inventory_pane};
+use menu::{ResumeButton, setup_menu_pane, update_menu_pane};
+use source::{CloseSourceButton, handle_source_item_button, setup_source_pane, update_source_pane};
 
 pub struct UiPlugin;
 impl Plugin for UiPlugin {
@@ -75,6 +75,11 @@ impl Plugin for UiPlugin {
         app.add_systems(Update, update_inventory_slots);
     }
 }
+
+/// When present and `true`, the player uses a free-flying noclip camera
+/// instead of the physics-based controller. Set via the `--fly` CLI flag.
+#[derive(Resource)]
+pub struct FlyMode(pub bool);
 
 #[derive(Default, PartialEq, Eq)]
 pub(super) enum WorldMode {

@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 
-use crate::core::Item;
+use crate::Item;
 
 #[derive(Component, Debug, PartialEq)]
 pub struct Inventory(Vec<Option<Stack>>);

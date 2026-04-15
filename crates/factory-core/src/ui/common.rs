@@ -1,4 +1,4 @@
-use crate::core::inventory::Stack;
+use crate::inventory::Stack;
 use bevy::prelude::*;
 
 // ── Theme ─────────────────────────────────────────────────────────────────────

@@ -1,5 +1,4 @@
-use crate::core::proptest_actions::*;
-use crate::core::*;
+use crate::proptest_actions::*;
 use bevy::prelude::*;
 use proptest::prelude::*;
 use proptest::test_runner::Reason;

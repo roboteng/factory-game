@@ -1,7 +1,7 @@
 use avian3d::prelude::*;
 use bevy::prelude::*;
 
-use crate::core::RaycastTarget;
+use crate::RaycastTarget;
 
 pub struct PhysicsPlugin;
 impl Plugin for PhysicsPlugin {

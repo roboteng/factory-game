@@ -2493,12 +2493,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "factory-core"
+version = "0.1.0"
+dependencies = [
+ "avian3d",
+ "bevy",
+ "derivative",
+ "noise",
+ "pretty_assertions",
+ "proptest",
+ "rand 0.8.5",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "factory-game"
 version = "0.3.0"
 dependencies = [
  "avian3d",
  "bevy",
  "derivative",
+ "factory-core",
  "noise",
  "pretty_assertions",
  "proptest",

@@ -1,7 +1,8 @@
-use bevy::app::MainScheduleOrder;
-use bevy::ecs::schedule::{ExecutorKind, Schedule, ScheduleLabel};
-
-use crate::core::*;
+use bevy::{
+    app::MainScheduleOrder,
+    ecs::schedule::{ExecutorKind, ScheduleLabel},
+    prelude::*,
+};
 use std::panic::Location;
 
 #[derive(ScheduleLabel, Debug, Hash, PartialEq, Eq, Clone)]

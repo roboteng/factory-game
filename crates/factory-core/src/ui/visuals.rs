@@ -1,5 +1,6 @@
-use crate::core::*;
 use bevy::prelude::*;
+
+use crate::{BeltShape, Corn, ITEM_SIZE, Item, PlaceItem, WorldBlock};
 
 pub(super) struct VisualsPlugin;
 impl Plugin for VisualsPlugin {

@@ -1,10 +1,9 @@
-use crate::core::{
+use crate::ui::hotbar::{Hotbar, PlacementItem};
+use crate::ui::{FlyMode, InteractionMode, ScreenMode, WorldMode};
+use crate::{
     inventory::{Inventory, Stack},
     *,
 };
-use crate::ui::hotbar::{Hotbar, PlacementItem};
-use crate::ui::{InteractionMode, ScreenMode, WorldMode};
-use crate::FlyMode;
 
 use avian3d::prelude::*;
 use bevy::{

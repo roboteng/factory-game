@@ -1,15 +1,5 @@
-use crate::core::*;
-
 use bevy::prelude::*;
-
-mod core;
-#[cfg(feature = "ui")]
-mod ui;
-
-/// When present and `true`, the player uses a free-flying noclip camera
-/// instead of the physics-based controller. Set via the `--fly` CLI flag.
-#[derive(Resource)]
-pub struct FlyMode(pub bool);
+use factory_core::{CorePlugin, FlatWorldPlugin, PerlinWorldPlugin, ui::FlyMode, ui::UiPlugin};
 
 fn main() {
     let fly_mode = std::env::args().any(|a| a == "--fly");
@@ -18,7 +8,7 @@ fn main() {
     let mut app = App::new();
 
     app.insert_resource(FlyMode(fly_mode));
-    app.add_plugins((DefaultPlugins, core::CorePlugin));
+    app.add_plugins((DefaultPlugins, CorePlugin));
 
     if flat_mode {
         app.add_plugins(FlatWorldPlugin);
@@ -28,14 +18,16 @@ fn main() {
 
     #[cfg(feature = "dev")]
     app.add_plugins((
-        bevy::diagnostic::FrameTimeDiagnosticsPlugin::default(),
+        bevy::sdiagnostic::FrameTimeDiagnosticsPlugin::default(),
         bevy::diagnostic::SystemInformationDiagnosticsPlugin,
         bevy::diagnostic::LogDiagnosticsPlugin::default(),
     ));
 
     #[cfg(feature = "ui")]
     {
-        app.add_plugins((ui::UiPlugin, crate::core::physics::PhysicsPlugin));
+        use factory_core::physics::PhysicsPlugin;
+
+        app.add_plugins((UiPlugin, PhysicsPlugin));
         app.add_systems(Update, screenshot_on_f10);
         #[cfg(feature = "dev")]
         {

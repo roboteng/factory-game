@@ -1,8 +1,12 @@
+[workspace]
+members= [ "crates/*"]
+resolver = "3"
+
 [package]
 name = "factory-game"
 version = "0.3.0"
 edition = "2024"
-resolver = "2"
+default-run="factory-game"
 
 [features]
 default = ["invariant-check", "ui","bevy/debug"]
@@ -12,6 +16,7 @@ proptests = ["dep:proptest", "dep:rand"]
 dev = ["bevy/bevy_dev_tools", "bevy/trace_chrome"]
 
 [dependencies]
+factory-core={path="./crates/factory-core"}
 avian3d = "0.6.1"
 bevy = {version="0.18.0", default-features = false, features = ["bevy_log"]}
 derivative = "2.2.0"
