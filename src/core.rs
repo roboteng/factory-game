@@ -12,6 +12,9 @@ use std::f32::consts::PI;
 pub mod dir;
 pub mod inventory;
 pub mod machine;
+pub mod world_gen;
+
+pub use world_gen::{FlatWorldPlugin, PerlinWorldPlugin};
 
 #[cfg(feature = "invariant-check")]
 pub mod invariants;
