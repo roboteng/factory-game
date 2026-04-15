@@ -484,13 +484,18 @@ fn add_block_colliders(
 ) {
     for (entity, rt) in &blocks {
         let half = rt.half_extents;
-        cmd.entity(entity).insert(RigidBody::Static);
-        // The block's Transform is at its bottom corner, so we offset the
-        // collider child up by half_extents.y to centre it on the block.
-        cmd.spawn((
-            Collider::cuboid(half.x * 2.0, half.y * 2.0, half.z * 2.0),
-            Transform::from_xyz(0.0, half.y, 0.0),
-            ChildOf(entity),
+        // The block's Transform is at its bottom corner. Bake the Y offset
+        // directly into a compound collider on the block entity itself so no
+        // child entity is needed. This keeps all block colliders out of
+        // Bevy's transform hierarchy, avoiding per-frame propagation cost
+        // across thousands of static blocks.
+        cmd.entity(entity).insert((
+            RigidBody::Static,
+            Collider::compound(vec![(
+                Vec3::new(0.0, half.y, 0.0),
+                Quat::IDENTITY,
+                Collider::cuboid(half.x * 2.0, half.y * 2.0, half.z * 2.0),
+            )]),
         ));
     }
 }
