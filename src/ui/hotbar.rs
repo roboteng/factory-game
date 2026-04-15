@@ -43,8 +43,13 @@ struct HotbarSlot(u16);
 #[derive(Component)]
 struct HotbarSlotCount(u16);
 
+#[derive(Component)]
+struct HotbarSlotText(u16);
+
 const HOTBAR_SLOT_GAP: f32 = 8.0;
 const HOTBAR_BORDER_SELECTED: Color = Color::srgba(1.0, 0.8, 0.2, 1.0);
+const TEXT_COLOR_NORMAL: Color = Color::WHITE;
+const TEXT_COLOR_EMPTY: Color = Color::srgba(0.4, 0.4, 0.4, 1.0);
 
 fn setup_hotbar(mut cmd: Commands, inv: Res<Hotbar>) {
     cmd.spawn(Node {
@@ -87,13 +92,14 @@ fn spawn_hotbar_slot(parent: &mut ChildSpawnerCommands, index: usize, tool: Opti
                     font_size: 14.0,
                     ..default()
                 },
-                TextColor(Color::WHITE),
+                TextColor(TEXT_COLOR_NORMAL),
                 Node {
                     position_type: PositionType::Absolute,
                     top: Val::Px(2.0),
                     left: Val::Px(4.0),
                     ..default()
                 },
+                HotbarSlotText(index as u16),
             ));
 
             parent.spawn((
@@ -102,7 +108,8 @@ fn spawn_hotbar_slot(parent: &mut ChildSpawnerCommands, index: usize, tool: Opti
                     font_size: SLOT_FONT_SIZE,
                     ..default()
                 },
-                TextColor(Color::WHITE),
+                TextColor(TEXT_COLOR_NORMAL),
+                HotbarSlotText(index as u16),
             ));
 
             parent.spawn((
@@ -111,7 +118,7 @@ fn spawn_hotbar_slot(parent: &mut ChildSpawnerCommands, index: usize, tool: Opti
                     font_size: SLOT_FONT_SIZE,
                     ..default()
                 },
-                TextColor(Color::WHITE),
+                TextColor(TEXT_COLOR_NORMAL),
                 Node {
                     position_type: PositionType::Absolute,
                     bottom: Val::Px(2.0),
@@ -119,6 +126,7 @@ fn spawn_hotbar_slot(parent: &mut ChildSpawnerCommands, index: usize, tool: Opti
                     ..default()
                 },
                 HotbarSlotCount(index as u16),
+                HotbarSlotText(index as u16),
             ));
         });
 }
@@ -181,6 +189,7 @@ fn update_hotbar_counts(
     hotbar: Res<Hotbar>,
     invs: Query<&Inventory>,
     mut counts: Query<(&HotbarSlotCount, &mut Text)>,
+    mut texts: Query<(&HotbarSlotText, &mut TextColor)>,
 ) {
     let Ok(inv) = invs.get(player.0) else { return };
     for (slot, mut text) in counts.iter_mut() {
@@ -188,5 +197,16 @@ fn update_hotbar_counts(
             let count = inv.item_count(*item);
             text.0 = count.to_string();
         }
+    }
+    for (slot, mut color) in texts.iter_mut() {
+        let out_of_stock = hotbar
+            .0
+            .get(slot.0 as usize)
+            .is_some_and(|s| s.is_some_and(|item| inv.item_count(item) == 0));
+        *color = TextColor(if out_of_stock {
+            TEXT_COLOR_EMPTY
+        } else {
+            TEXT_COLOR_NORMAL
+        });
     }
 }
