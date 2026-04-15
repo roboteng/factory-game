@@ -35,7 +35,7 @@ fn main() {
 
     #[cfg(feature = "ui")]
     {
-        app.add_plugins(ui::UiPlugin);
+        app.add_plugins((ui::UiPlugin, crate::core::physics::PhysicsPlugin));
         app.add_systems(Update, screenshot_on_f10);
         #[cfg(feature = "dev")]
         {
