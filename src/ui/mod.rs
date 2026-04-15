@@ -1,6 +1,5 @@
-use crate::core::{Player, inventory::Inventory};
+use crate::core::{inventory::Inventory, Player};
 
-use avian3d::prelude::*;
 use bevy::prelude::*;
 
 mod assembler;
@@ -14,24 +13,23 @@ mod source;
 mod visuals;
 
 use assembler::{
-    CloseAssemblerButton, handle_assembler_inventory_slot_clicks,
-    handle_assembler_output_slot_clicks, handle_assembler_recipe_button,
-    handle_clear_assembler_recipe, setup_assembler_pane, update_assembler_pane,
+    handle_assembler_inventory_slot_clicks, handle_assembler_output_slot_clicks,
+    handle_assembler_recipe_button, handle_clear_assembler_recipe, setup_assembler_pane,
+    update_assembler_pane, CloseAssemblerButton,
 };
-use common::{InventorySlot, stack_label};
+use common::{stack_label, InventorySlot};
 use furnace::{
-    CloseFurnaceButton, handle_furnace_inventory_slot_clicks, handle_furnace_output_slot_clicks,
-    setup_furnace_pane, update_furnace_pane,
+    handle_furnace_inventory_slot_clicks, handle_furnace_output_slot_clicks, setup_furnace_pane,
+    update_furnace_pane, CloseFurnaceButton,
 };
 use hotbar::PlacementItem;
-use inventory::{CloseInventoryButton, setup_inventory_pane, update_inventory_pane};
-use menu::{ResumeButton, setup_menu_pane, update_menu_pane};
-use source::{CloseSourceButton, handle_source_item_button, setup_source_pane, update_source_pane};
+use inventory::{setup_inventory_pane, update_inventory_pane, CloseInventoryButton};
+use menu::{setup_menu_pane, update_menu_pane, ResumeButton};
+use source::{handle_source_item_button, setup_source_pane, update_source_pane, CloseSourceButton};
 
 pub struct UiPlugin;
 impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(PhysicsPlugins::default());
         app.add_plugins(hotbar::HotbarPlugin);
         app.add_plugins(player_controller::PlayerControllerPlugin);
         app.add_plugins(visuals::VisualsPlugin);
