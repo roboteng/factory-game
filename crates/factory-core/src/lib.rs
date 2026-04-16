@@ -21,11 +21,6 @@ pub use machine::*;
 
 use crate::inventory::{Inventory, Stack};
 
-#[cfg(all(test, feature = "proptests"))]
-mod proptest_actions;
-#[cfg(all(test, feature = "proptests"))]
-mod proptests;
-
 pub const ITEMS_PER_BELT: i32 = 4;
 pub const POSITIONS_PER_BELT: i32 = 256;
 pub const BASE_BELT_SPEED: i32 = 8;
