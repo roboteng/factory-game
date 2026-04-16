@@ -44,7 +44,6 @@ impl Plugin for PlayerControllerPlugin {
         );
 
         app.add_systems(Update, draw_crosshair_gizmo);
-        app.add_systems(Update, draw_placement_preview);
         app.add_systems(Update, camera_look);
         app.add_systems(Update, cursor_grab.after(handle_click_to_place));
     }
@@ -919,50 +918,6 @@ fn draw_crosshair_gizmo(
         Transform::from_translation(pos).with_scale(size),
         Color::srgba(1.0, 1.0, 1.0, 0.6),
     );
-}
-
-fn draw_placement_preview(
-    mut gizmos: Gizmos,
-    mode: Res<InteractionMode>,
-    placement_dir: Res<PlacementDirection>,
-    cursor_options: Single<&CursorOptions>,
-    camera_q: Single<(&Transform, &GlobalTransform), With<FirstPersonCamera>>,
-    targets: Query<(&WorldCoords, &Transform, &RaycastTarget)>,
-) {
-    if !matches!(*mode, InteractionMode::InWorld(WorldMode::Placing(_)))
-        || cursor_options.grab_mode != CursorGrabMode::Locked
-    {
-        return;
-    }
-
-    let (cam_local, cam_global) = camera_q.into_inner();
-    let origin = cam_global.translation();
-    let ray_dir = *cam_local.forward();
-
-    let Some(hit) = cast_ray(
-        origin,
-        ray_dir,
-        targets.iter().map(|(c, t, rt)| RayTarget {
-            coords: *c,
-            center: t.translation,
-            half_extents: rt.half_extents,
-        }),
-    ) else {
-        return;
-    };
-
-    let pos = Vec3::from(hit.place_coords) + Vec3::Y / 4.0;
-    let dir = placement_dir.0;
-    let angle = dir.angle();
-
-    // Arrow direction vector on XZ plane (North = +X)
-    let forward = Vec3::new(angle.sin(), 0.0, angle.cos());
-    let arrow_len = 0.8;
-    let start = pos - forward * arrow_len * 0.5;
-    let end = pos + forward * arrow_len * 0.5;
-
-    let color = Color::srgba(0.2, 0.8, 1.0, 0.9);
-    gizmos.arrow(start, end, color).with_tip_length(0.2);
 }
 
 fn manage_placement_ghost(

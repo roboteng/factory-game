@@ -323,6 +323,7 @@ fn tint_ghost_children(
             let mut new_mat = mat.clone();
             new_mat.base_color = *color;
             new_mat.alpha_mode = AlphaMode::Blend;
+            new_mat.depth_bias = 100.0;
             let new_handle = materials.add(new_mat);
             cmd.entity(desc).insert(MeshMaterial3d(new_handle));
             found_any = true;
