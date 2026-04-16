@@ -320,8 +320,12 @@ fn tint_ghost_children(
             let Some(mat) = materials.get(mat_handle.id()) else {
                 continue;
             };
+            let lin = LinearRgba::from(*color);
             let mut new_mat = mat.clone();
-            new_mat.base_color = *color;
+            // Keep base_color white so the texture (e.g. belt direction arrow) stays visible.
+            // Use emissive for the blue/red indication so it shows regardless of texture darkness.
+            new_mat.base_color = Color::srgba(1.0, 1.0, 1.0, lin.alpha);
+            new_mat.emissive = LinearRgba::new(lin.red * 0.7, lin.green * 0.7, lin.blue * 0.7, 1.0);
             new_mat.alpha_mode = AlphaMode::Blend;
             new_mat.depth_bias = 100.0;
             let new_handle = materials.add(new_mat);
