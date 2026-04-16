@@ -1,4 +1,5 @@
 use crate::hotbar::{Hotbar, PlacementItem};
+use crate::visuals::BlockModels;
 use crate::{FlyMode, InteractionMode, ScreenMode, WorldMode};
 use factory_core::{
     inventory::{Inventory, Stack},
@@ -17,6 +18,7 @@ pub(super) struct PlayerControllerPlugin;
 impl Plugin for PlayerControllerPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<PlacementDirection>();
+        app.init_resource::<PlacementGhost>();
         app.add_systems(Startup, setup);
         app.add_systems(Startup, setup_reticle);
         app.add_systems(Startup, setup_delete_preview);
@@ -37,6 +39,7 @@ impl Plugin for PlayerControllerPlugin {
                 update_delete_preview.after(handle_mode_inputs),
                 handle_change_incline.after(handle_mode_inputs),
                 handle_click_to_place.after(handle_mode_inputs),
+                manage_placement_ghost.after(handle_mode_inputs),
             ),
         );
 
@@ -83,6 +86,23 @@ struct DeletePreview;
 
 #[derive(Component)]
 struct InclinePreview;
+
+/// Marker for the ghost preview entity shown while in placing mode.
+#[derive(Component)]
+struct GhostPreview;
+
+/// Attached to a ghost entity to request semi-transparent tinting of its children.
+/// Removed once tinting is applied; re-added when the color needs to change.
+#[derive(Component)]
+pub(crate) struct NeedsGhostTint(pub(crate) Color);
+
+/// Tracks the currently spawned ghost entity.
+#[derive(Resource, Default)]
+struct PlacementGhost {
+    entity: Option<Entity>,
+    item: Option<Item>,
+    valid: Option<bool>,
+}
 
 /// The physics body for the player. The camera is a child entity.
 #[derive(Component)]
@@ -943,4 +963,141 @@ fn draw_placement_preview(
 
     let color = Color::srgba(0.2, 0.8, 1.0, 0.9);
     gizmos.arrow(start, end, color).with_tip_length(0.2);
+}
+
+fn manage_placement_ghost(
+    mode: Res<InteractionMode>,
+    cursor_options: Single<&CursorOptions>,
+    camera_q: Single<(&Transform, &GlobalTransform), With<FirstPersonCamera>>,
+    player: Res<Player>,
+    hotbar: Res<Hotbar>,
+    invs: Query<&Inventory>,
+    targets: Query<(&WorldCoords, &Transform, &RaycastTarget), Without<GhostPreview>>,
+    placement_dir: Res<PlacementDirection>,
+    block_models: Res<BlockModels>,
+    mut ghost: ResMut<PlacementGhost>,
+    mut cmd: Commands,
+    mut ghost_q: Query<
+        (&mut Transform, &mut Visibility),
+        (With<GhostPreview>, Without<FirstPersonCamera>),
+    >,
+) {
+    let placing = matches!(*mode, InteractionMode::InWorld(WorldMode::Placing(_)))
+        && cursor_options.grab_mode == CursorGrabMode::Locked;
+
+    if !placing {
+        if let Some(entity) = ghost.entity.take() {
+            cmd.entity(entity).despawn();
+            ghost.item = None;
+            ghost.valid = None;
+        }
+        return;
+    }
+
+    let InteractionMode::InWorld(WorldMode::Placing(tool)) = *mode else {
+        return;
+    };
+
+    let item = match tool {
+        PlacementItem::HotbarSlot(slot) => match hotbar.0.get(slot as usize) {
+            Some(Some(item)) => *item,
+            _ => {
+                if let Some(entity) = ghost.entity.take() {
+                    cmd.entity(entity).despawn();
+                    ghost.item = None;
+                    ghost.valid = None;
+                }
+                return;
+            }
+        },
+        PlacementItem::Custom(item) => item,
+    };
+
+    if item.can_place().is_none() {
+        if let Some(entity) = ghost.entity.take() {
+            cmd.entity(entity).despawn();
+            ghost.item = None;
+            ghost.valid = None;
+        }
+        return;
+    }
+
+    let valid = invs
+        .get(player.0)
+        .map(|inv| inv.item_count(item) > 0)
+        .unwrap_or(false);
+
+    let (cam_local, cam_global) = camera_q.into_inner();
+    let hit = cast_ray(
+        cam_global.translation(),
+        *cam_local.forward(),
+        targets.iter().map(|(c, t, rt)| RayTarget {
+            coords: *c,
+            center: t.translation,
+            half_extents: rt.half_extents,
+        }),
+    );
+
+    let block = item.can_place().unwrap(); // already checked above
+    let is_full = block.raycast_target().half_extents.y > 0.25;
+
+    let ghost_color = if valid {
+        Color::srgba(0.2, 0.5, 1.0, 0.5)
+    } else {
+        Color::srgba(1.0, 0.2, 0.2, 0.5)
+    };
+
+    // If the item changed, despawn the old ghost so a new model can be attached.
+    if ghost.item != Some(item) {
+        if let Some(entity) = ghost.entity.take() {
+            cmd.entity(entity).despawn();
+        }
+        ghost.item = None;
+        ghost.valid = None;
+    }
+
+    if let Some(entity) = ghost.entity {
+        // Update position/visibility of the existing ghost.
+        if let Ok((mut transform, mut vis)) = ghost_q.get_mut(entity) {
+            if let Some(ref h) = hit {
+                let coords = if is_full {
+                    h.place_coords.snap_height_even()
+                } else {
+                    h.place_coords
+                };
+                transform.translation = Vec3::from(coords);
+                transform.rotation = Quat::from_rotation_y(placement_dir.0.angle());
+                *vis = Visibility::Visible;
+            } else {
+                *vis = Visibility::Hidden;
+            }
+        }
+        // Re-tint when validity changes.
+        if ghost.valid != Some(valid) {
+            ghost.valid = Some(valid);
+            cmd.entity(entity).insert(NeedsGhostTint(ghost_color));
+        }
+    } else {
+        // Spawn a new ghost entity.
+        let Some(ref h) = hit else { return };
+        let coords = if is_full {
+            h.place_coords.snap_height_even()
+        } else {
+            h.place_coords
+        };
+        let mut entity_cmd = cmd.spawn((
+            GhostPreview,
+            NeedsGhostTint(ghost_color),
+            Transform::from_translation(Vec3::from(coords))
+                .with_rotation(Quat::from_rotation_y(placement_dir.0.angle())),
+            Visibility::Visible,
+        ));
+        if let Some(scene) = block_models.ghost_scene(item) {
+            entity_cmd.insert(SceneRoot(scene));
+        }
+        let entity = entity_cmd.id();
+        ghost.entity = Some(entity);
+        ghost.item = Some(item);
+        ghost.valid = Some(valid);
+    }
 }

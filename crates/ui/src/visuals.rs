@@ -2,6 +2,8 @@ use bevy::prelude::*;
 
 use factory_core::{BeltShape, Corn, Item, PlaceItem, WorldBlock, ITEM_SIZE};
 
+use crate::player_controller::NeedsGhostTint;
+
 pub(super) struct VisualsPlugin;
 impl Plugin for VisualsPlugin {
     fn build(&self, app: &mut App) {
@@ -9,6 +11,7 @@ impl Plugin for VisualsPlugin {
         app.add_systems(Startup, setup_models);
         app.add_systems(Update, (attach_models, attach_corn_models));
         app.add_systems(Update, tint_ore_meshes);
+        app.add_systems(Update, tint_ghost_children);
         app.add_observer(on_place_item);
     }
 }
@@ -28,7 +31,7 @@ enum ItemModelDef {
 pub(super) struct SceneTint(pub(super) Color);
 
 #[derive(Resource)]
-struct BlockModels {
+pub(crate) struct BlockModels {
     belt_straight: ModelDef,
     belt_curve_cw: ModelDef,
     belt_curve_ccw: ModelDef,
@@ -186,6 +189,27 @@ fn setup_models(mut cmd: Commands, asset_server: Res<AssetServer>) {
     });
 }
 
+impl BlockModels {
+    pub(crate) fn ghost_scene(&self, item: Item) -> Option<Handle<Scene>> {
+        let model = match item.can_place()? {
+            WorldBlock::Belt => &self.belt_straight,
+            WorldBlock::Source => &self.source,
+            WorldBlock::Sink => &self.sink,
+            WorldBlock::Rock => &self.rock,
+            WorldBlock::Dirt => &self.dirt,
+            WorldBlock::Miner => &self.miner,
+            WorldBlock::Furnace => &self.furnace,
+            WorldBlock::Assembler => &self.assembler,
+            WorldBlock::Collector => &self.collector,
+            _ => return None,
+        };
+        match model {
+            ModelDef::Scene(h) | ModelDef::TintedScene(h, _) => Some(h.clone()),
+            ModelDef::Random(_) => None,
+        }
+    }
+}
+
 fn apply_model(entity: Entity, mut cmd: Commands, model: &ModelDef) {
     match model {
         ModelDef::Scene(handle) => {
@@ -275,6 +299,37 @@ fn attach_models(
             },
         };
         apply_model(entity, cmd.reborrow(), model);
+    }
+}
+
+/// Applies semi-transparent tinting to all mesh children of a ghost entity.
+/// Keeps retrying (by not removing `NeedsGhostTint`) until the scene children are ready.
+fn tint_ghost_children(
+    mut cmd: Commands,
+    ghosts: Query<(Entity, &NeedsGhostTint)>,
+    children_q: Query<&Children>,
+    mesh_mat_q: Query<&MeshMaterial3d<StandardMaterial>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    for (entity, NeedsGhostTint(color)) in &ghosts {
+        let mut found_any = false;
+        for desc in children_q.iter_descendants(entity) {
+            let Ok(mat_handle) = mesh_mat_q.get(desc) else {
+                continue;
+            };
+            let Some(mat) = materials.get(mat_handle.id()) else {
+                continue;
+            };
+            let mut new_mat = mat.clone();
+            new_mat.base_color = *color;
+            new_mat.alpha_mode = AlphaMode::Blend;
+            let new_handle = materials.add(new_mat);
+            cmd.entity(desc).insert(MeshMaterial3d(new_handle));
+            found_any = true;
+        }
+        if found_any {
+            cmd.entity(entity).remove::<NeedsGhostTint>();
+        }
     }
 }
 
