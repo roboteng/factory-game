@@ -44,6 +44,28 @@ fn ghost_color(valid: bool) -> Color {
     }
 }
 
+/// Intersect a ray with a horizontal plane at `plane_y` (world units).
+/// Returns the grid-snapped `WorldCoords` at the hit point, preserving `template_y`
+/// as the half-block Y coordinate, or `None` if the ray is nearly parallel to the plane
+/// or points away from it.
+fn cast_ray_to_plane(origin: Vec3, dir: Vec3, template_y: i32) -> Option<WorldCoords> {
+    let plane_y = template_y as f32 * 0.5;
+    if dir.y.abs() < 1e-9 {
+        return None;
+    }
+    let t = (plane_y - origin.y) / dir.y;
+    if t < 0.0 {
+        return None;
+    }
+    let hit_x = origin.x + t * dir.x;
+    let hit_z = origin.z + t * dir.z;
+    Some(WorldCoords::from((
+        hit_x.round() as i32,
+        template_y,
+        hit_z.round() as i32,
+    )))
+}
+
 /// Returns the sequence of `WorldCoords` for a belt drag line from `start` to `end`,
 /// constrained to the axis parallel or anti-parallel to `facing`.
 fn belt_line_coords(start: WorldCoords, end: WorldCoords, facing: HDir) -> Vec<WorldCoords> {
@@ -118,21 +140,31 @@ pub(super) fn update_belt_placement(
 
     let cursor_locked = cursor_options.grab_mode == CursorGrabMode::Locked;
     let (cam_local, cam_global) = camera_q.into_inner();
-    let current_coords = cast_ray(
-        cam_global.translation(),
-        *cam_local.forward(),
-        targets.iter().map(|(c, t, rt)| RayTarget {
-            coords: *c,
-            center: t.translation,
-            half_extents: rt.half_extents,
-        }),
-    )
-    .map(|h| h.place_coords);
-
-    let facing = placement_dir.0;
 
     // Preserve drag_start from previous frame; set it on mouse press.
     let prev_drag_start = belt_placement.as_ref().and_then(|g| g.drag_start);
+
+    // While dragging, intersect the ray with the horizontal plane at the drag-start
+    // belt's Y level so the ghost line stays at a consistent height regardless of
+    // what terrain the cursor sweeps over.  Before dragging starts, use the normal
+    // AABB raycast so the first click snaps to an actual surface.
+    let current_coords = if let Some(start) = prev_drag_start {
+        cast_ray_to_plane(cam_global.translation(), *cam_local.forward(), start.y)
+    } else {
+        cast_ray(
+            cam_global.translation(),
+            *cam_local.forward(),
+            targets.iter().map(|(c, t, rt)| RayTarget {
+                coords: *c,
+                center: t.translation,
+                half_extents: rt.half_extents,
+            }),
+        )
+        .map(|h| h.place_coords)
+    };
+
+    let facing = placement_dir.0;
+
     let drag_start = if mouse.just_pressed(MouseButton::Left) && cursor_locked {
         current_coords.or(prev_drag_start)
     } else {
