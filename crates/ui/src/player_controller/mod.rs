@@ -1,7 +1,7 @@
 mod placement;
 pub(crate) use placement::NeedsGhostTint;
 use placement::{
-    commit_belt_placement, sync_ghost_entities, update_ghost_resource, GhostPreview, PlacementGhost,
+    commit_belt_placement, sync_belt_ghosts, update_belt_placement, update_single_ghost,
 };
 
 use crate::hotbar::{Hotbar, PlacementItem};
@@ -46,9 +46,9 @@ impl Plugin for PlayerControllerPlugin {
                     handle_click_to_place,
                     (
                         commit_belt_placement,
-                        ApplyDeferred,
-                        update_ghost_resource,
-                        sync_ghost_entities.run_if(resource_exists::<PlacementGhost>),
+                        update_belt_placement,
+                        sync_belt_ghosts,
+                        update_single_ghost,
                     )
                         .chain(),
                 )

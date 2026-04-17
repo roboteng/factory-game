@@ -9,55 +9,31 @@ use factory_core::{
 
 use bevy::{prelude::*, window::CursorGrabMode, window::CursorOptions};
 
-/// Marker for the ghost preview entity shown while in placing mode.
+/// Marker for all ghost preview entities (belt and single).
 #[derive(Component)]
 pub(super) struct GhostPreview;
+
+/// Marker for belt-drag ghost entities.
+#[derive(Component)]
+pub(super) struct BeltGhost;
+
+/// Marker for the single-item ghost entity.
+#[derive(Component)]
+pub(super) struct SingleGhost;
 
 /// Attached to a ghost entity to request semi-transparent tinting of its children.
 /// Removed once tinting is applied; re-added when the color needs to change.
 #[derive(Component)]
 pub(crate) struct NeedsGhostTint(pub(crate) Color);
 
-/// Tracks ghost placement state. Present only while in placing mode.
-/// Ghost entities are tagged `GhostPreview`
+/// Belt placement state. Present only while placing belts.
 #[derive(Resource)]
-pub(super) enum PlacementGhost {
-    /// A single ghost for non-belt items. `coords` is None when looking at sky.
-    Single {
-        item: Item,
-        valid: bool,
-        coords: Option<WorldCoords>,
-        facing: HDir,
-    },
-    /// Belt ghost. `drag_start` is None while hovering, Some while mouse is held.
-    Belt {
-        item: Item,
-        valid: bool,
-        line: Vec<WorldCoords>,
-        facing: HDir,
-        drag_start: Option<WorldCoords>,
-    },
-}
-
-impl PlacementGhost {
-    pub(super) fn item(&self) -> Item {
-        match self {
-            Self::Single { item, .. } | Self::Belt { item, .. } => *item,
-        }
-    }
-
-    fn valid(&self) -> bool {
-        match self {
-            Self::Single { valid, .. } | Self::Belt { valid, .. } => *valid,
-        }
-    }
-
-    fn belt_drag_start(&self) -> Option<WorldCoords> {
-        match self {
-            Self::Belt { drag_start, .. } => *drag_start,
-            Self::Single { .. } => None,
-        }
-    }
+pub(super) struct BeltPlacement {
+    pub(super) item: Item,
+    facing: HDir,
+    drag_start: Option<WorldCoords>,
+    pub(super) line: Vec<WorldCoords>,
+    pub(super) valid: bool,
 }
 
 fn ghost_color(valid: bool) -> Color {
@@ -88,55 +64,22 @@ fn belt_line_coords(start: WorldCoords, end: WorldCoords, facing: HDir) -> Vec<W
         .collect()
 }
 
-/// Places belts on left-mouse drag release, then despawns ghost entities and removes the resource.
-/// Runs before `ApplyDeferred` so `update_ghost_resource` sees the world after placement.
-pub(super) fn commit_belt_placement(
-    mouse: Res<ButtonInput<MouseButton>>,
-    ghost: Option<Res<PlacementGhost>>,
-    player: Res<Player>,
-    mut invs: Query<&mut Inventory>,
-    ghost_entities: Query<Entity, With<GhostPreview>>,
-    mut cmd: Commands,
-) {
-    if !mouse.just_released(MouseButton::Left) {
-        return;
-    }
-    let Some(ghost) = ghost else {
-        return;
+fn resolve_item(mode: &InteractionMode, hotbar: &Hotbar) -> Option<(Item, WorldBlock)> {
+    let InteractionMode::InWorld(WorldMode::Placing(tool)) = mode else {
+        return None;
     };
-    let PlacementGhost::Belt {
-        item,
-        valid,
-        ref line,
-        facing,
-        drag_start: Some(_),
-    } = *ghost
-    else {
-        return;
-    };
-    if valid {
-        if let Ok(mut inv) = invs.get_mut(player.0) {
-            for &coord in line {
-                let e = cmd.spawn_empty().id();
-                inv.take_items(Stack::from(item));
-                cmd.trigger(PlaceBlock {
-                    entity: e,
-                    block: WorldBlock::Belt,
-                    coords: coord,
-                    dir: facing,
-                });
-            }
-        }
-    }
-    for entity in ghost_entities.iter() {
-        cmd.entity(entity).despawn();
-    }
-    cmd.remove_resource::<PlacementGhost>();
+    let item = match tool {
+        PlacementItem::HotbarSlot(slot) => hotbar.0.get(*slot as usize).and_then(|s| *s),
+        PlacementItem::Custom(item) => Some(*item),
+    }?;
+    let block = item.can_place()?;
+    Some((item, block))
 }
 
-/// Determines what the ghost should look like and writes it to `PlacementGhost`.
-/// When leaving placing mode or changing items, despawns ghost entities and removes the resource.
-pub(super) fn update_ghost_resource(
+/// Computes belt placement state each frame and writes it to `BeltPlacement`.
+/// Removes the resource when not in belt-placing mode — `sync_belt_ghosts` will
+/// then despawn ghost entities on the same frame.
+pub(super) fn update_belt_placement(
     mode: Res<InteractionMode>,
     cursor_options: Single<&CursorOptions>,
     camera_q: Single<(&Transform, &GlobalTransform), With<FirstPersonCamera>>,
@@ -146,44 +89,189 @@ pub(super) fn update_ghost_resource(
     targets: Query<(&WorldCoords, &Transform, &RaycastTarget), Without<GhostPreview>>,
     placement_dir: Res<PlacementDirection>,
     mouse: Res<ButtonInput<MouseButton>>,
-    ghost: Option<Res<PlacementGhost>>,
-    ghost_entities: Query<Entity, With<GhostPreview>>,
+    belt_placement: Option<Res<BeltPlacement>>,
     mut cmd: Commands,
 ) {
-    let placing = matches!(*mode, InteractionMode::InWorld(WorldMode::Placing(_)))
-        && cursor_options.grab_mode == CursorGrabMode::Locked;
-
-    // Determine what item/block we should be placing.
-    let item_and_block: Option<(Item, WorldBlock)> = if placing {
-        let InteractionMode::InWorld(WorldMode::Placing(tool)) = *mode else {
-            return;
-        };
-        let item = match tool {
-            PlacementItem::HotbarSlot(slot) => hotbar.0.get(slot as usize).and_then(|s| *s),
-            PlacementItem::Custom(item) => Some(item),
-        };
-        item.and_then(|i| i.can_place().map(|b| (i, b)))
-    } else {
-        None
-    };
-
-    // If not placing or no valid item, despawn all ghosts and remove resource.
-    let Some((item, block)) = item_and_block else {
-        for entity in ghost_entities.iter() {
-            cmd.entity(entity).despawn();
-        }
-        if ghost.is_some() {
-            cmd.remove_resource::<PlacementGhost>();
+    let Some((item, block)) = resolve_item(&mode, &hotbar) else {
+        if belt_placement.is_some() {
+            cmd.remove_resource::<BeltPlacement>();
         }
         return;
     };
 
-    // If the item changed, clear and let the next frame create a fresh ghost.
-    if ghost.as_ref().map(|g| g.item() != item).unwrap_or(false) {
-        for entity in ghost_entities.iter() {
-            cmd.entity(entity).despawn();
+    if block != WorldBlock::Belt {
+        if belt_placement.is_some() {
+            cmd.remove_resource::<BeltPlacement>();
         }
-        cmd.remove_resource::<PlacementGhost>();
+        return;
+    }
+
+    // Item changed — remove resource; sync_belt_ghosts will despawn ghosts this frame.
+    if belt_placement
+        .as_ref()
+        .map(|g| g.item != item)
+        .unwrap_or(false)
+    {
+        cmd.remove_resource::<BeltPlacement>();
+        return;
+    }
+
+    let cursor_locked = cursor_options.grab_mode == CursorGrabMode::Locked;
+    let (cam_local, cam_global) = camera_q.into_inner();
+    let current_coords = cast_ray(
+        cam_global.translation(),
+        *cam_local.forward(),
+        targets.iter().map(|(c, t, rt)| RayTarget {
+            coords: *c,
+            center: t.translation,
+            half_extents: rt.half_extents,
+        }),
+    )
+    .map(|h| h.place_coords);
+
+    let facing = placement_dir.0;
+
+    // Preserve drag_start from previous frame; set it on mouse press.
+    let prev_drag_start = belt_placement.as_ref().and_then(|g| g.drag_start);
+    let drag_start = if mouse.just_pressed(MouseButton::Left) && cursor_locked {
+        current_coords.or(prev_drag_start)
+    } else {
+        prev_drag_start
+    };
+
+    let line: Vec<WorldCoords> = match (drag_start, current_coords) {
+        (Some(start), Some(end)) => belt_line_coords(start, end, facing),
+        (Some(start), None) => vec![start],
+        (None, Some(end)) => vec![end],
+        (None, None) => vec![],
+    };
+
+    let inv_count = invs
+        .get(player.0)
+        .map(|inv| inv.item_count(item))
+        .unwrap_or(0);
+    let valid = inv_count >= line.len() as u16;
+
+    cmd.insert_resource(BeltPlacement {
+        item,
+        facing,
+        drag_start,
+        line,
+        valid,
+    });
+}
+
+/// Reconciles `BeltGhost` entities to match `BeltPlacement` each frame.
+/// Pool grows/shrinks as needed — new entities start `Hidden` so their position
+/// can be set next frame without a flash at the origin.
+/// When `BeltPlacement` is absent, despawns all belt ghosts.
+pub(super) fn sync_belt_ghosts(
+    belt_placement: Option<Res<BeltPlacement>>,
+    mut belt_ghost_q: Query<
+        (Entity, &mut Transform, &mut Visibility),
+        (With<BeltGhost>, Without<FirstPersonCamera>),
+    >,
+    block_models: Res<BlockModels>,
+    mut cmd: Commands,
+    mut state: Local<(Option<Item>, Option<bool>)>,
+) {
+    let Some(placement) = belt_placement else {
+        for (e, _, _) in belt_ghost_q.iter() {
+            cmd.entity(e).despawn();
+        }
+        *state = (None, None);
+        return;
+    };
+
+    let item = placement.item;
+    let facing = placement.facing;
+    let line = &placement.line;
+    let valid = placement.valid;
+    let color = ghost_color(valid);
+
+    let (prev_item, prev_valid) = &mut *state;
+    let needs_retint = *prev_item != Some(item) || *prev_valid != Some(valid);
+
+    // Collect existing pool entities in stable order.
+    let mut entities: Vec<Entity> = belt_ghost_q.iter().map(|(e, ..)| e).collect();
+
+    // Shrink: despawn extras from the tail.
+    for &e in entities.iter().skip(line.len()) {
+        cmd.entity(e).despawn();
+    }
+    entities.truncate(line.len());
+
+    // Grow: spawn new entities as Hidden. They'll be positioned + shown next frame
+    // once they appear in the query — this avoids a flash at the default origin.
+    let scene = block_models.ghost_scene(item);
+    while entities.len() < line.len() {
+        let mut ec = cmd.spawn((
+            GhostPreview,
+            BeltGhost,
+            NeedsGhostTint(color),
+            Transform::default(),
+            Visibility::Hidden,
+        ));
+        if let Some(ref s) = scene {
+            ec.insert(SceneRoot(s.clone()));
+        }
+        entities.push(ec.id());
+    }
+
+    // Reposition all existing entities. Newly spawned ones aren't in the query yet
+    // and will be positioned on the next frame.
+    for (&entity, &coord) in entities.iter().zip(line.iter()) {
+        if let Ok((_, mut transform, mut vis)) = belt_ghost_q.get_mut(entity) {
+            transform.translation = Vec3::from(coord);
+            transform.rotation = Quat::from_rotation_y(facing.angle());
+            *vis = Visibility::Visible;
+        }
+    }
+
+    // Retint when validity or item changes.
+    if needs_retint {
+        for &e in &entities {
+            cmd.entity(e).insert(NeedsGhostTint(color));
+        }
+    }
+
+    *prev_item = Some(item);
+    *prev_valid = Some(valid);
+}
+
+/// Updates the single-item ghost entity each frame for non-belt placements.
+pub(super) fn update_single_ghost(
+    mode: Res<InteractionMode>,
+    camera_q: Single<(&Transform, &GlobalTransform), With<FirstPersonCamera>>,
+    player: Res<Player>,
+    hotbar: Res<Hotbar>,
+    invs: Query<&Inventory>,
+    targets: Query<
+        (&WorldCoords, &Transform, &RaycastTarget),
+        (Without<GhostPreview>, Without<SingleGhost>),
+    >,
+    placement_dir: Res<PlacementDirection>,
+    mut single_ghost: Query<
+        (Entity, &mut Transform, &mut Visibility),
+        (With<SingleGhost>, Without<FirstPersonCamera>),
+    >,
+    block_models: Res<BlockModels>,
+    mut cmd: Commands,
+    mut state: Local<(Option<Item>, Option<bool>)>,
+) {
+    let Some((item, block)) = resolve_item(&mode, &hotbar) else {
+        for (e, _, _) in single_ghost.iter() {
+            cmd.entity(e).despawn();
+        }
+        *state = (None, None);
+        return;
+    };
+
+    if block == WorldBlock::Belt {
+        for (e, _, _) in single_ghost.iter() {
+            cmd.entity(e).despawn();
+        }
+        *state = (None, None);
         return;
     }
 
@@ -200,152 +288,95 @@ pub(super) fn update_ghost_resource(
     .map(|h| h.place_coords);
 
     let facing = placement_dir.0;
-
-    // --- Belt path ---
-    if block == WorldBlock::Belt {
-        let prev_drag_start = ghost.as_ref().and_then(|g| g.belt_drag_start());
-
-        let drag_start = if mouse.just_pressed(MouseButton::Left)
-            && cursor_options.grab_mode == CursorGrabMode::Locked
-        {
-            current_coords.or(prev_drag_start)
-        } else {
-            prev_drag_start
-        };
-
-        let line: Vec<WorldCoords> = match (drag_start, current_coords) {
-            (Some(start), Some(end)) => belt_line_coords(start, end, facing),
-            (Some(start), None) => vec![start],
-            (None, Some(end)) => vec![end],
-            (None, None) => vec![],
-        };
-
-        let inv_count = invs
-            .get(player.0)
-            .map(|inv| inv.item_count(item))
-            .unwrap_or(0);
-        let valid = inv_count >= line.len() as u16;
-
-        cmd.insert_resource(PlacementGhost::Belt {
-            item,
-            valid,
-            line,
-            facing,
-            drag_start,
-        });
-        return;
-    }
-
-    // --- Non-belt single-ghost path ---
     let is_full = block.raycast_target().half_extents.y > 0.25;
+    let coords = current_coords.map(|c| if is_full { c.snap_height_even() } else { c });
     let valid = invs
         .get(player.0)
         .map(|inv| inv.item_count(item) > 0)
         .unwrap_or(false);
-    let coords = current_coords.map(|c| if is_full { c.snap_height_even() } else { c });
 
-    cmd.insert_resource(PlacementGhost::Single {
-        item,
-        valid,
-        coords,
-        facing,
-    });
+    let (prev_item, prev_valid) = &mut *state;
+    let item_changed = *prev_item != Some(item);
+    let needs_retint = item_changed || *prev_valid != Some(valid);
+    *prev_item = Some(item);
+    *prev_valid = Some(valid);
+
+    let color = ghost_color(valid);
+
+    // If item changed, despawn old ghost so we spawn one with the correct scene.
+    if item_changed {
+        for (e, _, _) in single_ghost.iter() {
+            cmd.entity(e).despawn();
+        }
+    }
+
+    let has_existing_ghost = !single_ghost.is_empty() && !item_changed;
+
+    if has_existing_ghost {
+        let Ok((entity, mut transform, mut vis)) = single_ghost.single_mut() else {
+            return;
+        };
+        match coords {
+            Some(c) => {
+                transform.translation = Vec3::from(c);
+                transform.rotation = Quat::from_rotation_y(facing.angle());
+                *vis = Visibility::Visible;
+            }
+            None => *vis = Visibility::Hidden,
+        }
+        if needs_retint {
+            cmd.entity(entity).insert(NeedsGhostTint(color));
+        }
+    } else if let Some(c) = coords {
+        let mut ec = cmd.spawn((
+            GhostPreview,
+            SingleGhost,
+            NeedsGhostTint(color),
+            Transform::from_translation(Vec3::from(c))
+                .with_rotation(Quat::from_rotation_y(facing.angle())),
+            Visibility::Visible,
+        ));
+        if let Some(scene) = block_models.ghost_scene(item) {
+            ec.insert(SceneRoot(scene));
+        }
+    }
 }
 
-/// Reconciles `GhostPreview` entities to match the current `PlacementGhost` state.
-/// Only runs when the resource exists (enforced by `run_if` in plugin registration).
-pub(super) fn sync_ghost_entities(
-    ghost: Res<PlacementGhost>,
-    block_models: Res<BlockModels>,
+/// Places belts on left-mouse release, then clears `drag_start`.
+/// Ghost entities are left in place; `sync_belt_ghosts` will shrink them to a hover ghost.
+/// Runs before `update_belt_placement` so it sees the cleared `drag_start` on the same frame.
+pub(super) fn commit_belt_placement(
+    mouse: Res<ButtonInput<MouseButton>>,
+    belt_placement: Option<ResMut<BeltPlacement>>,
+    player: Res<Player>,
+    mut invs: Query<&mut Inventory>,
     mut cmd: Commands,
-    mut ghost_q: Query<
-        (Entity, &mut Transform, &mut Visibility),
-        (With<GhostPreview>, Without<FirstPersonCamera>),
-    >,
-    mut state: Local<(Option<Item>, Option<bool>)>,
 ) {
-    let current_item = ghost.item();
-    let current_valid = ghost.valid();
-    let (prev_item, prev_valid) = &mut *state;
-
-    let needs_retint = *prev_item != Some(current_item) || *prev_valid != Some(current_valid);
-    *prev_item = Some(current_item);
-    *prev_valid = Some(current_valid);
-
-    let color = ghost_color(current_valid);
-
-    match &*ghost {
-        PlacementGhost::Single {
-            item,
-            coords,
-            facing,
-            ..
-        } => {
-            if let Some((entity, mut transform, mut vis)) = ghost_q.iter_mut().next() {
-                match coords {
-                    Some(c) => {
-                        transform.translation = Vec3::from(*c);
-                        transform.rotation = Quat::from_rotation_y(facing.angle());
-                        *vis = Visibility::Visible;
-                    }
-                    None => *vis = Visibility::Hidden,
-                }
-                if needs_retint {
-                    cmd.entity(entity).insert(NeedsGhostTint(color));
-                }
-            } else if let Some(c) = coords {
-                let mut ec = cmd.spawn((
-                    GhostPreview,
-                    NeedsGhostTint(color),
-                    Transform::from_translation(Vec3::from(*c))
-                        .with_rotation(Quat::from_rotation_y(facing.angle())),
-                    Visibility::Visible,
-                ));
-                if let Some(scene) = block_models.ghost_scene(*item) {
-                    ec.insert(SceneRoot(scene));
-                }
-            }
-        }
-        PlacementGhost::Belt {
-            item, line, facing, ..
-        } => {
-            let mut entities: Vec<Entity> = ghost_q.iter().map(|(e, ..)| e).collect();
-
-            // Shrink pool.
-            for &entity in entities.iter().skip(line.len()) {
-                cmd.entity(entity).despawn();
-            }
-            entities.truncate(line.len());
-
-            // Grow pool.
-            let belt_scene = block_models.ghost_scene(*item);
-            while entities.len() < line.len() {
-                let mut ec = cmd.spawn((
-                    GhostPreview,
-                    NeedsGhostTint(color),
-                    Transform::default(),
-                    Visibility::Hidden,
-                ));
-                if let Some(ref scene) = belt_scene {
-                    ec.insert(SceneRoot(scene.clone()));
-                }
-                entities.push(ec.id());
-            }
-
-            // Reposition existing entities (newly spawned ones aren't in ghost_q yet).
-            for (&entity, coord) in entities.iter().zip(line.iter()) {
-                if let Ok((_, mut transform, mut vis)) = ghost_q.get_mut(entity) {
-                    transform.translation = Vec3::from(*coord);
-                    transform.rotation = Quat::from_rotation_y(facing.angle());
-                    *vis = Visibility::Visible;
-                }
-            }
-
-            if needs_retint {
-                for &entity in &entities {
-                    cmd.entity(entity).insert(NeedsGhostTint(color));
-                }
+    if !mouse.just_released(MouseButton::Left) {
+        return;
+    }
+    let Some(mut placement) = belt_placement else {
+        return;
+    };
+    if placement.drag_start.is_none() {
+        return;
+    }
+    if placement.valid {
+        let item = placement.item;
+        let facing = placement.facing;
+        let line = placement.line.clone();
+        if let Ok(mut inv) = invs.get_mut(player.0) {
+            for &coord in &line {
+                let e = cmd.spawn_empty().id();
+                inv.take_items(Stack::from(item));
+                cmd.trigger(PlaceBlock {
+                    entity: e,
+                    block: WorldBlock::Belt,
+                    coords: coord,
+                    dir: facing,
+                });
             }
         }
     }
+    placement.drag_start = None;
 }
