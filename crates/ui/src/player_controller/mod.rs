@@ -1,15 +1,12 @@
 mod placement;
 pub(crate) use placement::NeedsGhostTint;
 use placement::{
-    commit_belt_placement, sync_belt_ghosts, update_belt_placement, update_single_ghost,
+    commit_belt_placement, compute_placement_target, handle_click_to_place, sync_belt_ghosts,
+    update_belt_placement, update_single_ghost,
 };
 
-use crate::hotbar::{Hotbar, PlacementItem};
 use crate::{FlyMode, InteractionMode, ScreenMode, WorldMode};
-use factory_core::{
-    inventory::{Inventory, Stack},
-    *,
-};
+use factory_core::*;
 
 use avian3d::prelude::*;
 use bevy::{
@@ -43,8 +40,9 @@ impl Plugin for PlayerControllerPlugin {
                     handle_right_click_block_ui::<Source>,
                     update_delete_preview,
                     handle_change_incline,
-                    handle_click_to_place,
                     (
+                        compute_placement_target,
+                        handle_click_to_place,
                         commit_belt_placement,
                         update_belt_placement,
                         sync_belt_ghosts,
@@ -636,91 +634,6 @@ fn handle_mode_inputs(
     if keys.just_pressed(KeyCode::KeyR) {
         placement_dir.0 = placement_dir.0.right();
     }
-}
-
-fn handle_click_to_place(
-    mouse: Res<ButtonInput<MouseButton>>,
-    cursor_options: Single<&CursorOptions>,
-    camera_query: Single<(&Transform, &GlobalTransform), With<FirstPersonCamera>>,
-    player: Res<Player>,
-    hotbar: Res<Hotbar>,
-    mut invs: Query<&mut Inventory>,
-    mut cmd: Commands,
-    mode: Res<InteractionMode>,
-    targets: Query<(&WorldCoords, &Transform, &RaycastTarget)>,
-    placement_dir: Res<PlacementDirection>,
-) {
-    let InteractionMode::InWorld(WorldMode::Placing(tool)) = *mode else {
-        return;
-    };
-    let item = match tool {
-        PlacementItem::HotbarSlot(slot) => match hotbar.0.get(slot as usize) {
-            Some(Some(item)) => *item,
-            _ => return,
-        },
-        PlacementItem::Custom(item) => item,
-    };
-    let Some(block) = item.can_place() else {
-        return;
-    };
-
-    // Belts use drag placement in manage_placement_ghost.
-    if block == WorldBlock::Belt {
-        return;
-    }
-
-    // Check that the player has this item in inventory.
-    {
-        let Ok(inv) = invs.get(player.0) else {
-            error!("Could not find the player");
-            return;
-        };
-        if inv.item_count(item) == 0 {
-            return;
-        }
-    }
-
-    // Only handle clicks when cursor is grabbed (in game mode)
-    if !mouse.just_pressed(MouseButton::Left) || cursor_options.grab_mode != CursorGrabMode::Locked
-    {
-        return;
-    }
-
-    let (cam_local, cam_global) = camera_query.into_inner();
-    let origin = cam_global.translation();
-    let ray_dir = *cam_local.forward();
-
-    let Some(hit) = cast_ray(
-        origin,
-        ray_dir,
-        targets.iter().map(|(c, t, rt)| RayTarget {
-            coords: *c,
-            center: t.translation,
-            half_extents: rt.half_extents,
-        }),
-    ) else {
-        return;
-    };
-
-    // Consume one item from the player's inventory.
-    let Ok(mut inv) = invs.get_mut(player.0) else {
-        return;
-    };
-    inv.take_items(Stack::from(item));
-    drop(inv);
-
-    let dir = placement_dir.0;
-
-    let entity = cmd.spawn_empty().id();
-
-    let event = PlaceBlock {
-        entity,
-        block,
-        coords: hit.place_coords,
-        dir,
-    };
-    debug!("Triggering: {event:?}");
-    cmd.trigger(event);
 }
 
 fn update_delete_preview(

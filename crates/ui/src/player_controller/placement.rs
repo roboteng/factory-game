@@ -1,4 +1,4 @@
-use super::{cast_ray, FirstPersonCamera, PlacementDirection, RayTarget};
+use super::{FirstPersonCamera, PlacementDirection, RayTarget, cast_ray};
 use crate::hotbar::{Hotbar, PlacementItem};
 use crate::visuals::BlockModels;
 use crate::{InteractionMode, WorldMode};
@@ -25,6 +25,19 @@ pub(super) struct SingleGhost;
 /// Removed once tinting is applied; re-added when the color needs to change.
 #[derive(Component)]
 pub(crate) struct NeedsGhostTint(pub(crate) Color);
+
+/// Computed each frame when the player is in placement mode.
+/// Removed when not placing.
+#[derive(Resource)]
+pub(super) struct PlacementTarget {
+    pub(super) item: Item,
+    pub(super) block: WorldBlock,
+    pub(super) facing: HDir,
+    pub(super) raycast_coords: Option<WorldCoords>,
+    pub(super) inv_count: u16,
+    cam_origin: Vec3,
+    cam_forward: Vec3,
+}
 
 /// Belt placement state. Present only while placing belts.
 #[derive(Resource)]
@@ -98,40 +111,126 @@ fn resolve_item(mode: &InteractionMode, hotbar: &Hotbar) -> Option<(Item, WorldB
     Some((item, block))
 }
 
-/// Computes belt placement state each frame and writes it to `BeltPlacement`.
-/// Removes the resource when not in belt-placing mode — `sync_belt_ghosts` will
-/// then despawn ghost entities on the same frame.
-pub(super) fn update_belt_placement(
+/// Resolves the current placement item, raycast target, and inventory count
+/// into a single resource for downstream systems.
+pub(super) fn compute_placement_target(
     mode: Res<InteractionMode>,
-    cursor_options: Single<&CursorOptions>,
     camera_q: Single<(&Transform, &GlobalTransform), With<FirstPersonCamera>>,
     player: Res<Player>,
     hotbar: Res<Hotbar>,
     invs: Query<&Inventory>,
     targets: Query<(&WorldCoords, &Transform, &RaycastTarget), Without<GhostPreview>>,
     placement_dir: Res<PlacementDirection>,
+    existing: Option<Res<PlacementTarget>>,
+    mut cmd: Commands,
+) {
+    let Some((item, block)) = resolve_item(&mode, &hotbar) else {
+        if existing.is_some() {
+            cmd.remove_resource::<PlacementTarget>();
+        }
+        return;
+    };
+
+    let (cam_local, cam_global) = camera_q.into_inner();
+    let cam_origin = cam_global.translation();
+    let cam_forward = *cam_local.forward();
+
+    let raycast_coords = cast_ray(
+        cam_origin,
+        cam_forward,
+        targets.iter().map(|(c, t, rt)| RayTarget {
+            coords: *c,
+            center: t.translation,
+            half_extents: rt.half_extents,
+        }),
+    )
+    .map(|h| h.place_coords);
+
+    let inv_count = invs
+        .get(player.0)
+        .map(|inv| inv.item_count(item))
+        .unwrap_or(0);
+
+    cmd.insert_resource(PlacementTarget {
+        item,
+        block,
+        facing: placement_dir.0,
+        raycast_coords,
+        inv_count,
+        cam_origin,
+        cam_forward,
+    });
+}
+
+pub fn handle_click_to_place(
+    mouse: Res<ButtonInput<MouseButton>>,
+    cursor_options: Single<&CursorOptions>,
+    target: Option<Res<PlacementTarget>>,
+    player: Res<Player>,
+    mut invs: Query<&mut Inventory>,
+    mut cmd: Commands,
+) {
+    let Some(target) = target else { return };
+    if target.block == WorldBlock::Belt {
+        return;
+    }
+
+    if !mouse.just_pressed(MouseButton::Left) || cursor_options.grab_mode != CursorGrabMode::Locked
+    {
+        return;
+    }
+
+    let Some(coords) = target.raycast_coords else {
+        return;
+    };
+
+    let Ok(mut inv) = invs.get_mut(player.0) else {
+        return;
+    };
+    if inv.item_count(target.item) == 0 {
+        return;
+    }
+    inv.take_items(Stack::from(target.item));
+    drop(inv);
+
+    let entity = cmd.spawn_empty().id();
+    let event = PlaceBlock {
+        entity,
+        block: target.block,
+        coords,
+        dir: target.facing,
+    };
+    debug!("Triggering: {event:?}");
+    cmd.trigger(event);
+}
+
+/// Computes belt placement state each frame and writes it to `BeltPlacement`.
+/// Removes the resource when not in belt-placing mode — `sync_belt_ghosts` will
+/// then despawn ghost entities on the same frame.
+pub(super) fn update_belt_placement(
+    target: Option<Res<PlacementTarget>>,
+    cursor_options: Single<&CursorOptions>,
     mouse: Res<ButtonInput<MouseButton>>,
     belt_placement: Option<Res<BeltPlacement>>,
     mut cmd: Commands,
 ) {
-    let Some((item, block)) = resolve_item(&mode, &hotbar) else {
+    let Some(target) = target else {
         if belt_placement.is_some() {
             cmd.remove_resource::<BeltPlacement>();
         }
         return;
     };
 
-    if block != WorldBlock::Belt {
+    if target.block != WorldBlock::Belt {
         if belt_placement.is_some() {
             cmd.remove_resource::<BeltPlacement>();
         }
         return;
     }
 
-    // Item changed — remove resource; sync_belt_ghosts will despawn ghosts this frame.
     if belt_placement
         .as_ref()
-        .map(|g| g.item != item)
+        .map(|g| g.item != target.item)
         .unwrap_or(false)
     {
         cmd.remove_resource::<BeltPlacement>();
@@ -139,31 +238,16 @@ pub(super) fn update_belt_placement(
     }
 
     let cursor_locked = cursor_options.grab_mode == CursorGrabMode::Locked;
-    let (cam_local, cam_global) = camera_q.into_inner();
-
-    // Preserve drag_start from previous frame; set it on mouse press.
     let prev_drag_start = belt_placement.as_ref().and_then(|g| g.drag_start);
 
     // While dragging, intersect the ray with the horizontal plane at the drag-start
     // belt's Y level so the ghost line stays at a consistent height regardless of
-    // what terrain the cursor sweeps over.  Before dragging starts, use the normal
-    // AABB raycast so the first click snaps to an actual surface.
+    // what terrain the cursor sweeps over.
     let current_coords = if let Some(start) = prev_drag_start {
-        cast_ray_to_plane(cam_global.translation(), *cam_local.forward(), start.y)
+        cast_ray_to_plane(target.cam_origin, target.cam_forward, start.y)
     } else {
-        cast_ray(
-            cam_global.translation(),
-            *cam_local.forward(),
-            targets.iter().map(|(c, t, rt)| RayTarget {
-                coords: *c,
-                center: t.translation,
-                half_extents: rt.half_extents,
-            }),
-        )
-        .map(|h| h.place_coords)
+        target.raycast_coords
     };
-
-    let facing = placement_dir.0;
 
     let drag_start = if mouse.just_pressed(MouseButton::Left) && cursor_locked {
         current_coords.or(prev_drag_start)
@@ -172,21 +256,17 @@ pub(super) fn update_belt_placement(
     };
 
     let line: Vec<WorldCoords> = match (drag_start, current_coords) {
-        (Some(start), Some(end)) => belt_line_coords(start, end, facing),
+        (Some(start), Some(end)) => belt_line_coords(start, end, target.facing),
         (Some(start), None) => vec![start],
         (None, Some(end)) => vec![end],
         (None, None) => vec![],
     };
 
-    let inv_count = invs
-        .get(player.0)
-        .map(|inv| inv.item_count(item))
-        .unwrap_or(0);
-    let valid = inv_count >= line.len() as u16;
+    let valid = target.inv_count >= line.len() as u16;
 
     cmd.insert_resource(BeltPlacement {
-        item,
-        facing,
+        item: target.item,
+        facing: target.facing,
         drag_start,
         line,
         valid,
@@ -273,16 +353,7 @@ pub(super) fn sync_belt_ghosts(
 
 /// Updates the single-item ghost entity each frame for non-belt placements.
 pub(super) fn update_single_ghost(
-    mode: Res<InteractionMode>,
-    camera_q: Single<(&Transform, &GlobalTransform), With<FirstPersonCamera>>,
-    player: Res<Player>,
-    hotbar: Res<Hotbar>,
-    invs: Query<&Inventory>,
-    targets: Query<
-        (&WorldCoords, &Transform, &RaycastTarget),
-        (Without<GhostPreview>, Without<SingleGhost>),
-    >,
-    placement_dir: Res<PlacementDirection>,
+    target: Option<Res<PlacementTarget>>,
     mut single_ghost: Query<
         (Entity, &mut Transform, &mut Visibility),
         (With<SingleGhost>, Without<FirstPersonCamera>),
@@ -291,7 +362,7 @@ pub(super) fn update_single_ghost(
     mut cmd: Commands,
     mut state: Local<(Option<Item>, Option<bool>)>,
 ) {
-    let Some((item, block)) = resolve_item(&mode, &hotbar) else {
+    let Some(target) = target else {
         for (e, _, _) in single_ghost.iter() {
             cmd.entity(e).despawn();
         }
@@ -299,7 +370,7 @@ pub(super) fn update_single_ghost(
         return;
     };
 
-    if block == WorldBlock::Belt {
+    if target.block == WorldBlock::Belt {
         for (e, _, _) in single_ghost.iter() {
             cmd.entity(e).despawn();
         }
@@ -307,35 +378,20 @@ pub(super) fn update_single_ghost(
         return;
     }
 
-    let (cam_local, cam_global) = camera_q.into_inner();
-    let current_coords = cast_ray(
-        cam_global.translation(),
-        *cam_local.forward(),
-        targets.iter().map(|(c, t, rt)| RayTarget {
-            coords: *c,
-            center: t.translation,
-            half_extents: rt.half_extents,
-        }),
-    )
-    .map(|h| h.place_coords);
-
-    let facing = placement_dir.0;
-    let is_full = block.raycast_target().half_extents.y > 0.25;
-    let coords = current_coords.map(|c| if is_full { c.snap_height_even() } else { c });
-    let valid = invs
-        .get(player.0)
-        .map(|inv| inv.item_count(item) > 0)
-        .unwrap_or(false);
+    let is_full = target.block.raycast_target().half_extents.y > 0.25;
+    let coords = target
+        .raycast_coords
+        .map(|c| if is_full { c.snap_height_even() } else { c });
+    let valid = target.inv_count > 0;
 
     let (prev_item, prev_valid) = &mut *state;
-    let item_changed = *prev_item != Some(item);
+    let item_changed = *prev_item != Some(target.item);
     let needs_retint = item_changed || *prev_valid != Some(valid);
-    *prev_item = Some(item);
+    *prev_item = Some(target.item);
     *prev_valid = Some(valid);
 
     let color = ghost_color(valid);
 
-    // If item changed, despawn old ghost so we spawn one with the correct scene.
     if item_changed {
         for (e, _, _) in single_ghost.iter() {
             cmd.entity(e).despawn();
@@ -351,7 +407,7 @@ pub(super) fn update_single_ghost(
         match coords {
             Some(c) => {
                 transform.translation = Vec3::from(c);
-                transform.rotation = Quat::from_rotation_y(facing.angle());
+                transform.rotation = Quat::from_rotation_y(target.facing.angle());
                 *vis = Visibility::Visible;
             }
             None => *vis = Visibility::Hidden,
@@ -365,10 +421,10 @@ pub(super) fn update_single_ghost(
             SingleGhost,
             NeedsGhostTint(color),
             Transform::from_translation(Vec3::from(c))
-                .with_rotation(Quat::from_rotation_y(facing.angle())),
+                .with_rotation(Quat::from_rotation_y(target.facing.angle())),
             Visibility::Visible,
         ));
-        if let Some(scene) = block_models.ghost_scene(item) {
+        if let Some(scene) = block_models.ghost_scene(target.item) {
             ec.insert(SceneRoot(scene));
         }
     }
