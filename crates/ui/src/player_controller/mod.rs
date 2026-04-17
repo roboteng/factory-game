@@ -38,6 +38,7 @@ impl Plugin for PlayerControllerPlugin {
                     handle_right_click_block_ui::<Furnace>,
                     handle_right_click_block_ui::<Assembler>,
                     handle_right_click_block_ui::<Source>,
+                    handle_right_click_block_ui::<Miner>,
                     update_delete_preview,
                     handle_change_incline,
                     (
@@ -79,6 +80,12 @@ impl BlockUIScreen for Furnace {
 impl BlockUIScreen for Source {
     fn screen(entity: Entity) -> ScreenMode {
         ScreenMode::Source(entity)
+    }
+}
+
+impl BlockUIScreen for Miner {
+    fn screen(entity: Entity) -> ScreenMode {
+        ScreenMode::Miner(entity)
     }
 }
 
