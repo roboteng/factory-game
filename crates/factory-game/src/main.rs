@@ -6,6 +6,7 @@ use ui::{FlyMode, UiPlugin};
 fn main() {
     let fly_mode = std::env::args().any(|a| a == "--fly");
     let flat_mode = std::env::args().any(|a| a == "--flat");
+    let max_framerate_mode = std::env::args().any(|a| a == "--max");
 
     let mut app = App::new();
 
@@ -28,7 +29,9 @@ fn main() {
     app.add_systems(Update, screenshot_on_f10);
     #[cfg(feature = "dev")]
     {
-        // app.add_systems(Startup, max_framerate);
+        if max_framerate_mode {
+            app.add_systems(Startup, max_framerate);
+        }
         app.add_plugins((
             bevy::diagnostic::FrameTimeDiagnosticsPlugin::default(),
             bevy::diagnostic::SystemInformationDiagnosticsPlugin,
@@ -52,7 +55,7 @@ fn screenshot_on_f10(
     mut counter: Local<u32>,
     mut commands: Commands,
 ) {
-    use bevy::render::view::screenshot::{save_to_disk, Screenshot};
+    use bevy::render::view::screenshot::{Screenshot, save_to_disk};
     if input.just_pressed(KeyCode::F10) {
         let path = format!("./screenshot-{}.png", *counter);
         *counter += 1;

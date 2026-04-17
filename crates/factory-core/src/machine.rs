@@ -78,6 +78,31 @@ impl Buffer {
     pub fn view(&self) -> Vec<Stack> {
         self.slots.clone()
     }
+
+    fn count_of(&self, item: Item) -> u16 {
+        self.slots
+            .iter()
+            .find(|s| s.item == item)
+            .map(|s| s.count)
+            .unwrap_or(0)
+    }
+
+    /// Returns true if inserting `stacks` would push any item type over its
+    /// stack size limit, given what's already in this buffer.
+    ///
+    /// When a recipe output itself exceeds one stack (edge case), this buffer
+    /// must be completely empty of that item before another cycle can start.
+    pub fn would_overflow(&self, stacks: &[Stack]) -> bool {
+        stacks.iter().any(|stack| {
+            let current = self.count_of(stack.item);
+            let stack_size = stack.item.stack_size();
+            if stack.count >= stack_size {
+                current > 0
+            } else {
+                current + stack.count > stack_size
+            }
+        })
+    }
 }
 
 #[derive(Component, Default, Debug, PartialEq)]
@@ -130,11 +155,13 @@ impl Furnace {
         match &mut self.status {
             MachineStatus::Idle => {
                 if let Some(recipe) = recipes.iter().find(|r| input.contains(&[r.input])) {
-                    input.remove(&[recipe.input]);
-                    self.status = MachineStatus::Processing {
-                        recipe: *recipe,
-                        elapsed_ticks: 1,
-                    };
+                    if !output.would_overflow(&[recipe.output]) {
+                        input.remove(&[recipe.input]);
+                        self.status = MachineStatus::Processing {
+                            recipe: *recipe,
+                            elapsed_ticks: 1,
+                        };
+                    }
                 }
             }
             MachineStatus::Processing { elapsed_ticks, .. } => {
@@ -181,7 +208,11 @@ impl Furnace {
         } else {
             // Selected on specific item(s); accept only those that aren't full (< 2x needed)
             Filter::from_iter(selected.into_iter().filter_map(|(item, count, needed)| {
-                if count < needed * 2 { Some(item) } else { None }
+                if count < needed * 2 {
+                    Some(item)
+                } else {
+                    None
+                }
             }))
         }
     }
@@ -212,7 +243,7 @@ impl Assembler {
         match &mut self.status {
             MachineStatus::Idle => {
                 if let Some(r) = recipe {
-                    if input.contains(&r.input) {
+                    if input.contains(&r.input) && !output.would_overflow(&r.output) {
                         input.remove(&r.input);
                         self.status = MachineStatus::Processing {
                             recipe: r,

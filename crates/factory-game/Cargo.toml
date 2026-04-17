@@ -6,7 +6,8 @@ edition = "2024"
 [features]
 default = ["invariant-check", "dev"]
 invariant-check = ["factory-core/invariant-check"]
-dev = ["bevy/bevy_dev_tools", "bevy/trace_chrome"]
+dev = ["bevy/bevy_dev_tools"]
+trace = ["bevy/trace_chrome"]
 
 [dependencies]
 factory-core = {path = "../factory-core"}

@@ -70,7 +70,7 @@ impl Plugin for CorePlugin {
         app.add_observer(on_set_assembler_recipe);
         app.add_observer(on_set_source_item);
 
-        let mut inv = Inventory::new();
+        let mut inv = Inventory::with_max_slots(64);
         inv.insert(Stack::new(Item::Belt, 15)).unwrap();
         inv.insert(Stack::new(Item::Source, 5)).unwrap();
         inv.insert(Stack::new(Item::Sink, 5)).unwrap();
@@ -775,7 +775,9 @@ fn on_remove_block(
         }
         if let Ok(mut inv) = params.p1().get_mut(player.0) {
             for stack in stacks {
-                inv.insert(stack).unwrap();
+                if let Err(e) = inv.insert(stack) {
+                    warn!("Could not add {:?} to player inventory: {e}", stack.item);
+                }
             }
         }
     }
@@ -1189,7 +1191,10 @@ fn fill_miners(
         let Some(item) = block.mine() else {
             continue;
         };
-        buffer.insert(&[item.into()]);
+        let stack = item.into();
+        if !buffer.would_overflow(&[stack]) {
+            buffer.insert(&[stack]);
+        }
     }
 }
 
