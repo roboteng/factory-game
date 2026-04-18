@@ -127,9 +127,10 @@ pub struct Incline {
 
 impl PlaceBlock {
     fn to_bundle(&self) -> impl Bundle {
-        let transform =
-            Transform::from_translation(Vec3::from(self.coords) + self.block.size().center_offset())
-                .with_rotation(Quat::from_rotation_y(self.dir.angle()));
+        let transform = Transform::from_translation(
+            Vec3::from(self.coords) + self.block.size().center_offset(),
+        )
+        .with_rotation(Quat::from_rotation_y(self.dir.angle()));
         (self.block, self.coords, self.dir, transform)
     }
 }
@@ -425,7 +426,6 @@ pub enum WorldBlock {
 }
 
 impl WorldBlock {
-    #[expect(unused)]
     pub fn name(self) -> &'static str {
         match self {
             WorldBlock::Belt => "Belt",
@@ -1656,7 +1656,6 @@ pub fn test_app() -> App {
 #[derive(Debug)]
 pub enum ItemPlacementError {
     BeltNotFound,
-    #[expect(unused)]
     PositionOutOfBounds,
     PositionOccupied,
 }

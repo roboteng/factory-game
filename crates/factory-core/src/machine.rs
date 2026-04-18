@@ -208,11 +208,7 @@ impl Furnace {
         } else {
             // Selected on specific item(s); accept only those that aren't full (< 2x needed)
             Filter::from_iter(selected.into_iter().filter_map(|(item, count, needed)| {
-                if count < needed * 2 {
-                    Some(item)
-                } else {
-                    None
-                }
+                if count < needed * 2 { Some(item) } else { None }
             }))
         }
     }

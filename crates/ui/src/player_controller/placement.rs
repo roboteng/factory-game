@@ -1,4 +1,4 @@
-use super::{cast_ray, FirstPersonCamera, PlacementDirection, RayTarget};
+use super::{FirstPersonCamera, PlacementDirection, RayTarget, cast_ray};
 use crate::hotbar::{Hotbar, PlacementItem};
 use crate::visuals::BlockModels;
 use crate::{InteractionMode, WorldMode};
