@@ -527,6 +527,20 @@ impl BlockSize {
     pub fn is_full_block(&self) -> bool {
         self.height % 2 == 0
     }
+
+    /// Returns all `WorldCoords` cells occupied by a block of this size
+    /// placed at `origin`. The footprint always extends East and South from
+    /// the origin corner.
+    pub fn occupied_coords(&self, origin: WorldCoords) -> impl Iterator<Item = WorldCoords> + '_ {
+        let (w, h, d) = (self.width as i32, self.height as i32, self.depth as i32);
+        (0..w).flat_map(move |dx| {
+            (0..d).flat_map(move |dz| {
+                (0..h).map(move |dy| {
+                    origin.step(WorldCoordsDelta::ZERO.east(dx).south(dz).height(dy))
+                })
+            })
+        })
+    }
 }
 
 /// What is dropped when a player breaks a block.
@@ -616,12 +630,7 @@ fn on_place_block(
     // Full-height blocks must sit at an even y coordinate. If the ray lands
     // on an odd slot (e.g. top face of a belt), snap down to the nearest even.
     let coords = if size.is_full_block() {
-        let coords = event.coords.snap_height_even();
-        if coord_map.0.contains_key(&coords.step(Dir::Up)) {
-            cmd.entity(event.entity).despawn();
-            return;
-        }
-        coords
+        event.coords.snap_height_even()
     } else {
         event.coords
     };
@@ -633,14 +642,20 @@ fn on_place_block(
 
     let rt = size.into_raycast_target(event.dir);
 
-    // Check for an existing block at this location.
-    if let Some(&existing) = coord_map.0.get(&coords) {
+    // Check if any cell the block would occupy is already taken.
+    let first_conflict = size
+        .occupied_coords(coords)
+        .find(|c| coord_map.0.contains_key(c));
+
+    if let Some(conflict) = first_conflict {
         if event.block == WorldBlock::Belt {
-            if let Ok(old_lanes) = belts_q.get(existing) {
+            if let Some(&existing) = coord_map.0.get(&conflict)
+                && let Ok(old_lanes) = belts_q.get(existing)
+            {
                 // Belt-on-belt: replace the old belt and transfer its items to the new one.
                 let transferred = old_lanes.0.clone();
                 cmd.entity(existing).despawn();
-                coord_map.0.remove(&coords);
+                coord_map.0.remove(&conflict);
                 cmd.entity(event.entity)
                     .insert((Belt, ItemLanes(transferred), rt));
                 cmd.entity(event.entity).insert(place.to_bundle());
@@ -730,10 +745,9 @@ fn on_place_block(
     };
 
     cmd.entity(event.entity).insert(place.to_bundle());
-    coord_map.0.insert(coords, event.entity);
-    // Register the second slot for full-height blocks.
-    if size.is_full_block() {
-        coord_map.0.insert(coords.step(Dir::Up), event.entity);
+    // Register every cell the block occupies.
+    for c in size.occupied_coords(coords) {
+        coord_map.0.insert(c, event.entity);
     }
 }
 
@@ -779,11 +793,14 @@ fn on_remove_block(
         cmd.entity(other).insert(DirtyBelt);
     }
     if let Ok(coords) = coords_q.get(event.entity) {
-        coord_map.0.remove(coords);
-        // Remove the top slot if this entity registered it (full-height blocks).
-        let top = coords.step(Dir::Up);
-        if coord_map.0.get(&top) == Some(&event.entity) {
-            coord_map.0.remove(&top);
+        if let Ok(&block) = blocks_q.get(event.entity) {
+            for c in block.size().occupied_coords(*coords) {
+                if coord_map.0.get(&c) == Some(&event.entity) {
+                    coord_map.0.remove(&c);
+                }
+            }
+        } else {
+            coord_map.0.remove(coords);
         }
     }
     if let Ok(lanes) = lanes_q.get(event.entity) {
