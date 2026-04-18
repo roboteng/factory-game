@@ -507,7 +507,8 @@ struct RayHit {
 
 /// Cast a ray from the camera and look up the hit entity in the coord map.
 struct ResolvedHit {
-    coords: WorldCoords,
+    /// World-space bottom-centre of the block (entity Transform translation).
+    center: Vec3,
     entity: Entity,
     half_extents: Vec3,
 }
@@ -517,20 +518,21 @@ fn raycast_and_resolve(
     forward: Vec3,
     targets: impl Iterator<Item = RayTarget>,
     coord_map: &CoordsMap,
-    find_entity: impl Fn(Entity) -> Option<(WorldCoords, Vec3)>,
+    find_entity: impl Fn(Entity) -> Option<(Vec3, Vec3)>,
 ) -> Option<ResolvedHit> {
     let hit = cast_ray(origin, forward, targets)?;
     let &entity = coord_map.0.get(&hit.hit_coords)?;
-    let (coords, half_extents) = find_entity(entity)?;
+    let (center, half_extents) = find_entity(entity)?;
     Some(ResolvedHit {
-        coords,
+        center,
         entity,
         half_extents,
     })
 }
 
 fn cast_ray(origin: Vec3, dir: Vec3, targets: impl Iterator<Item = RayTarget>) -> Option<RayHit> {
-    let mut best: Option<(f32, WorldCoords, [i32; 3])> = None;
+    // (t_enter, hit_coords, enter_axis, y_slots)
+    let mut best: Option<(f32, WorldCoords, usize, i32)> = None;
 
     'outer: for RayTarget {
         coords,
@@ -572,29 +574,39 @@ fn cast_ray(origin: Vec3, dir: Vec3, targets: impl Iterator<Item = RayTarget>) -
             continue; // miss
         }
 
-        if best.map_or(true, |(best_t, _, _)| t_enter < best_t) {
-            let mut offset = [0i32; 3];
-            // How many half-block y-slots does this block occupy?
+        if best.map_or(true, |(best_t, _, _, _)| t_enter < best_t) {
             let y_slots = (2.0 * half_extents.y / 0.5).round() as i32;
-            if enter_axis == 1 {
-                // Top/bottom face: step past all occupied y slots.
-                offset[1] = if dir[1] > 0.0 { -y_slots } else { y_slots };
-            } else {
-                // Side face: snap Y to whichever half-block slot the ray actually
-                // hit, clamped to the block's own occupied slots.
-                let hit_world_y = origin[1] + t_enter * dir[1];
-                let raw_y = (hit_world_y / 0.5).round() as i32;
-                let snapped_y = raw_y.clamp(coords.height(), coords.height() + y_slots - 1);
-                offset[1] = snapped_y - coords.height();
-                offset[enter_axis] = if dir[enter_axis] > 0.0 { -1 } else { 1 };
-            }
-            best = Some((t_enter, coords, offset));
+            best = Some((t_enter, coords, enter_axis, y_slots));
         }
     }
 
-    best.map(|(_, hit_coords, offset)| {
-        let place_coords =
-            hit_coords + WorldCoordsDelta::from_axes(offset[0], offset[1], offset[2]);
+    best.map(|(t_enter, hit_coords, enter_axis, y_slots)| {
+        let hit = origin + t_enter * dir;
+        let base_y = hit_coords.height();
+
+        let place_coords = if enter_axis == 1 {
+            // Top/bottom face: use the hit x/z to pick the target cell, then step
+            // y past all slots the block occupies.
+            let px = hit.x.round() as i32;
+            let pz = hit.z.round() as i32;
+            let py = if dir.y > 0.0 {
+                base_y - y_slots
+            } else {
+                base_y + y_slots
+            };
+            WorldCoords::from((px, py, pz))
+        } else {
+            // Side face: step one cell outward from the actual face position on
+            // the hit axis, and snap y to the block's occupied half-block range.
+            let raw_y = (hit.y / 0.5).round() as i32;
+            let py = raw_y.clamp(base_y, base_y + y_slots - 1);
+            let mut place = [hit.x.round() as i32, py, hit.z.round() as i32];
+            // On the entry axis, offset outward by half a cell so the rounded
+            // result lands in the adjacent cell rather than on the face itself.
+            place[enter_axis] = (hit[enter_axis] - dir[enter_axis].signum() * 0.5).round() as i32;
+            WorldCoords::from((place[0], place[1], place[2]))
+        };
+
         RayHit {
             hit_coords,
             place_coords,
@@ -678,7 +690,7 @@ fn update_delete_preview(
             targets
                 .get(e)
                 .ok()
-                .map(|(wc, _, rt)| (*wc, rt.half_extents))
+                .map(|(_, tr, rt)| (tr.translation, rt.half_extents))
         },
     ) else {
         **vis = Visibility::Hidden;
@@ -686,7 +698,7 @@ fn update_delete_preview(
     };
 
     **vis = Visibility::Visible;
-    let mut pos = Vec3::from(resolved.coords);
+    let mut pos = resolved.center;
     pos.y += resolved.half_extents.y;
     t.translation = pos;
     t.scale = resolved.half_extents * 2.0 * 1.05;
@@ -736,7 +748,7 @@ fn handle_change_incline(
             targets
                 .get(e)
                 .ok()
-                .map(|(wc, _, rt)| (*wc, rt.half_extents))
+                .map(|(_, tr, rt)| (tr.translation, rt.half_extents))
         },
     ) else {
         **vis = Visibility::Hidden;
@@ -744,7 +756,7 @@ fn handle_change_incline(
     };
 
     **vis = Visibility::Visible;
-    let mut pos = Vec3::from(resolved.coords);
+    let mut pos = resolved.center;
     pos.y += resolved.half_extents.y;
     t.translation = pos;
     t.scale = resolved.half_extents * 2.0 * 1.05;
@@ -825,13 +837,13 @@ fn draw_crosshair_gizmo(
             targets
                 .get(e)
                 .ok()
-                .map(|(wc, _, rt)| (*wc, rt.half_extents))
+                .map(|(_, t, rt)| (t.translation, rt.half_extents))
         },
     ) else {
         return;
     };
 
-    let mut pos = Vec3::from(resolved.coords);
+    let mut pos = resolved.center;
     pos.y += resolved.half_extents.y;
     let size = resolved.half_extents * 2.0;
 

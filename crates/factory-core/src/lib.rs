@@ -127,13 +127,10 @@ pub struct Incline {
 
 impl PlaceBlock {
     fn to_bundle(&self) -> impl Bundle {
-        (
-            self.block,
-            self.coords,
-            self.dir,
-            Transform::from_translation(self.coords.into())
-                .with_rotation(Quat::from_rotation_y(self.dir.angle())),
-        )
+        let translation = Vec3::from(self.coords) + self.block.size().center_offset();
+        let transform = Transform::from_translation(translation)
+            .with_rotation(Quat::from_rotation_y(self.dir.angle()));
+        (self.block, self.coords, self.dir, transform)
     }
 }
 
@@ -516,6 +513,17 @@ impl BlockSize {
         }
     }
 
+    /// World-space (x, z) offset from the placement coordinate to the entity's
+    /// visual centre. Always extends in the +x / +z direction; the model
+    /// rotation handles facing. Returns `Vec3::ZERO` for 1×1 blocks.
+    pub fn center_offset(&self) -> Vec3 {
+        Vec3::new(
+            (self.width - 1) as f32 * 0.5,
+            0.0,
+            (self.depth - 1) as f32 * 0.5,
+        )
+    }
+
     pub fn is_full_block(&self) -> bool {
         self.height % 2 == 0
     }
@@ -599,13 +607,21 @@ fn on_place_block(
     mut coord_map: ResMut<CoordsMap>,
     belts_q: Query<&ItemLanes, With<Belt>>,
 ) {
+    debug!(
+        "Placing {:?} at {:?} facing {:?}",
+        event.coords, event.block, event.dir
+    );
     let size = event.block.size();
-    let is_full = size.height % 2 == 0;
 
     // Full-height blocks must sit at an even y coordinate. If the ray lands
     // on an odd slot (e.g. top face of a belt), snap down to the nearest even.
-    let coords = if is_full {
-        event.coords.snap_height_even()
+    let coords = if size.is_full_block() {
+        let coords = event.coords.snap_height_even();
+        if coord_map.0.contains_key(&coords.step(Dir::Up)) {
+            cmd.entity(event.entity).despawn();
+            return;
+        }
+        coords
     } else {
         event.coords
     };
@@ -615,16 +631,6 @@ fn on_place_block(
         ..*event.event()
     };
 
-    debug!(
-        "Placing {:?} at {coords:?} facing {:?}",
-        event.block, event.dir
-    );
-
-    // For full-height blocks, also check the top slot.
-    if is_full && coord_map.0.contains_key(&coords.step(Dir::Up)) {
-        cmd.entity(event.entity).despawn();
-        return;
-    }
     let rt = size.into_raycast_target(event.dir);
 
     // Check for an existing block at this location.
@@ -726,7 +732,7 @@ fn on_place_block(
     cmd.entity(event.entity).insert(place.to_bundle());
     coord_map.0.insert(coords, event.entity);
     // Register the second slot for full-height blocks.
-    if is_full {
+    if size.is_full_block() {
         coord_map.0.insert(coords.step(Dir::Up), event.entity);
     }
 }

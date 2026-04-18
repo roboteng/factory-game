@@ -1,4 +1,4 @@
-use super::{FirstPersonCamera, PlacementDirection, RayTarget, cast_ray};
+use super::{cast_ray, FirstPersonCamera, PlacementDirection, RayTarget};
 use crate::hotbar::{Hotbar, PlacementItem};
 use crate::visuals::BlockModels;
 use crate::{InteractionMode, WorldMode};
@@ -406,7 +406,7 @@ pub(super) fn update_single_ghost(
         };
         match coords {
             Some(c) => {
-                transform.translation = Vec3::from(c);
+                transform.translation = Vec3::from(c) + target.block.size().center_offset();
                 transform.rotation = Quat::from_rotation_y(target.facing.angle());
                 *vis = Visibility::Visible;
             }
@@ -420,7 +420,7 @@ pub(super) fn update_single_ghost(
             GhostPreview,
             SingleGhost,
             NeedsGhostTint(color),
-            Transform::from_translation(Vec3::from(c))
+            Transform::from_translation(Vec3::from(c) + target.block.size().center_offset())
                 .with_rotation(Quat::from_rotation_y(target.facing.angle())),
             Visibility::Visible,
         ));
