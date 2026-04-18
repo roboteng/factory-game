@@ -603,7 +603,7 @@ fn cast_ray(origin: Vec3, dir: Vec3, targets: impl Iterator<Item = RayTarget>) -
             let mut place = [hit.x.round() as i32, py, hit.z.round() as i32];
             // On the entry axis, offset outward by half a cell so the rounded
             // result lands in the adjacent cell rather than on the face itself.
-            place[enter_axis] = (hit[enter_axis] - dir[enter_axis].signum() * 0.5).round() as i32;
+            place[enter_axis] = (hit[enter_axis] - dir[enter_axis].signum() * 0.5).floor() as i32;
             WorldCoords::from((place[0], place[1], place[2]))
         };
 

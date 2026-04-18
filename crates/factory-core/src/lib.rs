@@ -127,9 +127,9 @@ pub struct Incline {
 
 impl PlaceBlock {
     fn to_bundle(&self) -> impl Bundle {
-        let translation = Vec3::from(self.coords) + self.block.size().center_offset();
-        let transform = Transform::from_translation(translation)
-            .with_rotation(Quat::from_rotation_y(self.dir.angle()));
+        let transform =
+            Transform::from_translation(Vec3::from(self.coords) + self.block.size().center_offset())
+                .with_rotation(Quat::from_rotation_y(self.dir.angle()));
         (self.block, self.coords, self.dir, transform)
     }
 }
