@@ -161,6 +161,35 @@ impl WorldCoordsDelta {
             ..self
         }
     }
+
+    pub fn dir(self, dir: impl Into<Dir>, count: usize) -> Self {
+        let mut diff = Self::ZERO;
+        match dir.into() {
+            Dir::Up => {
+                diff.y += count as i32;
+            }
+            Dir::Down => {
+                diff.y -= count as i32;
+            }
+            Dir::North => {
+                diff.z -= count as i32;
+            }
+            Dir::South => {
+                diff.z += count as i32;
+            }
+            Dir::East => {
+                diff.x += count as i32;
+            }
+            Dir::West => {
+                diff.x -= count as i32;
+            }
+        }
+        self + diff
+    }
+
+    pub(crate) const fn xyz(self) -> (i32, i32, i32) {
+        (self.x, self.y, self.z)
+    }
 }
 
 impl From<Dir> for WorldCoordsDelta {

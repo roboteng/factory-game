@@ -26,7 +26,7 @@ fn main() {
 // ── Test helpers ──────────────────────────────────────────────────────────────
 
 pub fn init_tracing() {
-    use tracing_subscriber::{fmt, EnvFilter};
+    use tracing_subscriber::{EnvFilter, fmt};
     let _ = fmt()
         .with_env_filter(
             EnvFilter::try_from_default_env()

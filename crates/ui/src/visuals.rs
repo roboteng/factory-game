@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 
-use factory_core::{BeltShape, Corn, Item, PlaceItem, WorldBlock, ITEM_SIZE};
+use factory_core::{BeltShape, Corn, ITEM_SIZE, Item, PlaceItem, WorldBlock};
 
 use crate::player_controller::NeedsGhostTint;
 

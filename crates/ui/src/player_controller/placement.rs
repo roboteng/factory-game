@@ -1,4 +1,4 @@
-use super::{cast_ray, FirstPersonCamera, PlacementDirection, RayTarget};
+use super::{FirstPersonCamera, PlacementDirection, RayTarget, cast_ray};
 use crate::hotbar::{Hotbar, PlacementItem};
 use crate::visuals::BlockModels;
 use crate::{InteractionMode, WorldMode};
@@ -378,7 +378,7 @@ pub(super) fn update_single_ghost(
         return;
     }
 
-    let is_full = target.block.raycast_target().half_extents.y > 0.25;
+    let is_full = target.block.size().is_full_block();
     let coords = target
         .raycast_coords
         .map(|c| if is_full { c.snap_height_even() } else { c });

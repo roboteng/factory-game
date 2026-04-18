@@ -138,6 +138,13 @@ fn spawn_flat_belts(mut cmd: Commands) {
         coords: o.step(HDir::South),
         dir: HDir::North,
     });
+    let entity = cmd.spawn_empty().id();
+    cmd.trigger(PlaceBlock {
+        entity,
+        block: WorldBlock::Furnace,
+        coords: o.step(WorldCoordsDelta::ZERO.west(3)),
+        dir: HDir::North,
+    });
 }
 
 fn spawn_perlin_terrain(mut cmd: Commands, config: Res<WorldGenConfig>) {

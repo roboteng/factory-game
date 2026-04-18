@@ -315,7 +315,7 @@ struct DirtyBelt;
 /// Marks an entity as a target for block-placement raycasts.
 /// `half_extents` is the AABB half-size on each axis, centred on the entity's
 /// `Transform` translation.
-#[derive(Component, Clone, Copy)]
+#[derive(Component, Debug, Clone, Copy, PartialEq)]
 pub struct RaycastTarget {
     pub half_extents: Vec3,
 }
@@ -472,11 +472,52 @@ impl WorldBlock {
         }
     }
 
-    pub fn raycast_target(self) -> RaycastTarget {
+    pub fn size(self) -> BlockSize {
         match self {
-            WorldBlock::Belt => RaycastTarget::HALF_BLOCK,
-            _ => RaycastTarget::FULL_BLOCK,
+            WorldBlock::Belt => BlockSize {
+                height: 1,
+                width: 1,
+                depth: 1,
+            },
+            WorldBlock::Furnace => BlockSize {
+                height: 6,
+                width: 2,
+                depth: 2,
+            },
+            _ => BlockSize {
+                height: 2,
+                width: 1,
+                depth: 1,
+            },
         }
+    }
+}
+
+pub struct BlockSize {
+    /// Half blocks
+    pub height: u8,
+    pub width: u8,
+    pub depth: u8,
+}
+
+impl BlockSize {
+    pub fn into_raycast_target(&self, dir: HDir) -> RaycastTarget {
+        let d = WorldCoordsDelta::ZERO
+            .height(self.height.into())
+            .dir(dir, self.depth.into())
+            .dir(dir.left(), self.width.into());
+        let (x, y, z) = d.xyz();
+        fn f(a: i32) -> f32 {
+            (a as f32).abs() / 2.0
+        }
+        let (x, y, z) = (f(x), f(y) / 2.0, f(z));
+        RaycastTarget {
+            half_extents: Vec3::new(x, y, z),
+        }
+    }
+
+    pub fn is_full_block(&self) -> bool {
+        self.height % 2 == 0
     }
 }
 
@@ -558,8 +599,8 @@ fn on_place_block(
     mut coord_map: ResMut<CoordsMap>,
     belts_q: Query<&ItemLanes, With<Belt>>,
 ) {
-    let rt = event.block.raycast_target();
-    let is_full = rt.half_extents.y > 0.25;
+    let size = event.block.size();
+    let is_full = size.height % 2 == 0;
 
     // Full-height blocks must sit at an even y coordinate. If the ray lands
     // on an odd slot (e.g. top face of a belt), snap down to the nearest even.
@@ -584,6 +625,7 @@ fn on_place_block(
         cmd.entity(event.entity).despawn();
         return;
     }
+    let rt = size.into_raycast_target(event.dir);
 
     // Check for an existing block at this location.
     if let Some(&existing) = coord_map.0.get(&coords) {
@@ -2228,5 +2270,19 @@ mod tests {
             "expected at least 1 iron ore in furnace input buffer, got: {:?}",
             input_buf.slots,
         );
+    }
+
+    #[test]
+    fn into_raycast() {
+        let i = BlockSize {
+            height: 2,
+            width: 1,
+            depth: 1,
+        };
+        let actual = i.into_raycast_target(HDir::South);
+        let expected = RaycastTarget {
+            half_extents: Vec3::new(0.5, 0.5, 0.5),
+        };
+        assert_eq!(actual, expected);
     }
 }

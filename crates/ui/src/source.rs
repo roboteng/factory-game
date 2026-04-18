@@ -3,7 +3,7 @@ use bevy::prelude::*;
 use factory_core::{Item, SetSourceItem};
 
 use super::common::{
-    section_label, spawn_title_bar, LABEL_FONT_SIZE, PANE_BG, SLOT_BG, SLOT_BORDER,
+    LABEL_FONT_SIZE, PANE_BG, SLOT_BG, SLOT_BORDER, section_label, spawn_title_bar,
 };
 use super::{InteractionMode, ScreenMode};
 
