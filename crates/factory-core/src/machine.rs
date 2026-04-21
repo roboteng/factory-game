@@ -208,7 +208,11 @@ impl Furnace {
         } else {
             // Selected on specific item(s); accept only those that aren't full (< 2x needed)
             Filter::from_iter(selected.into_iter().filter_map(|(item, count, needed)| {
-                if count < needed * 2 { Some(item) } else { None }
+                if count < needed * 2 {
+                    Some(item)
+                } else {
+                    None
+                }
             }))
         }
     }
@@ -304,7 +308,7 @@ impl WorldDrop for Assembler {
     }
 }
 
-#[derive(Component, Debug, PartialEq)]
+#[derive(Component, Debug, PartialEq, Clone)]
 pub struct Filter(HashSet<Item>);
 
 impl Filter {
@@ -338,7 +342,7 @@ impl From<Recipe> for Filter {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum CollectorState {
     ReadyToPickUp,
     MovingItem {
@@ -347,9 +351,14 @@ pub enum CollectorState {
         start: Vec3,
         end: Vec3,
         ticks: u32,
+        /// True on the first tick after pickup — the system will trigger `PlaceItem`
+        /// so the UI plugin can attach a model. Cleared after the first tick to
+        /// prevent triggering `PlaceItem` on an entity that already has visuals.
+        needs_place_item: bool,
     },
     ReadyToDropOff {
         item: Item,
+        visual: Entity,
     },
     MovingToStart {
         ticks: u32,
@@ -361,8 +370,18 @@ pub struct Collector {
     pub state: CollectorState,
 }
 
+impl Collector {
+    pub fn new() -> Self {
+        Self {
+            state: CollectorState::ReadyToPickUp,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use bevy::ecs::relationship::RelationshipSourceCollection;
+
     use super::*;
 
     #[test]

@@ -1,5 +1,4 @@
 use bevy::{math::ops::sin_cos, prelude::*, reflect::reflect_trait};
-use derivative::Derivative;
 use std::any::TypeId;
 use std::collections::HashMap;
 use std::f32::consts::PI;
@@ -135,16 +134,10 @@ impl PlaceBlock {
     }
 }
 
-#[derive(EntityEvent, Derivative)]
-#[derivative(Debug)]
+#[derive(EntityEvent, Debug, Clone, Copy)]
 pub struct PlaceItem {
     pub entity: Entity,
     pub item: Item,
-    pub belt: Entity,
-    pub lane: Side,
-    pub position: i32,
-    #[derivative(Debug = "ignore")]
-    pub on_error: Box<dyn Fn(Commands, ItemPlacementError) + Send + Sync + 'static>,
 }
 
 #[derive(EntityEvent, Debug, Clone)]
@@ -334,8 +327,8 @@ pub struct OnBelt;
 
 pub type ItemPos = i32;
 
-#[derive(Component, Default)]
-pub struct ItemLanes(Sided<Vec<(ItemPos, Entity)>>);
+#[derive(Debug, Component, Default, PartialEq)]
+pub struct ItemLanes(pub Sided<Vec<(ItemPos, Entity)>>);
 
 /// Entities with this will get deleted in `PostUpdate'
 #[derive(Component)]
@@ -751,24 +744,13 @@ fn on_place_block(
     }
 }
 
-fn on_place_item(
-    event: On<PlaceItem>,
-    mut belts: Query<(&BeltShape, &WorldCoords, &mut ItemLanes), With<Belt>>,
-    mut cmd: Commands,
-) {
-    debug!("Placing item {:?} at {:?}", event.entity, event.belt);
-
-    let Ok(mut belt) = belts.get_mut(event.belt) else {
-        warn!("Couldn't find belt for the item");
-        cmd.entity(event.entity).insert(Delete);
-        return;
-    };
-    cmd.entity(event.entity).insert((
-        event.item,
-        OnBelt,
-        item_position(*belt.0, *belt.1, event.lane, event.position),
-    ));
-    belt.2.0[event.lane].push((event.position, event.entity));
+fn on_place_item(event: On<PlaceItem>, mut cmd: Commands, transforms: Query<&Transform>) {
+    if transforms.contains(event.entity) {
+        cmd.entity(event.entity).insert(event.item);
+    } else {
+        cmd.entity(event.entity)
+            .insert((event.item, Transform::default()));
+    }
 }
 
 fn on_remove_block(
@@ -1265,7 +1247,7 @@ fn fill_miners(
 
 fn push_to_belt(
     mut pushers: Query<(&mut OutputBuffer, &WorldCoords, &OutputsToBelt)>,
-    belts: Query<(Entity, &ItemLanes), With<Belt>>,
+    mut belts: Query<(Entity, &mut ItemLanes), With<Belt>>,
     coord_map: Res<CoordsMap>,
     mut cmd: Commands,
 ) {
@@ -1274,7 +1256,7 @@ fn push_to_belt(
         let Some(&belt_entity) = coord_map.0.get(&target) else {
             continue;
         };
-        let Ok((belt_entity, lanes)) = belts.get(belt_entity) else {
+        let Ok((belt_entity, mut lanes)) = belts.get_mut(belt_entity) else {
             continue;
         };
         if lanes.0.left.len() >= ITEMS_PER_BELT as usize {
@@ -1283,14 +1265,11 @@ fn push_to_belt(
         let Some(item) = buffer.remove_any() else {
             continue;
         };
-        let entity = cmd.spawn_empty().id();
+        let entity = cmd.spawn(OnBelt).id();
+        lanes.0.left.push((POSITIONS_PER_BELT, entity));
         cmd.trigger(PlaceItem {
             entity,
             item: item.item,
-            belt: belt_entity,
-            lane: Side::Left,
-            position: POSITIONS_PER_BELT,
-            on_error: Box::new(|_, _| {}),
         });
     }
 }
@@ -1339,64 +1318,62 @@ fn pull_from_belt(
 
 fn tick_collectors(
     mut collectors: Query<(&mut Collector, &WorldCoords, &HDir)>,
-    mut belts: Query<&mut ItemLanes, With<Belt>>,
+    mut belts: Query<(&mut ItemLanes, &BeltShape), With<Belt>>,
     items: Query<&Item, With<OnBelt>>,
-    mut machines: Query<(&mut InputBuffer, Option<&Filter>)>,
-    mut transforms: Query<&mut Transform>,
+    mut output_buffers: Query<&mut OutputBuffer>,
+    mut input_buffers: Query<(&mut InputBuffer, Option<&Filter>)>,
+    mut visual_transforms: Query<&mut Transform>,
     coord_map: Res<CoordsMap>,
     mut cmd: Commands,
 ) {
-    for (mut collector, coords, dir) in &mut collectors {
-        let dir = *dir;
-        let new_state = match &collector.state {
+    for (mut collector, &coords, &dir) in &mut collectors {
+        let forward = coords.step(dir);
+        let backward = coords.step(dir.opposite());
+        let forward_ent = coord_map.0.get(&forward).copied();
+        let backward_ent = coord_map.0.get(&backward).copied();
+
+        let pickup_pos = Vec3::from(backward) + Vec3::new(0.0, BELT_HEIGHT + 0.5, 0.0);
+        let dropoff_pos = Vec3::from(forward) + Vec3::new(0.0, BELT_HEIGHT + 0.5, 0.0);
+
+        let state = collector.state;
+        match state {
             CollectorState::ReadyToPickUp => {
-                let machine_coords = coords.step(dir);
-                let belt_coords = coords.step(dir.opposite());
-                let machine_filter = coord_map
-                    .0
-                    .get(&machine_coords)
-                    .and_then(|&e| machines.get(e).ok())
-                    .and_then(|(_, f)| f);
-                let Some(&belt_entity) = coord_map.0.get(&belt_coords) else {
-                    continue;
-                };
-                let Ok(mut lanes) = belts.get_mut(belt_entity) else {
-                    continue;
-                };
-                let mut grabbed = None;
-                for side in SIDES {
-                    let Some(lead) = lanes.0[side].get(0) else {
-                        continue;
-                    };
-                    if lead.0 != 0 {
-                        continue;
-                    }
-                    let item_entity = lead.1;
-                    let Ok(&item) = items.get(item_entity) else {
-                        continue;
-                    };
-                    if let Some(ref filter) = machine_filter {
-                        if !filter.accepts(item) {
-                            continue;
+                let Some(bwd) = backward_ent else { continue };
+
+                let maybe_item: Option<Item> = if let Ok((mut lanes, _)) = belts.get_mut(bwd) {
+                    let mut taken = None;
+                    // todo: remove from the closest side first
+                    for side in SIDES {
+                        if let Some(&(pos, item_ent)) = lanes.0[side].get(0) {
+                            if pos == 0 {
+                                if let Ok(&item) = items.get(item_ent) {
+                                    lanes.0[side].remove(0);
+                                    cmd.entity(item_ent).despawn();
+                                    taken = Some(item);
+                                    break;
+                                }
+                            }
                         }
                     }
-                    let start = transforms
-                        .get(item_entity)
-                        .map(|t| t.translation)
-                        .unwrap_or_default();
-                    let end = Vec3::from(coords.step(dir));
-                    lanes.0[side].remove(0);
-                    cmd.entity(item_entity).remove::<OnBelt>();
-                    grabbed = Some((item, item_entity, start, end));
-                    break;
+                    taken
+                } else if let Ok(mut out_buf) = output_buffers.get_mut(bwd) {
+                    out_buf.remove_any().map(|s| s.item)
+                } else {
+                    None
+                };
+
+                if let Some(item) = maybe_item {
+                    // todo: set translation based on pickup,items on belts should move smoothly
+                    let visual = cmd.spawn(Transform::from_translation(pickup_pos)).id();
+                    collector.state = CollectorState::MovingItem {
+                        item,
+                        visual,
+                        start: pickup_pos,
+                        end: dropoff_pos,
+                        ticks: 1,
+                        needs_place_item: true,
+                    };
                 }
-                grabbed.map(|(item, visual, start, end)| CollectorState::MovingItem {
-                    item,
-                    visual,
-                    start,
-                    end,
-                    ticks: 0,
-                })
             }
             CollectorState::MovingItem {
                 item,
@@ -1404,51 +1381,81 @@ fn tick_collectors(
                 start,
                 end,
                 ticks,
+                needs_place_item,
             } => {
-                let (item, visual, start, end) = (*item, *visual, *start, *end);
-                let ticks = *ticks + 1;
+                // todo: move this to when the entity is first created
+                if needs_place_item {
+                    cmd.trigger(PlaceItem {
+                        entity: visual,
+                        item,
+                    });
+                }
                 let t = (ticks as f32 / COLLECTOR_MOVE_TICKS as f32).min(1.0);
-                if let Ok(mut transform) = transforms.get_mut(visual) {
-                    transform.translation = start.lerp(end, t);
+                let pos = start.lerp(end, t);
+                if let Ok(mut transform) = visual_transforms.get_mut(visual) {
+                    transform.translation = pos;
                 }
                 if ticks >= COLLECTOR_MOVE_TICKS {
-                    cmd.entity(visual).despawn_children();
-                    cmd.entity(visual).despawn();
-                    Some(CollectorState::ReadyToDropOff { item })
+                    collector.state = CollectorState::ReadyToDropOff { item, visual };
                 } else {
-                    Some(CollectorState::MovingItem {
+                    collector.state = CollectorState::MovingItem {
                         item,
                         visual,
                         start,
                         end,
-                        ticks,
-                    })
+                        ticks: ticks + 1,
+                        needs_place_item: false,
+                    };
                 }
             }
-            CollectorState::ReadyToDropOff { item } => {
-                let item = *item;
-                let machine_coords = coords.step(dir);
-                let Some(&machine_entity) = coord_map.0.get(&machine_coords) else {
-                    continue;
-                };
-                let Ok((mut input, _)) = machines.get_mut(machine_entity) else {
-                    continue;
+            CollectorState::ReadyToDropOff { item, visual } => {
+                let Some(fwd) = forward_ent else { continue };
+
+                let deposited = if let Ok((mut in_buf, filter)) = input_buffers.get_mut(fwd) {
+                    if filter.map_or(true, |f| f.accepts(item)) {
+                        in_buf.insert(&[item.into()]);
+                        cmd.entity(visual).despawn();
+                        true
+                    } else {
+                        false
+                    }
+                } else if let Ok((mut lanes, shape)) = belts.get_mut(fwd) {
+                    let mut placed = false;
+                    for side in SIDES {
+                        let last_pos = lanes.0[side].last().map(|&(p, _)| p).unwrap_or(0);
+                        let n_pos = shape.num_pos(side);
+                        if (lanes.0[side].len() as i32) < ITEMS_PER_BELT
+                            && last_pos + ITEM_SPACING <= n_pos
+                        {
+                            let new_ent = cmd.spawn(OnBelt).id();
+                            lanes.0[side].push((n_pos, new_ent));
+                            cmd.trigger(PlaceItem {
+                                entity: new_ent,
+                                item,
+                            });
+                            cmd.entity(visual).despawn();
+                            placed = true;
+                            break;
+                        }
+                    }
+                    placed
+                } else {
+                    false
                 };
 
-                input.insert(&[item.into()]);
-                Some(CollectorState::MovingToStart { ticks: 0 })
-            }
-            CollectorState::MovingToStart { ticks } => {
-                let ticks = *ticks + 1;
-                if ticks >= COLLECTOR_MOVE_TICKS {
-                    Some(CollectorState::ReadyToPickUp)
-                } else {
-                    Some(CollectorState::MovingToStart { ticks })
+                if deposited {
+                    collector.state = CollectorState::MovingToStart {
+                        ticks: COLLECTOR_MOVE_TICKS,
+                    };
                 }
             }
-        };
-        if let Some(state) = new_state {
-            collector.state = state;
+            CollectorState::MovingToStart { ticks } => {
+                if ticks == 0 {
+                    collector.state = CollectorState::ReadyToPickUp;
+                } else {
+                    collector.state = CollectorState::MovingToStart { ticks: ticks - 1 };
+                }
+            }
         }
     }
 }
@@ -1798,21 +1805,13 @@ impl AppExtension for App {
     }
 
     fn add_item(&mut self, belt: Entity, pos: i32, lane: Side) -> Entity {
-        let entity = self.world_mut().spawn_empty().id();
+        let entity = self.world_mut().spawn(OnBelt).id();
+        if let Some(mut lanes) = self.world_mut().get_mut::<ItemLanes>(belt) {
+            lanes.0[lane].push((pos, entity));
+        }
         self.world_mut().trigger(PlaceItem {
             entity,
             item: Item::Belt,
-            belt,
-            lane,
-            position: pos,
-            on_error: Box::new(|mut commands, error| {
-                // Record the error in the PlacementErrors resource
-                commands.queue(move |world: &mut World| {
-                    if let Some(mut errors) = world.get_resource_mut::<PlacementErrors>() {
-                        errors.errors.push(error);
-                    }
-                });
-            }),
         });
         entity
     }
@@ -2253,6 +2252,94 @@ mod tests {
 
         let (c, _) = app.find_belt(ramp).unwrap();
         assert_eq!(c, BeltShape::RampUp(HDir::North));
+    }
+
+    #[test]
+    fn collector_deposits_item_into_furnace() {
+        let mut app = test_app();
+
+        // Layout (top = North = -z):
+        //   furnace at (0, 0, -2)  →  occupies z=-2 and z=-1
+        //   collector at (0, 0, 0) facing North
+        //     forward  = (0,0,-1) → inside furnace footprint
+        //     backward = (0,0, 1) → belt
+        //   belt at (0, 0, 1) facing North (exits toward collector)
+
+        let furnace = app.add_world_block((0i32, 0i32, -2i32), WorldBlock::Furnace);
+        let _collector = app.add_world_block((0i32, 0i32, 0i32), WorldBlock::Collector);
+        let belt = app.add_belt((0i32, 0i32, 1i32), HDir::North);
+        app.update(); // flush deferred component inserts
+
+        // Manually add an IronOre item at position 0 on the belt (head = exit end)
+        let item_entity = app
+            .world_mut()
+            .spawn((OnBelt, Item::IronOre, Transform::default()))
+            .id();
+        app.world_mut().get_mut::<ItemLanes>(belt).unwrap().0[Side::Left].push((0, item_entity));
+
+        // Check CoordsMap has the expected entries
+        {
+            let coord_map = app.world().resource::<CoordsMap>();
+            let furnace_cell: WorldCoords = (0i32, 0i32, -1i32).into();
+            let belt_cell: WorldCoords = (0i32, 0i32, 1i32).into();
+            assert!(
+                coord_map.0.contains_key(&furnace_cell),
+                "CoordsMap should have furnace at (0,0,-1)"
+            );
+            assert!(
+                coord_map.0.contains_key(&belt_cell),
+                "CoordsMap should have belt at (0,0,1)"
+            );
+        }
+
+        // Tick 1: collector should pick up the item
+        app.update();
+        {
+            let world = app.world_mut();
+            let collector_state = world.query::<&Collector>().single(world).unwrap().state;
+            assert!(
+                matches!(collector_state, CollectorState::MovingItem { .. }),
+                "after tick 1, collector should be MovingItem, got: {:?}",
+                collector_state
+            );
+        }
+
+        // Run COLLECTOR_MOVE_TICKS more ticks
+        for _ in 0..COLLECTOR_MOVE_TICKS {
+            app.update();
+        }
+
+        {
+            let world = app.world_mut();
+            let collector_state = world.query::<&Collector>().single(world).unwrap().state;
+            assert!(
+                matches!(collector_state, CollectorState::ReadyToDropOff { .. })
+                    || matches!(collector_state, CollectorState::MovingToStart { .. }),
+                "after move ticks, collector should be ReadyToDropOff or MovingToStart, got: {:?}",
+                collector_state
+            );
+        }
+
+        // A few more ticks to ensure deposit happens
+        for _ in 0..5 {
+            app.update();
+        }
+
+        // The furnace consumes the IronOre from InputBuffer immediately when it starts
+        // processing. So check that the furnace is now processing (or has produced output).
+        let furnace_component = app.world().get::<Furnace>(furnace).unwrap();
+        let input_buf = app.world().get::<InputBuffer>(furnace).unwrap();
+        let output_buf = app.world().get::<OutputBuffer>(furnace).unwrap();
+        assert!(
+            matches!(furnace_component.status, MachineStatus::Processing { .. })
+                || output_buf.slots.iter().any(|s| s.item == Item::IronIngot)
+                || input_buf.slots.iter().any(|s| s.item == Item::IronOre),
+            "expected furnace to be processing iron ore (collector delivered it), \
+             got status: {:?}, input: {:?}, output: {:?}",
+            furnace_component.status,
+            input_buf.slots,
+            output_buf.slots,
+        );
     }
 
     #[test]

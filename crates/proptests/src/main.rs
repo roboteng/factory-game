@@ -70,20 +70,13 @@ impl AppExt for App {
     }
 
     fn add_item(&mut self, belt: Entity, pos: i32, lane: Side) -> Entity {
-        let entity = self.world_mut().spawn_empty().id();
+        let entity = self.world_mut().spawn(OnBelt).id();
+        if let Some(mut lanes) = self.world_mut().get_mut::<ItemLanes>(belt) {
+            lanes.0[lane].push((pos, entity));
+        }
         self.world_mut().trigger(PlaceItem {
             entity,
             item: Item::Belt,
-            belt,
-            lane,
-            position: pos,
-            on_error: Box::new(|mut commands, error| {
-                commands.queue(move |world: &mut World| {
-                    if let Some(mut errors) = world.get_resource_mut::<PlacementErrors>() {
-                        errors.errors.push(error);
-                    }
-                });
-            }),
         });
         entity
     }
