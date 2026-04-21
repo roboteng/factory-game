@@ -1340,6 +1340,10 @@ fn tick_collectors(
             CollectorState::ReadyToPickUp => {
                 let Some(bwd) = backward_ent else { continue };
 
+                let forward_filter: Option<Filter> = forward_ent
+                    .and_then(|fwd_ent| input_buffers.get(fwd_ent).ok())
+                    .and_then(|(_, filter)| filter.cloned());
+
                 let maybe_item: Option<Item> = if let Ok((mut lanes, _)) = belts.get_mut(bwd) {
                     let mut taken = None;
                     // todo: remove from the closest side first
@@ -1347,17 +1351,25 @@ fn tick_collectors(
                         if let Some(&(pos, item_ent)) = lanes.0[side].get(0) {
                             if pos == 0 {
                                 if let Ok(&item) = items.get(item_ent) {
-                                    lanes.0[side].remove(0);
-                                    cmd.entity(item_ent).despawn();
-                                    taken = Some(item);
-                                    break;
+                                    if forward_filter.as_ref().map_or(true, |f| f.accepts(item)) {
+                                        lanes.0[side].remove(0);
+                                        cmd.entity(item_ent).despawn();
+                                        taken = Some(item);
+                                        break;
+                                    }
                                 }
                             }
                         }
                     }
                     taken
                 } else if let Ok(mut out_buf) = output_buffers.get_mut(bwd) {
-                    out_buf.remove_any().map(|s| s.item)
+                    let peeked = out_buf.slots.get(0).map(|s| s.item);
+                    match peeked {
+                        Some(item) if forward_filter.as_ref().map_or(true, |f| f.accepts(item)) => {
+                            out_buf.remove_any().map(|s| s.item)
+                        }
+                        _ => None,
+                    }
                 } else {
                     None
                 };
