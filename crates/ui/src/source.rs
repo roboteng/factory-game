@@ -1,4 +1,6 @@
+use bevy::input::mouse::{AccumulatedMouseScroll, MouseScrollUnit};
 use bevy::prelude::*;
+use bevy::ui::ComputedNode;
 
 use factory_core::{Item, SetSourceItem};
 
@@ -9,6 +11,9 @@ use super::{InteractionMode, ScreenMode};
 
 #[derive(Component)]
 pub(super) struct SourcePane;
+
+#[derive(Component)]
+pub(super) struct SourceScrollList;
 
 #[derive(Component)]
 pub(super) struct CloseSourceButton;
@@ -32,6 +37,7 @@ const ALL_ITEMS: &[Item] = &[
     Item::Furnace,
     Item::Assembler,
     Item::Collector,
+    Item::Gear,
 ];
 
 pub(super) fn setup_source_pane(mut cmd: Commands) {
@@ -53,13 +59,17 @@ pub(super) fn setup_source_pane(mut cmd: Commands) {
         spawn_title_bar(parent, "Source", CloseSourceButton);
 
         parent
-            .spawn(Node {
-                flex_direction: FlexDirection::Column,
-                padding: UiRect::all(Val::Px(16.0)),
-                overflow: Overflow::scroll_y(),
-                flex_grow: 1.0,
-                ..default()
-            })
+            .spawn((
+                Node {
+                    flex_direction: FlexDirection::Column,
+                    padding: UiRect::all(Val::Px(16.0)),
+                    overflow: Overflow::scroll_y(),
+                    flex_grow: 1.0,
+                    ..default()
+                },
+                ScrollPosition::default(),
+                SourceScrollList,
+            ))
             .with_children(|parent| {
                 section_label(parent, "Select Item to Produce");
                 for &item in ALL_ITEMS {
@@ -101,6 +111,31 @@ pub(super) fn update_source_pane(
     } else {
         **pane = Visibility::Hidden;
     }
+}
+
+const SCROLL_SPEED_LINE: f32 = 20.0;
+
+pub(super) fn handle_source_scroll(
+    scroll_input: Res<AccumulatedMouseScroll>,
+    mut scroll_q: Query<(&mut ScrollPosition, &ComputedNode), With<SourceScrollList>>,
+    mode: Res<InteractionMode>,
+) {
+    if !matches!(*mode, InteractionMode::InScreen(ScreenMode::Source(_))) {
+        return;
+    }
+    if scroll_input.delta == Vec2::ZERO {
+        return;
+    }
+    let Ok((mut scroll_pos, computed)) = scroll_q.single_mut() else {
+        return;
+    };
+    let dy = match scroll_input.unit {
+        MouseScrollUnit::Line => -scroll_input.delta.y * SCROLL_SPEED_LINE,
+        MouseScrollUnit::Pixel => -scroll_input.delta.y,
+    };
+    let max_offset =
+        (computed.content_size().y - computed.size().y) * computed.inverse_scale_factor();
+    scroll_pos.y = (scroll_pos.y + dy).clamp(0.0, max_offset.max(0.0));
 }
 
 pub(super) fn handle_source_item_button(

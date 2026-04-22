@@ -246,7 +246,7 @@ impl Recipes {
                 },
                 ticks: 100,
             }),
-            Recipe::AssemblerRecipe(machine::AssemblerRecipe {
+            Recipe::AssemblerRecipe(AssemblerRecipe {
                 input: vec![Stack {
                     item: Item::IronIngot,
                     count: 2,
@@ -290,6 +290,17 @@ impl Recipes {
                     count: 1,
                 }],
                 ticks: 150,
+            }),
+            Recipe::AssemblerRecipe(AssemblerRecipe {
+                input: vec![Stack {
+                    item: Item::IronIngot,
+                    count: 1,
+                }],
+                output: vec![Stack {
+                    item: Item::Gear,
+                    count: 1,
+                }],
+                ticks: 360,
             }),
         ])
     }
@@ -353,27 +364,30 @@ pub enum Item {
     CornKernels,
     CornStalk,
     Biomass,
+    Gear,
 }
 
 impl Item {
     pub fn name(self) -> &'static str {
+        use Item::*;
         match self {
-            Item::Belt => "Belt",
-            Item::Source => "Source",
-            Item::Sink => "Sink",
-            Item::Rock => "Rock",
-            Item::Dirt => "Dirt",
-            Item::IronOre => "Iron Ore",
-            Item::CopperOre => "Copper Ore",
-            Item::IronIngot => "Iron Ingot",
-            Item::CopperIngot => "Copper Ingot",
-            Item::Miner => "Miner",
-            Item::Furnace => "Furnace",
-            Item::Assembler => "Assembler",
-            Item::Collector => "Collector",
-            Item::CornKernels => "Corn Kernels",
-            Item::CornStalk => "Corn Stalk",
-            Item::Biomass => "Biomass",
+            Belt => "Belt",
+            Source => "Source",
+            Sink => "Sink",
+            Rock => "Rock",
+            Dirt => "Dirt",
+            IronOre => "Iron Ore",
+            CopperOre => "Copper Ore",
+            IronIngot => "Iron Ingot",
+            CopperIngot => "Copper Ingot",
+            Miner => "Miner",
+            Furnace => "Furnace",
+            Assembler => "Assembler",
+            Collector => "Collector",
+            CornKernels => "Corn Kernels",
+            CornStalk => "Corn Stalk",
+            Biomass => "Biomass",
+            Gear => "Gear",
         }
     }
 
@@ -394,8 +408,13 @@ impl Item {
             Item::Assembler => Some(WorldBlock::Assembler),
             Item::Collector => Some(WorldBlock::Collector),
             Item::CornKernels => Some(WorldBlock::Corn),
-            Item::IronOre | Item::CopperOre | Item::IronIngot | Item::CopperIngot => None,
-            Item::CornStalk | Item::Biomass => None,
+            Item::IronOre
+            | Item::CopperOre
+            | Item::IronIngot
+            | Item::CopperIngot
+            | Item::CornStalk
+            | Item::Biomass
+            | Item::Gear => None,
         }
     }
 }

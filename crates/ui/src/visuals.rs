@@ -71,6 +71,7 @@ struct ItemModels {
     corn_kernels: ItemModelDef,
     corn_stalk: ItemModelDef,
     biomass: ItemModelDef,
+    gear: ItemModelDef,
 }
 
 fn setup_models(mut cmd: Commands, asset_server: Res<AssetServer>) {
@@ -176,8 +177,14 @@ fn setup_models(mut cmd: Commands, asset_server: Res<AssetServer>) {
         copper_ore: ItemModelDef::Color(Color::srgb(0.7, 0.4, 0.15), 1.0),
         iron_ingot: ItemModelDef::Color(Color::srgb(0.7, 0.7, 0.75), 1.0),
         copper_ingot: ItemModelDef::Color(Color::srgb(0.8, 0.5, 0.2), 1.0),
-        miner: ItemModelDef::Color(Color::srgb(0.3, 0.3, 0.5), 1.0),
-        furnace: ItemModelDef::Color(Color::srgb(0.8, 0.4, 0.1), 1.0),
+        miner: ItemModelDef::Mesh(
+            asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Miner.glb")),
+            1.0,
+        ),
+        furnace: ItemModelDef::Mesh(
+            asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Furnace.glb")),
+            0.5,
+        ),
         assembler: ItemModelDef::Color(Color::srgb(0.6, 0.4, 0.5), 1.0),
         collector: ItemModelDef::Mesh(
             asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Collector.glb")),
@@ -186,6 +193,10 @@ fn setup_models(mut cmd: Commands, asset_server: Res<AssetServer>) {
         corn_kernels: ItemModelDef::Color(Color::srgb(0.95, 0.85, 0.2), 1.0),
         corn_stalk: ItemModelDef::Color(Color::srgb(0.3, 0.7, 0.2), 1.0),
         biomass: ItemModelDef::Color(Color::srgb(0.3, 0.5, 0.15), 1.0),
+        gear: ItemModelDef::Mesh(
+            asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Gear.glb")),
+            4.0,
+        ),
     });
 }
 
@@ -344,6 +355,7 @@ fn on_place_item(
     item_models: Res<ItemModels>,
     asset_server: Res<AssetServer>,
 ) {
+    use Item::*;
     let model = match event.item {
         Item::Belt => &item_models.belt,
         Item::Source => &item_models.source,
@@ -361,6 +373,7 @@ fn on_place_item(
         Item::CornKernels => &item_models.corn_kernels,
         Item::CornStalk => &item_models.corn_stalk,
         Item::Biomass => &item_models.biomass,
+        Gear => &item_models.gear,
     };
 
     let visual = match model {

@@ -5,7 +5,7 @@ use factory_core::{
 };
 
 use super::common::{
-    InventorySlot, pane_node, section_label, spawn_screen_layout, spawn_slot, stack_label,
+    pane_node, section_label, spawn_screen_layout, spawn_slot, stack_label, InventorySlot,
 };
 use super::{InteractionMode, ScreenMode};
 

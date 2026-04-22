@@ -1,4 +1,4 @@
-use factory_core::{Player, inventory::Inventory};
+use factory_core::{inventory::Inventory, Player};
 
 use bevy::prelude::*;
 
@@ -14,22 +14,25 @@ mod source;
 mod visuals;
 
 use assembler::{
-    CloseAssemblerButton, handle_assembler_inventory_slot_clicks,
-    handle_assembler_output_slot_clicks, handle_assembler_recipe_button,
-    handle_clear_assembler_recipe, setup_assembler_pane, update_assembler_pane,
+    handle_assembler_inventory_slot_clicks, handle_assembler_output_slot_clicks,
+    handle_assembler_recipe_button, handle_clear_assembler_recipe, setup_assembler_pane,
+    update_assembler_pane, CloseAssemblerButton,
 };
-use common::{InventorySlot, stack_label};
+use common::{stack_label, InventorySlot};
 use furnace::{
-    CloseFurnaceButton, handle_furnace_inventory_slot_clicks, handle_furnace_output_slot_clicks,
-    setup_furnace_pane, update_furnace_pane,
+    handle_furnace_inventory_slot_clicks, handle_furnace_output_slot_clicks, setup_furnace_pane,
+    update_furnace_pane, CloseFurnaceButton,
 };
 use hotbar::PlacementItem;
-use inventory::{CloseInventoryButton, setup_inventory_pane, update_inventory_pane};
-use menu::{ResumeButton, setup_menu_pane, update_menu_pane};
+use inventory::{setup_inventory_pane, update_inventory_pane, CloseInventoryButton};
+use menu::{setup_menu_pane, update_menu_pane, ResumeButton};
 use miner::{
-    CloseMinerButton, handle_miner_output_slot_clicks, setup_miner_pane, update_miner_pane,
+    handle_miner_output_slot_clicks, setup_miner_pane, update_miner_pane, CloseMinerButton,
 };
-use source::{CloseSourceButton, handle_source_item_button, setup_source_pane, update_source_pane};
+use source::{
+    handle_source_item_button, handle_source_scroll, setup_source_pane, update_source_pane,
+    CloseSourceButton,
+};
 
 pub struct UiPlugin;
 impl Plugin for UiPlugin {
@@ -76,6 +79,7 @@ impl Plugin for UiPlugin {
         );
         app.add_systems(Update, handle_close_button::<CloseSourceButton>);
         app.add_systems(Update, handle_source_item_button);
+        app.add_systems(Update, handle_source_scroll);
         app.add_systems(Startup, setup_miner_pane);
         app.add_systems(
             Update,
