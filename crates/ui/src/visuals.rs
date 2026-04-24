@@ -158,7 +158,7 @@ fn setup_models(mut cmd: Commands, asset_server: Res<AssetServer>) {
             asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Furnace.glb")),
         ),
         assembler: ModelDef::Scene(
-            asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Voxel.glb")),
+            asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Assembler.glb")),
         ),
         collector: ModelDef::Scene(
             asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Collector.glb")),
@@ -220,7 +220,10 @@ fn setup_models(mut cmd: Commands, asset_server: Res<AssetServer>) {
             asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Furnace.glb")),
             ITEM_SIZE * 0.5,
         ),
-        assembler: ItemModelDef::Color(Color::srgb(0.6, 0.4, 0.5), ITEM_SIZE),
+        assembler: ItemModelDef::Mesh(
+            asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Assembler.glb")),
+            ITEM_SIZE * 0.4,
+        ),
         collector: ItemModelDef::Mesh(
             asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Collector.glb")),
             ITEM_SIZE,
