@@ -87,11 +87,12 @@ fn spawn_flat_terrain(mut cmd: Commands) {
                 WorldBlock::Dirt
             };
             let entity = cmd.spawn_empty().id();
+            let flb = o + ground_height + WorldCoordsDelta::ZERO.north(ns).east(ew);
             cmd.trigger(PlaceBlock {
                 entity,
                 block,
-                coords: o + ground_height + WorldCoordsDelta::ZERO.north(ns).east(ew),
-                dir: HDir::North,
+                brt: block.brt_for(flb, None),
+                flb,
             });
         }
     }
@@ -104,11 +105,12 @@ fn spawn_flat_terrain(mut cmd: Commands) {
         (-6, 1, WorldBlock::CopperOreDeposit),
     ] {
         let entity = cmd.spawn_empty().id();
+        let flb = o + WorldCoordsDelta::ZERO.north(ns).east(ew);
         cmd.trigger(PlaceBlock {
             entity,
             block,
-            coords: o + WorldCoordsDelta::ZERO.north(ns).east(ew),
-            dir: HDir::North,
+            brt: block.brt_for(flb, None),
+            flb,
         });
     }
 }
@@ -117,33 +119,23 @@ fn spawn_flat_belts(mut cmd: Commands) {
     use crate::Dir;
     let o = WorldCoords::ORIGIN;
 
-    let entity = cmd.spawn_empty().id();
-    cmd.trigger(PlaceBlock {
-        entity,
-        block: WorldBlock::Belt,
-        coords: o.step(HDir::North).step(Dir::Up),
-        dir: HDir::North,
-    });
-    let entity = cmd.spawn_empty().id();
-    cmd.trigger(PlaceBlock {
-        entity,
-        block: WorldBlock::Belt,
-        coords: o,
-        dir: HDir::North,
-    });
-    let entity = cmd.spawn_empty().id();
-    cmd.trigger(PlaceBlock {
-        entity,
-        block: WorldBlock::Belt,
-        coords: o.step(HDir::South),
-        dir: HDir::North,
-    });
+    for flb in [o.step(HDir::North).step(Dir::Up), o, o.step(HDir::South)] {
+        let entity = cmd.spawn_empty().id();
+        cmd.trigger(PlaceBlock {
+            entity,
+            block: WorldBlock::Belt,
+            brt: WorldBlock::Belt.brt_for(flb, Some(HDir::North)),
+            flb,
+        });
+    }
+
+    let flb = o.step(WorldCoordsDelta::ZERO.west(3));
     let entity = cmd.spawn_empty().id();
     cmd.trigger(PlaceBlock {
         entity,
         block: WorldBlock::Furnace,
-        coords: o.step(WorldCoordsDelta::ZERO.west(3)),
-        dir: HDir::North,
+        brt: WorldBlock::Furnace.brt_for(flb, Some(HDir::North)),
+        flb,
     });
 }
 
@@ -173,14 +165,15 @@ fn spawn_perlin_terrain(mut cmd: Commands, config: Res<WorldGenConfig>) {
                 WorldBlock::Dirt
             };
             let entity = cmd.spawn_empty().id();
+            let flb = o + WorldCoordsDelta::ZERO
+                .height(height_half)
+                .north(ns)
+                .east(ew);
             cmd.trigger(PlaceBlock {
                 entity,
                 block: terrain_block,
-                coords: o + WorldCoordsDelta::ZERO
-                    .height(height_half)
-                    .north(ns)
-                    .east(ew),
-                dir: HDir::North,
+                brt: terrain_block.brt_for(flb, None),
+                flb,
             });
 
             // If a resource patch covers this tile, place it on top of the terrain.
@@ -200,15 +193,16 @@ fn spawn_perlin_terrain(mut cmd: Commands, config: Res<WorldGenConfig>) {
 
             if let Some(block) = resource {
                 let entity = cmd.spawn_empty().id();
+                // One full block (2 half-steps) above the terrain surface.
+                let flb = o + WorldCoordsDelta::ZERO
+                    .height(height_half + 2)
+                    .north(ns)
+                    .east(ew);
                 cmd.trigger(PlaceBlock {
                     entity,
                     block,
-                    // One full block (2 half-steps) above the terrain surface.
-                    coords: o + WorldCoordsDelta::ZERO
-                        .height(height_half + 2)
-                        .north(ns)
-                        .east(ew),
-                    dir: HDir::North,
+                    brt: block.brt_for(flb, None),
+                    flb,
                 });
             }
         }

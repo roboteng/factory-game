@@ -112,11 +112,33 @@ impl Plugin for CorePlugin {
 // ------
 
 #[derive(EntityEvent, Debug, Clone, Copy)]
+/// `flb` should always be contained in the bounding box, while `brt` never is.
 pub struct PlaceBlock {
     pub entity: Entity,
     pub block: WorldBlock,
-    pub coords: WorldCoords,
-    pub dir: HDir,
+    /// Front Left Bottom, inclusive
+    pub flb: WorldCoords,
+    /// Back Right Top, exclusive
+    pub brt: WorldCoords,
+}
+
+impl PlaceBlock {
+    /// Going from back to front.
+    /// Returns `None` for non-directional blocks (brt directly above flb, dx==0 && dz==0).
+    pub fn facing(&self) -> Option<HDir> {
+        let d = self.flb.delta_to(self.brt);
+        let (dx, _, dz) = d.xyz();
+        if dx == 0 && dz == 0 {
+            return None;
+        }
+        match (dx.signum(), dz.signum()) {
+            (-1,  1) => Some(HDir::North),
+            ( 1, -1) => Some(HDir::South),
+            (-1, -1) => Some(HDir::East),
+            ( 1,  1) => Some(HDir::West),
+            _ => None,
+        }
+    }
 }
 
 #[derive(EntityEvent, Debug, Clone, Copy)]
@@ -126,11 +148,16 @@ pub struct Incline {
 
 impl PlaceBlock {
     fn to_bundle(&self) -> impl Bundle {
-        let transform = Transform::from_translation(
-            Vec3::from(self.coords) + self.block.size().center_offset(),
-        )
-        .with_rotation(Quat::from_rotation_y(self.dir.angle()));
-        (self.block, self.coords, self.dir, transform)
+        // Mirror the ghost-preview formula so placed blocks appear at the same position.
+        // Ghost uses: Vec3::from(flb) + block.size().center_offset()
+        let rotation = self
+            .facing()
+            .map(|d| Quat::from_rotation_y(d.angle()))
+            .unwrap_or(Quat::IDENTITY);
+        let transform =
+            Transform::from_translation(Vec3::from(self.flb) + self.block.size().center_offset())
+                .with_rotation(rotation);
+        (self.block, self.flb, transform)
     }
 }
 
@@ -481,6 +508,21 @@ impl WorldBlock {
         }
     }
 
+    /// Compute `brt` for a `PlaceBlock` event given `flb` and the facing direction.
+    /// For non-directional blocks pass `None`; `brt` will be directly above `flb` (dx==dz==0).
+    /// For directional blocks the footprint extends left and backward relative to `facing`.
+    pub fn brt_for(self, flb: WorldCoords, facing: Option<HDir>) -> WorldCoords {
+        let size = self.size();
+        let delta = match facing {
+            None => WorldCoordsDelta::ZERO.height(size.height as i32),
+            Some(dir) => WorldCoordsDelta::ZERO
+                .height(size.height as i32)
+                .dir(dir.left(), size.width as usize)
+                .dir(dir.opposite(), size.depth as usize),
+        };
+        flb.step(delta)
+    }
+
     pub fn size(self) -> BlockSize {
         match self {
             WorldBlock::Belt => BlockSize {
@@ -633,31 +675,35 @@ fn on_place_block(
     mut coord_map: ResMut<CoordsMap>,
     belts_q: Query<&ItemLanes, With<Belt>>,
 ) {
+    let facing = event.facing();
     debug!(
         "Placing {:?} at {:?} facing {:?}",
-        event.coords, event.block, event.dir
+        event.flb, event.block, facing
     );
     let size = event.block.size();
 
     // Full-height blocks must sit at an even y coordinate. If the ray lands
     // on an odd slot (e.g. top face of a belt), snap down to the nearest even.
-    let coords = if size.is_full_block() {
-        event.coords.snap_height_even()
+    let (flb, brt) = if size.is_full_block() {
+        let snapped = event.flb.snap_height_even();
+        let dy = snapped.y - event.flb.y;
+        let brt_adj = event.brt.step(WorldCoordsDelta::ZERO.height(dy));
+        (snapped, brt_adj)
     } else {
-        event.coords
+        (event.flb, event.brt)
     };
 
     let place = PlaceBlock {
-        coords,
+        flb,
+        brt,
         ..*event.event()
     };
 
-    let rt = size.into_raycast_target(event.dir);
+    // Direction for raycast sizing; defaults to North for non-directional (symmetric) blocks.
+    let rt = size.into_raycast_target(facing.unwrap_or(HDir::North));
 
     // Check if any cell the block would occupy is already taken.
-    let first_conflict = size
-        .occupied_coords(coords)
-        .find(|c| coord_map.0.contains_key(c));
+    let first_conflict = WorldCoords::iter_cells(flb, brt).find(|c| coord_map.0.contains_key(c));
 
     if let Some(conflict) = first_conflict {
         if event.block == WorldBlock::Belt {
@@ -671,7 +717,7 @@ fn on_place_block(
                 cmd.entity(event.entity)
                     .insert((Belt, ItemLanes(transferred), rt));
                 cmd.entity(event.entity).insert(place.to_bundle());
-                coord_map.0.insert(coords, event.entity);
+                coord_map.0.insert(flb, event.entity);
                 return;
             }
         }
@@ -682,15 +728,20 @@ fn on_place_block(
 
     match event.block {
         WorldBlock::Belt => {
-            cmd.entity(event.entity)
-                .insert((Belt, ItemLanes::default(), rt));
+            if let Some(dir) = facing {
+                cmd.entity(event.entity)
+                    .insert((Belt, ItemLanes::default(), rt, dir));
+            } else {
+                cmd.entity(event.entity)
+                    .insert((Belt, ItemLanes::default(), rt));
+            }
         }
         WorldBlock::Source => {
             cmd.entity(event.entity).insert((
                 Source::default(),
                 OutputBuffer::default(),
                 OutputsToBelt {
-                    at: event.coords.step(event.dir),
+                    at: flb.step(facing.unwrap_or(HDir::North)),
                 },
                 rt,
             ));
@@ -700,16 +751,15 @@ fn on_place_block(
                 .insert((Sink, InputBuffer::default(), rt));
         }
         WorldBlock::Miner => {
+            let dir = facing.expect("Miner must have a facing direction");
             cmd.entity(event.entity).insert((
-                Miner {
-                    ticks: 0,
-                    dir: event.dir,
-                },
+                Miner { ticks: 0, dir },
                 OutputBuffer::default(),
                 OutputsToBelt {
-                    at: event.coords.step(event.dir.opposite()),
+                    at: flb.step(dir.opposite()),
                 },
                 rt,
+                dir,
             ));
         }
         WorldBlock::Furnace => {
@@ -719,7 +769,7 @@ fn on_place_block(
                 Filter::none(),
                 OutputBuffer::default(),
                 OutputsToBelt {
-                    at: event.coords.step(event.dir),
+                    at: flb.step(facing.unwrap_or(HDir::North)),
                 },
                 rt,
             ));
@@ -731,7 +781,7 @@ fn on_place_block(
                 Filter::none(),
                 OutputBuffer::default(),
                 OutputsToBelt {
-                    at: event.coords.step(event.dir),
+                    at: flb.step(facing.unwrap_or(HDir::North)),
                 },
                 rt,
             ));
@@ -756,9 +806,13 @@ fn on_place_block(
         }
     };
 
-    cmd.entity(event.entity).insert(place.to_bundle());
+    if let Some(dir) = facing {
+        cmd.entity(event.entity).insert(place.to_bundle()).insert(dir);
+    } else {
+        cmd.entity(event.entity).insert(place.to_bundle());
+    }
     // Register every cell the block occupies.
-    for c in size.occupied_coords(coords) {
+    for c in WorldCoords::iter_cells(flb, brt) {
         coord_map.0.insert(c, event.entity);
     }
 }
@@ -1815,22 +1869,26 @@ pub trait AppExtension {
 impl AppExtension for App {
     fn add_belt(&mut self, coords: impl Into<WorldCoords>, dir: HDir) -> Entity {
         let entity = self.world_mut().spawn_empty().id();
+        let flb: WorldCoords = coords.into();
+        let brt = WorldBlock::Belt.brt_for(flb, Some(dir));
         self.world_mut().trigger(PlaceBlock {
             entity,
             block: WorldBlock::Belt,
-            dir,
-            coords: coords.into(),
+            flb,
+            brt,
         });
         entity
     }
 
     fn add_world_block(&mut self, coords: impl Into<WorldCoords>, block: WorldBlock) -> Entity {
         let entity = self.world_mut().spawn_empty().id();
+        let flb: WorldCoords = coords.into();
+        let brt = block.brt_for(flb, None);
         self.world_mut().trigger(PlaceBlock {
             entity,
             block,
-            dir: HDir::North,
-            coords: coords.into(),
+            flb,
+            brt,
         });
         entity
     }
@@ -2105,11 +2163,12 @@ mod tests {
         );
 
         let miner = app.world_mut().spawn_empty().id();
+        let flb = o;
         app.world_mut().trigger(PlaceBlock {
             entity: miner,
             block: WorldBlock::Miner,
-            coords: o,
-            dir: HDir::South,
+            brt: WorldBlock::Miner.brt_for(flb, Some(HDir::South)),
+            flb,
         });
 
         let belt = app.add_belt(o.step(HDir::North), HDir::North);
@@ -2131,11 +2190,12 @@ mod tests {
 
         // Place miner at origin facing the ore to the south.
         let miner = app.world_mut().spawn_empty().id();
+        let flb = o;
         app.world_mut().trigger(PlaceBlock {
             entity: miner,
             block: WorldBlock::Miner,
-            coords: o,
-            dir: HDir::South,
+            brt: WorldBlock::Miner.brt_for(flb, Some(HDir::South)),
+            flb,
         });
 
         // Place belt to the north — the miner's OutputDir(None) will find it.
@@ -2161,11 +2221,12 @@ mod tests {
             app.add_world_block(o.step(HDir::South), deposit);
 
             let miner = app.world_mut().spawn_empty().id();
+            let flb = o;
             app.world_mut().trigger(PlaceBlock {
                 entity: miner,
                 block: WorldBlock::Miner,
-                coords: o,
-                dir: HDir::South,
+                brt: WorldBlock::Miner.brt_for(flb, Some(HDir::South)),
+                flb,
             });
 
             let belt = app.add_belt(o.step(HDir::North), HDir::North);
@@ -2296,8 +2357,28 @@ mod tests {
         //     backward = (0,0, 1) → belt
         //   belt at (0, 0, 1) facing North (exits toward collector)
 
-        let furnace = app.add_world_block((0i32, 0i32, -2i32), WorldBlock::Furnace);
-        let _collector = app.add_world_block((0i32, 0i32, 0i32), WorldBlock::Collector);
+        let furnace = {
+            let e = app.world_mut().spawn_empty().id();
+            let flb: WorldCoords = (0i32, 0i32, -2i32).into();
+            app.world_mut().trigger(PlaceBlock {
+                entity: e,
+                block: WorldBlock::Furnace,
+                brt: WorldBlock::Furnace.brt_for(flb, Some(HDir::North)),
+                flb,
+            });
+            e
+        };
+        let _collector = {
+            let e = app.world_mut().spawn_empty().id();
+            let flb: WorldCoords = (0i32, 0i32, 0i32).into();
+            app.world_mut().trigger(PlaceBlock {
+                entity: e,
+                block: WorldBlock::Collector,
+                brt: WorldBlock::Collector.brt_for(flb, Some(HDir::North)),
+                flb,
+            });
+            e
+        };
         let belt = app.add_belt((0i32, 0i32, 1i32), HDir::North);
         app.update(); // flush deferred component inserts
 
@@ -2424,5 +2505,66 @@ mod tests {
             half_extents: Vec3::new(0.5, 0.5, 0.5),
         };
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn place_block_facing() {
+        use Dir::*;
+        #[derive(Debug)]
+        struct TestCase {
+            flb: WorldCoords,
+            brt: WorldCoords,
+            expected: Option<HDir>,
+        }
+        let o = WorldCoords::ORIGIN;
+        let cases = vec![
+            TestCase {
+                flb: o,
+                brt: o.step(South).step(West).step(Up),
+                expected: Some(HDir::North),
+            },
+            TestCase {
+                flb: o,
+                brt: o.step(North).step(East).step(Up),
+                expected: Some(HDir::South),
+            },
+            TestCase {
+                flb: o,
+                brt: o.step(North).step(West).step(Up),
+                expected: Some(HDir::East),
+            },
+            TestCase {
+                flb: o,
+                brt: o.step(South).step(East).step(Up),
+                expected: Some(HDir::West),
+            },
+            // Non-directional: brt directly above, dx==0 && dz==0
+            TestCase {
+                flb: o,
+                brt: o.step(Up).step(Up),
+                expected: None,
+            },
+            // Partial offset (one axis zero) → None
+            TestCase {
+                flb: o,
+                brt: o.step(South).step(Up),
+                expected: None,
+            },
+            TestCase {
+                flb: o,
+                brt: o.step(West).step(Up),
+                expected: None,
+            },
+        ];
+        for case in cases {
+            let event = PlaceBlock {
+                entity: Entity::PLACEHOLDER,
+                block: WorldBlock::Dirt,
+                flb: case.flb,
+                brt: case.brt,
+            };
+            let actual = event.facing();
+            assert_eq!(actual, case.expected, "{case:#?}");
+        }
     }
 }

@@ -85,6 +85,37 @@ impl WorldCoords {
         self.y
     }
 
+    pub fn delta_to(self, other: Self) -> WorldCoordsDelta {
+        WorldCoordsDelta {
+            x: other.x - self.x,
+            y: other.y - self.y,
+            z: other.z - self.z,
+        }
+    }
+
+    /// Iterate all cells in the bounding box defined by `flb` (inclusive) and `brt` (exclusive).
+    /// For each axis the range extends from `flb` toward `brt`; if equal, just `flb`.
+    pub fn iter_cells(flb: Self, brt: Self) -> impl Iterator<Item = Self> {
+        fn axis_vals(a: i32, b: i32) -> Vec<i32> {
+            if a <= b {
+                (a..b.max(a + 1)).collect()
+            } else {
+                (b + 1..=a).collect()
+            }
+        }
+        let xs = axis_vals(flb.x, brt.x);
+        let ys = axis_vals(flb.y, brt.y);
+        let zs = axis_vals(flb.z, brt.z);
+        xs.into_iter().flat_map(move |x| {
+            let ys = ys.clone();
+            let zs = zs.clone();
+            zs.into_iter().flat_map(move |z| {
+                let ys = ys.clone();
+                ys.into_iter().map(move |y| WorldCoords { x, y, z })
+            })
+        })
+    }
+
     pub fn horizontal_neighbors(self) -> impl Iterator<Item = Self> {
         (-1..=1i32)
             .flat_map(move |dx| (-1..=1i32).map(move |dz| self + WorldCoordsDelta::new(dx, 0, dz)))

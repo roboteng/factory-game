@@ -194,11 +194,12 @@ pub fn handle_click_to_place(
     drop(inv);
 
     let entity = cmd.spawn_empty().id();
+    let flb = coords;
     let event = PlaceBlock {
         entity,
         block: target.block,
-        coords,
-        dir: target.facing,
+        brt: target.block.brt_for(flb, Some(target.facing)),
+        flb,
     };
     debug!("Triggering: {event:?}");
     cmd.trigger(event);
@@ -460,8 +461,8 @@ pub(super) fn commit_belt_placement(
                 cmd.trigger(PlaceBlock {
                     entity: e,
                     block: WorldBlock::Belt,
-                    coords: coord,
-                    dir: facing,
+                    brt: WorldBlock::Belt.brt_for(coord, Some(facing)),
+                    flb: coord,
                 });
             }
         }
