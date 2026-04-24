@@ -25,7 +25,13 @@ enum ModelDef {
 enum ItemModelDef {
     Color(Color, f32),
     Mesh(Handle<Scene>, f32),
-    TintedMesh(Handle<Scene>, Color, f32),
+    TintedMesh {
+        scene: Handle<Scene>,
+        color: Color,
+        scale: f32,
+        metallic: f32,
+        roughness: f32,
+    },
 }
 
 #[derive(Component)]
@@ -178,18 +184,34 @@ fn setup_models(mut cmd: Commands, asset_server: Res<AssetServer>) {
         sink: ItemModelDef::Color(Color::srgb(0.8, 0.2, 0.2), ITEM_SIZE),
         rock: ItemModelDef::Color(Color::srgb(0.55, 0.55, 0.55), ITEM_SIZE),
         dirt: ItemModelDef::Color(Color::srgb(0.55, 0.35, 0.15), ITEM_SIZE),
-        iron_ore: ItemModelDef::Color(Color::srgb(0.6, 0.4, 0.3), ITEM_SIZE),
-        copper_ore: ItemModelDef::Color(Color::srgb(0.7, 0.4, 0.15), ITEM_SIZE),
-        iron_ingot: ItemModelDef::TintedMesh(
-            asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Ingot.glb")),
-            Color::srgb(0.7, 0.7, 0.75),
-            1.0,
-        ),
-        copper_ingot: ItemModelDef::TintedMesh(
-            asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Ingot.glb")),
-            Color::srgb(0.8, 0.5, 0.2),
-            1.0,
-        ),
+        iron_ore: ItemModelDef::TintedMesh {
+            scene: asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Rubble.glb")),
+            color: Color::srgb(0.5, 0.4, 0.35),
+            scale: 1.0,
+            metallic: 0.0,
+            roughness: 0.9,
+        },
+        copper_ore: ItemModelDef::TintedMesh {
+            scene: asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Rubble.glb")),
+            color: Color::srgb(0.65, 0.35, 0.1),
+            scale: 1.0,
+            metallic: 0.0,
+            roughness: 0.9,
+        },
+        iron_ingot: ItemModelDef::TintedMesh {
+            scene: asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Ingot.glb")),
+            color: Color::srgb(0.7, 0.7, 0.75),
+            scale: 1.0,
+            metallic: 0.9,
+            roughness: 0.2,
+        },
+        copper_ingot: ItemModelDef::TintedMesh {
+            scene: asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Ingot.glb")),
+            color: Color::srgb(0.8, 0.5, 0.2),
+            scale: 1.0,
+            metallic: 0.9,
+            roughness: 0.2,
+        },
         miner: ItemModelDef::Mesh(
             asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Miner.glb")),
             ITEM_SIZE,
@@ -416,14 +438,20 @@ fn on_place_item(
                 Transform::from_scale(Vec3::splat(scale * 0.95)),
             ))
             .id(),
-        ItemModelDef::TintedMesh(handle, color, scale) => cmd
+        ItemModelDef::TintedMesh {
+            scene,
+            color,
+            scale,
+            metallic,
+            roughness,
+        } => cmd
             .spawn((
-                SceneRoot(handle.clone()),
+                SceneRoot(scene.clone()),
                 Transform::from_scale(Vec3::splat(scale * 0.95)),
                 SceneTint {
                     color: *color,
-                    metallic: 0.9,
-                    roughness: 0.2,
+                    metallic: *metallic,
+                    roughness: *roughness,
                 },
                 Visibility::Hidden,
             ))
