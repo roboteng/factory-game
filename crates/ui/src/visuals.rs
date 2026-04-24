@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 
-use factory_core::{BeltShape, Corn, ITEM_SIZE, Item, PlaceItem, WorldBlock};
+use factory_core::{BeltShape, Corn, Item, PlaceItem, WorldBlock, ITEM_SIZE};
 
 use crate::player_controller::NeedsGhostTint;
 
@@ -25,10 +25,15 @@ enum ModelDef {
 enum ItemModelDef {
     Color(Color, f32),
     Mesh(Handle<Scene>, f32),
+    TintedMesh(Handle<Scene>, Color, f32),
 }
 
 #[derive(Component)]
-pub(super) struct SceneTint(pub(super) Color);
+pub(super) struct SceneTint {
+    pub(super) color: Color,
+    pub(super) metallic: f32,
+    pub(super) roughness: f32,
+}
 
 #[derive(Resource)]
 pub(crate) struct BlockModels {
@@ -168,34 +173,42 @@ fn setup_models(mut cmd: Commands, asset_server: Res<AssetServer>) {
 
     let belt_straight = asset_server.load(GltfAssetLabel::Scene(2).from_asset("models/belt.glb"));
     cmd.insert_resource(ItemModels {
-        belt: ItemModelDef::Mesh(belt_straight, 1.0),
-        source: ItemModelDef::Color(Color::srgb(0.2, 0.8, 0.2), 1.0),
-        sink: ItemModelDef::Color(Color::srgb(0.8, 0.2, 0.2), 1.0),
-        rock: ItemModelDef::Color(Color::srgb(0.55, 0.55, 0.55), 1.0),
-        dirt: ItemModelDef::Color(Color::srgb(0.55, 0.35, 0.15), 1.0),
-        iron_ore: ItemModelDef::Color(Color::srgb(0.6, 0.4, 0.3), 1.0),
-        copper_ore: ItemModelDef::Color(Color::srgb(0.7, 0.4, 0.15), 1.0),
-        iron_ingot: ItemModelDef::Color(Color::srgb(0.7, 0.7, 0.75), 1.0),
-        copper_ingot: ItemModelDef::Color(Color::srgb(0.8, 0.5, 0.2), 1.0),
+        belt: ItemModelDef::Mesh(belt_straight, ITEM_SIZE),
+        source: ItemModelDef::Color(Color::srgb(0.2, 0.8, 0.2), ITEM_SIZE),
+        sink: ItemModelDef::Color(Color::srgb(0.8, 0.2, 0.2), ITEM_SIZE),
+        rock: ItemModelDef::Color(Color::srgb(0.55, 0.55, 0.55), ITEM_SIZE),
+        dirt: ItemModelDef::Color(Color::srgb(0.55, 0.35, 0.15), ITEM_SIZE),
+        iron_ore: ItemModelDef::Color(Color::srgb(0.6, 0.4, 0.3), ITEM_SIZE),
+        copper_ore: ItemModelDef::Color(Color::srgb(0.7, 0.4, 0.15), ITEM_SIZE),
+        iron_ingot: ItemModelDef::TintedMesh(
+            asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Ingot.glb")),
+            Color::srgb(0.7, 0.7, 0.75),
+            1.0,
+        ),
+        copper_ingot: ItemModelDef::TintedMesh(
+            asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Ingot.glb")),
+            Color::srgb(0.8, 0.5, 0.2),
+            1.0,
+        ),
         miner: ItemModelDef::Mesh(
             asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Miner.glb")),
-            1.0,
+            ITEM_SIZE,
         ),
         furnace: ItemModelDef::Mesh(
             asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Furnace.glb")),
-            0.5,
+            ITEM_SIZE * 0.5,
         ),
-        assembler: ItemModelDef::Color(Color::srgb(0.6, 0.4, 0.5), 1.0),
+        assembler: ItemModelDef::Color(Color::srgb(0.6, 0.4, 0.5), ITEM_SIZE),
         collector: ItemModelDef::Mesh(
             asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Collector.glb")),
-            1.0,
+            ITEM_SIZE,
         ),
-        corn_kernels: ItemModelDef::Color(Color::srgb(0.95, 0.85, 0.2), 1.0),
-        corn_stalk: ItemModelDef::Color(Color::srgb(0.3, 0.7, 0.2), 1.0),
-        biomass: ItemModelDef::Color(Color::srgb(0.3, 0.5, 0.15), 1.0),
+        corn_kernels: ItemModelDef::Color(Color::srgb(0.95, 0.85, 0.2), ITEM_SIZE),
+        corn_stalk: ItemModelDef::Color(Color::srgb(0.3, 0.7, 0.2), ITEM_SIZE),
+        biomass: ItemModelDef::Color(Color::srgb(0.3, 0.5, 0.15), ITEM_SIZE),
         gear: ItemModelDef::Mesh(
             asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Gear.glb")),
-            4.0,
+            1.0,
         ),
     });
 }
@@ -229,7 +242,11 @@ fn apply_model(entity: Entity, mut cmd: Commands, model: &ModelDef) {
         ModelDef::TintedScene(handle, color) => {
             cmd.entity(entity).insert((
                 SceneRoot(handle.clone()),
-                SceneTint(*color),
+                SceneTint {
+                    color: *color,
+                    metallic: 0.0,
+                    roughness: 0.8,
+                },
                 Visibility::Hidden,
             ));
         }
@@ -248,7 +265,7 @@ fn tint_ore_meshes(
     mesh_mat_q: Query<&MeshMaterial3d<StandardMaterial>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    for (entity, SceneTint(color)) in &tinted {
+    for (entity, tint) in &tinted {
         let mut found_any = false;
         for desc in children_q.iter_descendants(entity) {
             let Ok(mat_handle) = mesh_mat_q.get(desc) else {
@@ -258,7 +275,9 @@ fn tint_ore_meshes(
                 continue;
             };
             let mut new_mat = mat.clone();
-            new_mat.base_color = *color;
+            new_mat.base_color = tint.color;
+            new_mat.metallic = tint.metallic;
+            new_mat.perceptual_roughness = tint.roughness;
             let new_handle = materials.add(new_mat);
             cmd.entity(desc).insert(MeshMaterial3d(new_handle));
             found_any = true;
@@ -382,15 +401,31 @@ fn on_place_item(
                 SceneRoot(
                     asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Voxel.glb")),
                 ),
-                Transform::from_scale(Vec3::splat(ITEM_SIZE * 0.95 * scale)),
-                SceneTint(*color),
+                Transform::from_scale(Vec3::splat(scale * 0.95)),
+                SceneTint {
+                    color: *color,
+                    metallic: 0.0,
+                    roughness: 0.8,
+                },
                 Visibility::Hidden,
             ))
             .id(),
         ItemModelDef::Mesh(handle, scale) => cmd
             .spawn((
                 SceneRoot(handle.clone()),
-                Transform::from_scale(Vec3::splat(ITEM_SIZE * scale * 0.95)),
+                Transform::from_scale(Vec3::splat(scale * 0.95)),
+            ))
+            .id(),
+        ItemModelDef::TintedMesh(handle, color, scale) => cmd
+            .spawn((
+                SceneRoot(handle.clone()),
+                Transform::from_scale(Vec3::splat(scale * 0.95)),
+                SceneTint {
+                    color: *color,
+                    metallic: 0.9,
+                    roughness: 0.2,
+                },
+                Visibility::Hidden,
             ))
             .id(),
     };
