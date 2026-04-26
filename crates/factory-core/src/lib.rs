@@ -1126,7 +1126,7 @@ fn transfer_items(
     struct Transfer {
         source: Entity,
         dest: Entity,
-        lane: Side,
+        side: Side,
     }
     let mut transfers = Vec::new();
     for source in invs.iter() {
@@ -1149,19 +1149,19 @@ fn transfer_items(
                 transfers.push(Transfer {
                     source: source.0,
                     dest: dest_entity,
-                    lane: side,
+                    side,
                 });
             }
         }
     }
     for transfer in transfers {
         let mut source = invs.get_mut(transfer.source).unwrap();
-        let slot = source.1.0[transfer.lane].remove(0);
+        let slot = source.1.0[transfer.side].remove(0);
         drop(source);
 
         let mut dest = invs.get_mut(transfer.dest).unwrap();
-        let lane = &mut dest.1.0[transfer.lane];
-        lane.push((dest.3.num_pos(transfer.lane), slot.1));
+        let lane = &mut dest.1.0[transfer.side];
+        lane.push((dest.3.num_pos(transfer.side), slot.1));
     }
 }
 
@@ -1172,8 +1172,8 @@ fn side_loading(
     struct Transfer {
         source: Entity,
         dest: Entity,
-        source_lane: Side,
-        dest_lane: Side,
+        source_side: Side,
+        dest_side: Side,
         position: ItemPos,
     }
     let mut transfers = Vec::new();
@@ -1213,8 +1213,8 @@ fn side_loading(
                     transfers.push(Transfer {
                         source: source.0,
                         dest: dest_entity,
-                        source_lane: side,
-                        dest_lane: dest_side,
+                        source_side: side,
+                        dest_side,
                         position,
                     });
                 }
@@ -1223,11 +1223,11 @@ fn side_loading(
     }
     for transfer in transfers {
         let mut source = invs.get_mut(transfer.source).unwrap();
-        let slot = source.1.0[transfer.source_lane].remove(0);
+        let slot = source.1.0[transfer.source_side].remove(0);
         drop(source);
 
         let mut dest = invs.get_mut(transfer.dest).unwrap();
-        let lane = &mut dest.1.0[transfer.dest_lane];
+        let lane = &mut dest.1.0[transfer.dest_side];
         lane.push((transfer.position, slot.1));
     }
 }
@@ -1632,12 +1632,12 @@ impl<T> std::ops::IndexMut<Side> for Sided<T> {
 pub fn item_position(
     belt: BeltShape,
     coords: impl Into<WorldCoords>,
-    lane: Side,
+    side: Side,
     pos: i32,
 ) -> Transform {
     match belt {
         BeltShape::Straight(dir) => {
-            let x = match lane {
+            let x = match side {
                 Side::Left => LANE_OFFSET,
                 Side::Right => -LANE_OFFSET,
             };
@@ -1653,12 +1653,12 @@ pub fn item_position(
         BeltShape::Curve(curve) => {
             let center_offset =
                 (Vec2::from(belt.input().opposite()) + Vec2::from(belt.output())) / 2.0;
-            let n_pos = if curve.inner_lane() == lane {
+            let n_pos = if curve.inner_lane() == side {
                 POSITIONS_PER_INNER_CURVE
             } else {
                 POSITIONS_PER_OUTER_CURVE
             };
-            let lane_offset = if curve.inner_lane() == lane {
+            let lane_offset = if curve.inner_lane() == side {
                 0.5 - LANE_OFFSET
             } else {
                 0.5 + LANE_OFFSET
@@ -1693,8 +1693,8 @@ pub fn item_position(
         }
         BeltShape::RampUp(dir) => {
             let coords = coords.into();
-            let mut lower = item_position(BeltShape::Straight(dir), coords, lane, pos);
-            let upper = item_position(BeltShape::Straight(dir), coords.step(Dir::Up), lane, pos);
+            let mut lower = item_position(BeltShape::Straight(dir), coords, side, pos);
+            let upper = item_position(BeltShape::Straight(dir), coords.step(Dir::Up), side, pos);
             let t = (POSITIONS_PER_BELT - pos) as f32 / POSITIONS_PER_BELT as f32;
             let translation = lower.translation * (1.0 - t) + upper.translation * t;
             lower.translation = translation;
@@ -1702,8 +1702,8 @@ pub fn item_position(
         }
         BeltShape::RampDown(dir) => {
             let coords = coords.into();
-            let mut upper = item_position(BeltShape::Straight(dir), coords, lane, pos);
-            let lower = item_position(BeltShape::Straight(dir), coords.step(Dir::Down), lane, pos);
+            let mut upper = item_position(BeltShape::Straight(dir), coords, side, pos);
+            let lower = item_position(BeltShape::Straight(dir), coords.step(Dir::Down), side, pos);
             let t = (POSITIONS_PER_BELT - pos) as f32 / POSITIONS_PER_BELT as f32;
             let translation = upper.translation * (1.0 - t) + lower.translation * t;
             upper.translation = translation;
@@ -1851,7 +1851,7 @@ fn parse_layout(s: &str) -> Vec<(i32, i32, HDir)> {
 pub trait AppExtension {
     fn add_belt(&mut self, coords: impl Into<WorldCoords>, dir: HDir) -> Entity;
     fn add_world_block(&mut self, coords: impl Into<WorldCoords>, block: WorldBlock) -> Entity;
-    fn add_item(&mut self, belt: Entity, pos: i32, lane: Side) -> Entity;
+    fn add_item(&mut self, belt: Entity, pos: i32, side: Side) -> Entity;
     fn find_item(&mut self, item: Entity) -> Option<(Item, Transform)>;
     fn find_belt(&mut self, belt: Entity) -> Option<(BeltShape, Transform)>;
     fn item_count_on_belt(&mut self, belt: Entity) -> usize;
@@ -1893,10 +1893,10 @@ impl AppExtension for App {
         entity
     }
 
-    fn add_item(&mut self, belt: Entity, pos: i32, lane: Side) -> Entity {
+    fn add_item(&mut self, belt: Entity, pos: i32, side: Side) -> Entity {
         let entity = self.world_mut().spawn(OnBelt).id();
         if let Some(mut lanes) = self.world_mut().get_mut::<ItemLanes>(belt) {
-            lanes.0[lane].push((pos, entity));
+            lanes.0[side].push((pos, entity));
         }
         self.world_mut().trigger(PlaceItem {
             entity,

@@ -11,3 +11,19 @@ A 1×1×1 world-unit spatial unit — two voxels tall. Dirt, rock, source, sink,
 ## Structure
 
 A placeable entity with a defined size — a Miner occupies 1×1×1 Blocks, a Furnace occupies 2×3×2 Blocks. Structures are described by a `StructureSize` (dimensions in voxels) and placed at an origin `WorldCoords`; all voxels they occupy are registered in the `CoordsMap`.
+
+## Footprint
+
+The 2D horizontal extent of a structure: width × depth in Blocks. Does not include height.
+
+## Slot
+
+A single position in an `Inventory` or `Buffer` that can hold a `Stack`. The term applies equally to player inventory and machine buffers.
+
+## Lane
+
+One of the two physical channels on a belt — left or right — along which items travel. `Side` is the address of a lane (`Side::Left`, `Side::Right`); a Lane is the channel itself.
+
+## ItemPos
+
+An `i32` representing an item's progress along a belt lane. 0 is the output end; the maximum varies — curved belts have more positions in the outer lane than the inner, and future belt chains may span many more. "Position" in code refers only to this concept, never to a world-space coordinate (use `WorldCoords` for that).

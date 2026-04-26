@@ -13,7 +13,7 @@ pub enum Action {
     PlaceItem {
         belt_coords: WorldCoords,
         pos: i32,
-        lane: Side,
+        side: Side,
     },
     Update,
 }
@@ -69,7 +69,7 @@ pub fn arb_dir() -> impl Strategy<Value = HDir> {
     ]
 }
 
-pub fn arb_lane() -> impl Strategy<Value = Side> {
+pub fn arb_side() -> impl Strategy<Value = Side> {
     prop_oneof![Just(Side::Left), Just(Side::Right),]
 }
 
@@ -81,7 +81,7 @@ pub fn arb_action() -> impl Strategy<Value = Action> {
     prop_oneof![
         5 => Just(Action::Update),
         3 => (arb_coords(), arb_dir()).prop_map(|(coords, dir)| Action::PlaceBelt { coords, dir }),
-        2 => (arb_coords(), arb_belt_position(), arb_lane()).prop_map(|(belt_coords, pos, lane)| Action::PlaceItem { belt_coords, pos, lane }),
+        2 => (arb_coords(), arb_belt_position(), arb_side()).prop_map(|(belt_coords, pos, side)| Action::PlaceItem { belt_coords, pos, side }),
     ]
 }
 

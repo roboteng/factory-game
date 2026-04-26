@@ -52,7 +52,7 @@ pub fn test_app() -> App {
 
 pub trait AppExt {
     fn add_belt(&mut self, coords: impl Into<WorldCoords>, dir: HDir) -> Entity;
-    fn add_item(&mut self, belt: Entity, pos: i32, lane: Side) -> Entity;
+    fn add_item(&mut self, belt: Entity, pos: i32, side: Side) -> Entity;
     fn has_placement_errors(&self) -> bool;
     fn take_placement_errors(&mut self) -> Vec<ItemPlacementError>;
 }
@@ -71,10 +71,10 @@ impl AppExt for App {
         entity
     }
 
-    fn add_item(&mut self, belt: Entity, pos: i32, lane: Side) -> Entity {
+    fn add_item(&mut self, belt: Entity, pos: i32, side: Side) -> Entity {
         let entity = self.world_mut().spawn(OnBelt).id();
         if let Some(mut lanes) = self.world_mut().get_mut::<ItemLanes>(belt) {
-            lanes.0[lane].push((pos, entity));
+            lanes.0[side].push((pos, entity));
         }
         self.world_mut().trigger(PlaceItem {
             entity,
@@ -117,10 +117,10 @@ fn execute_action_sequence(
             Action::PlaceItem {
                 belt_coords,
                 pos,
-                lane,
+                side,
             } => {
                 if let Some(belt_entity) = state.get_belt(*belt_coords) {
-                    app.add_item(belt_entity, *pos, *lane);
+                    app.add_item(belt_entity, *pos, *side);
                 }
             }
             Action::Update => {
