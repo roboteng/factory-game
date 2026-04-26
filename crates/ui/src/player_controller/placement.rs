@@ -169,6 +169,7 @@ pub fn handle_click_to_place(
     player: Res<Player>,
     mut invs: Query<&mut Inventory>,
     mut cmd: Commands,
+    coord_map: Res<CoordsMap>,
 ) {
     let Some(target) = target else { return };
     if target.block == WorldBlock::Belt {
@@ -183,6 +184,16 @@ pub fn handle_click_to_place(
     let Some(coords) = target.raycast_coords else {
         return;
     };
+
+    let size = target.block.size();
+    let flb = if size.is_full_block() {
+        coords.snap_height_even()
+    } else {
+        coords
+    };
+    if size.iter_coords(flb).any(|c| coord_map.0.contains_key(&c)) {
+        return;
+    }
 
     let Ok(mut inv) = invs.get_mut(player.0) else {
         return;
@@ -214,6 +225,8 @@ pub(super) fn update_belt_placement(
     mouse: Res<ButtonInput<MouseButton>>,
     belt_placement: Option<Res<BeltPlacement>>,
     mut cmd: Commands,
+    coord_map: Res<CoordsMap>,
+    belts_q: Query<(), With<Belt>>,
 ) {
     let Some(target) = target else {
         if belt_placement.is_some() {
@@ -263,7 +276,10 @@ pub(super) fn update_belt_placement(
         (None, None) => vec![],
     };
 
-    let valid = target.inv_count >= line.len() as u16;
+    let no_hard_conflicts = line
+        .iter()
+        .all(|c| coord_map.0.get(c).map_or(true, |&e| belts_q.contains(e)));
+    let valid = target.inv_count >= line.len() as u16 && no_hard_conflicts;
 
     cmd.insert_resource(BeltPlacement {
         item: target.item,
@@ -362,6 +378,7 @@ pub(super) fn update_single_ghost(
     block_models: Res<BlockModels>,
     mut cmd: Commands,
     mut state: Local<(Option<Item>, Option<bool>)>,
+    coord_map: Res<CoordsMap>,
 ) {
     let Some(target) = target else {
         for (e, _, _) in single_ghost.iter() {
@@ -383,7 +400,14 @@ pub(super) fn update_single_ghost(
     let coords = target
         .raycast_coords
         .map(|c| if is_full { c.snap_height_even() } else { c });
-    let valid = target.inv_count > 0;
+    let occupied = coords.is_some_and(|flb| {
+        target
+            .block
+            .size()
+            .iter_coords(flb)
+            .any(|c| coord_map.0.contains_key(&c))
+    });
+    let valid = target.inv_count > 0 && !occupied;
 
     let (prev_item, prev_valid) = &mut *state;
     let item_changed = *prev_item != Some(target.item);
