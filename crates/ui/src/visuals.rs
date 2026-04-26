@@ -86,7 +86,7 @@ struct ItemModels {
 }
 
 fn setup_models(mut cmd: Commands, asset_server: Res<AssetServer>) {
-    let voxel = asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Voxel.glb"));
+    let block = asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Block.glb"));
     cmd.insert_resource(BlockModels {
         belt_straight: ModelDef::Scene(
             asset_server.load(GltfAssetLabel::Scene(2).from_asset("models/belt.glb")),
@@ -103,10 +103,10 @@ fn setup_models(mut cmd: Commands, asset_server: Res<AssetServer>) {
         belt_ramp_down: ModelDef::Scene(
             asset_server.load(GltfAssetLabel::Scene(1).from_asset("models/belt-down.glb")),
         ),
-        source: ModelDef::TintedScene(voxel.clone(), Color::srgb(0.2, 0.8, 0.2)),
-        sink: ModelDef::TintedScene(voxel.clone(), Color::srgb(0.8, 0.2, 0.2)),
-        rock: ModelDef::TintedScene(voxel.clone(), Color::srgb(0.55, 0.55, 0.55)),
-        dirt: ModelDef::TintedScene(voxel.clone(), Color::srgb(0.55, 0.35, 0.15)),
+        source: ModelDef::TintedScene(block.clone(), Color::srgb(0.2, 0.8, 0.2)),
+        sink: ModelDef::TintedScene(block.clone(), Color::srgb(0.8, 0.2, 0.2)),
+        rock: ModelDef::TintedScene(block.clone(), Color::srgb(0.55, 0.55, 0.55)),
+        dirt: ModelDef::TintedScene(block.clone(), Color::srgb(0.55, 0.35, 0.15)),
         iron_ore: {
             ModelDef::Random(
                 [
@@ -424,7 +424,7 @@ fn on_place_item(
         ItemModelDef::Color(color, scale) => cmd
             .spawn((
                 SceneRoot(
-                    asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Voxel.glb")),
+                    asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Block.glb")),
                 ),
                 Transform::from_scale(Vec3::splat(scale * 0.95)),
                 SceneTint {

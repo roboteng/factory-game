@@ -523,19 +523,19 @@ impl WorldBlock {
         flb.step(delta)
     }
 
-    pub fn size(self) -> BlockSize {
+    pub fn size(self) -> StructureSize {
         match self {
-            WorldBlock::Belt => BlockSize {
+            WorldBlock::Belt => StructureSize {
                 height: 1,
                 width: 1,
                 depth: 1,
             },
-            WorldBlock::Furnace => BlockSize {
+            WorldBlock::Furnace => StructureSize {
                 height: 6,
                 width: 2,
                 depth: 2,
             },
-            _ => BlockSize {
+            _ => StructureSize {
                 height: 2,
                 width: 1,
                 depth: 1,
@@ -544,14 +544,14 @@ impl WorldBlock {
     }
 }
 
-pub struct BlockSize {
-    /// Half blocks
+pub struct StructureSize {
+    /// In voxels
     pub height: u8,
     pub width: u8,
     pub depth: u8,
 }
 
-impl BlockSize {
+impl StructureSize {
     pub fn into_raycast_target(&self, dir: HDir) -> RaycastTarget {
         let d = WorldCoordsDelta::ZERO
             .height(self.height.into())
@@ -582,10 +582,10 @@ impl BlockSize {
         self.height % 2 == 0
     }
 
-    /// Returns all `WorldCoords` cells occupied by a block of this size
+    /// Returns all voxels occupied by a structure of this size
     /// placed at `origin`. The footprint always extends East and South from
     /// the origin corner.
-    pub fn occupied_coords(&self, origin: WorldCoords) -> impl Iterator<Item = WorldCoords> + '_ {
+    pub fn iter_coords(&self, origin: WorldCoords) -> impl Iterator<Item = WorldCoords> + '_ {
         let (w, h, d) = (self.width as i32, self.height as i32, self.depth as i32);
         (0..w).flat_map(move |dx| {
             (0..d).flat_map(move |dz| {
@@ -702,8 +702,8 @@ fn on_place_block(
     // Direction for raycast sizing; defaults to North for non-directional (symmetric) blocks.
     let rt = size.into_raycast_target(facing.unwrap_or(HDir::North));
 
-    // Check if any cell the block would occupy is already taken.
-    let first_conflict = WorldCoords::iter_cells(flb, brt).find(|c| coord_map.0.contains_key(c));
+    // Check if any WorldCoords the structure would occupy is already taken.
+    let first_conflict = size.iter_coords(flb).find(|c| coord_map.0.contains_key(c));
 
     if let Some(conflict) = first_conflict {
         if event.block == WorldBlock::Belt {
@@ -811,8 +811,8 @@ fn on_place_block(
     } else {
         cmd.entity(event.entity).insert(place.to_bundle());
     }
-    // Register every cell the block occupies.
-    for c in WorldCoords::iter_cells(flb, brt) {
+    // Register every WorldCoords the structure occupies.
+    for c in size.iter_coords(flb) {
         coord_map.0.insert(c, event.entity);
     }
 }
@@ -849,7 +849,7 @@ fn on_remove_block(
     }
     if let Ok(coords) = coords_q.get(event.entity) {
         if let Ok(&block) = blocks_q.get(event.entity) {
-            for c in block.size().occupied_coords(*coords) {
+            for c in block.size().iter_coords(*coords) {
                 if coord_map.0.get(&c) == Some(&event.entity) {
                     coord_map.0.remove(&c);
                 }
@@ -2495,7 +2495,7 @@ mod tests {
 
     #[test]
     fn into_raycast() {
-        let i = BlockSize {
+        let i = StructureSize {
             height: 2,
             width: 1,
             depth: 1,
