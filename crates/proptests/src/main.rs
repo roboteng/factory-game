@@ -26,7 +26,7 @@ fn main() {
 // ── Test helpers ──────────────────────────────────────────────────────────────
 
 pub fn init_tracing() {
-    use tracing_subscriber::{fmt, EnvFilter};
+    use tracing_subscriber::{EnvFilter, fmt};
     let _ = fmt()
         .with_env_filter(
             EnvFilter::try_from_default_env()
@@ -61,10 +61,10 @@ impl AppExt for App {
     fn add_belt(&mut self, coords: impl Into<WorldCoords>, dir: HDir) -> Entity {
         let entity = self.world_mut().spawn_empty().id();
         let flb: WorldCoords = coords.into();
-        let brt = WorldBlock::Belt.brt_for(flb, Some(dir));
-        self.world_mut().trigger(PlaceBlock {
+        let brt = Structure::Belt.brt_for(flb, Some(dir));
+        self.world_mut().trigger(PlaceStructure {
             entity,
-            block: WorldBlock::Belt,
+            structure: Structure::Belt,
             flb,
             brt,
         });

@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 
-use factory_core::{BeltShape, Corn, Item, PlaceItem, WorldBlock, ITEM_SIZE};
+use factory_core::{BeltShape, Corn, ITEM_SIZE, Item, PlaceItem, Structure};
 
 use crate::player_controller::NeedsGhostTint;
 
@@ -241,15 +241,15 @@ fn setup_models(mut cmd: Commands, asset_server: Res<AssetServer>) {
 impl BlockModels {
     pub(crate) fn ghost_scene(&self, item: Item) -> Option<Handle<Scene>> {
         let model = match item.can_place()? {
-            WorldBlock::Belt => &self.belt_straight,
-            WorldBlock::Source => &self.source,
-            WorldBlock::Sink => &self.sink,
-            WorldBlock::Rock => &self.rock,
-            WorldBlock::Dirt => &self.dirt,
-            WorldBlock::Miner => &self.miner,
-            WorldBlock::Furnace => &self.furnace,
-            WorldBlock::Assembler => &self.assembler,
-            WorldBlock::Collector => &self.collector,
+            Structure::Belt => &self.belt_straight,
+            Structure::Source => &self.source,
+            Structure::Sink => &self.sink,
+            Structure::Rock => &self.rock,
+            Structure::Dirt => &self.dirt,
+            Structure::Miner => &self.miner,
+            Structure::Furnace => &self.furnace,
+            Structure::Assembler => &self.assembler,
+            Structure::Collector => &self.collector,
             _ => return None,
         };
         match model {
@@ -320,26 +320,26 @@ fn tint_ore_meshes(
 
 fn attach_models(
     world_blocks: Query<
-        (Entity, &WorldBlock, Option<&BeltShape>),
-        Or<(Added<WorldBlock>, Changed<BeltShape>)>,
+        (Entity, &Structure, Option<&BeltShape>),
+        Or<(Added<Structure>, Changed<BeltShape>)>,
     >,
     all_models: Res<BlockModels>,
     mut cmd: Commands,
 ) {
     for (entity, block, shape) in &world_blocks {
         let model = match block {
-            WorldBlock::Corn => continue, // handled by attach_corn_models
-            WorldBlock::Source => &all_models.source,
-            WorldBlock::Sink => &all_models.sink,
-            WorldBlock::Rock => &all_models.rock,
-            WorldBlock::Dirt => &all_models.dirt,
-            WorldBlock::IronOreDeposit => &all_models.iron_ore,
-            WorldBlock::CopperOreDeposit => &all_models.copper_ore,
-            WorldBlock::Miner => &all_models.miner,
-            WorldBlock::Furnace => &all_models.furnace,
-            WorldBlock::Assembler => &all_models.assembler,
-            WorldBlock::Collector => &all_models.collector,
-            WorldBlock::Belt => match shape {
+            Structure::Corn => continue, // handled by attach_corn_models
+            Structure::Source => &all_models.source,
+            Structure::Sink => &all_models.sink,
+            Structure::Rock => &all_models.rock,
+            Structure::Dirt => &all_models.dirt,
+            Structure::IronOreDeposit => &all_models.iron_ore,
+            Structure::CopperOreDeposit => &all_models.copper_ore,
+            Structure::Miner => &all_models.miner,
+            Structure::Furnace => &all_models.furnace,
+            Structure::Assembler => &all_models.assembler,
+            Structure::Collector => &all_models.collector,
+            Structure::Belt => match shape {
                 Some(BeltShape::Straight(_)) => &all_models.belt_straight,
                 Some(BeltShape::Curve(c)) => {
                     if c.is_clockwise() {

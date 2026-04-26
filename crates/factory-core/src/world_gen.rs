@@ -1,10 +1,10 @@
 use bevy::prelude::*;
 
-use crate::{HDir, PlaceBlock, WorldBlock, WorldCoords, WorldCoordsDelta};
+use crate::{HDir, PlaceStructure, Structure, WorldCoords, WorldCoordsDelta};
 
 /// Describes one type of resource patch in world generation.
 pub struct ResourcePatch {
-    pub block: WorldBlock,
+    pub block: Structure,
     /// Perlin seed for this resource's independent noise layer.
     pub seed: u32,
     /// Noise frequency — lower = larger patches, higher = smaller/spottier.
@@ -30,19 +30,19 @@ impl Default for WorldGenConfig {
             terrain_amplitude: 5.0,
             resources: vec![
                 ResourcePatch {
-                    block: WorldBlock::IronOreDeposit,
+                    block: Structure::IronOreDeposit,
                     seed: 100,
                     scale: 0.08,
                     threshold: 0.95,
                 },
                 ResourcePatch {
-                    block: WorldBlock::CopperOreDeposit,
+                    block: Structure::CopperOreDeposit,
                     seed: 200,
                     scale: 0.08,
                     threshold: 0.95,
                 },
                 ResourcePatch {
-                    block: WorldBlock::Corn,
+                    block: Structure::Corn,
                     seed: 300,
                     scale: 0.12,
                     threshold: 0.95,
@@ -82,15 +82,15 @@ fn spawn_flat_terrain(mut cmd: Commands) {
     for ns in -5..=5 {
         for ew in -5..=5 {
             let block = if rng.gen_bool(0.5) {
-                WorldBlock::Rock
+                Structure::Rock
             } else {
-                WorldBlock::Dirt
+                Structure::Dirt
             };
             let entity = cmd.spawn_empty().id();
             let flb = o + ground_height + WorldCoordsDelta::ZERO.north(ns).east(ew);
-            cmd.trigger(PlaceBlock {
+            cmd.trigger(PlaceStructure {
                 entity,
-                block,
+                structure: block,
                 brt: block.brt_for(flb, None),
                 flb,
             });
@@ -98,17 +98,17 @@ fn spawn_flat_terrain(mut cmd: Commands) {
     }
 
     for (ns, ew, block) in [
-        (6i32, 0i32, WorldBlock::IronOreDeposit),
-        (6, 1, WorldBlock::IronOreDeposit),
-        (6, -1, WorldBlock::IronOreDeposit),
-        (-6, 0, WorldBlock::CopperOreDeposit),
-        (-6, 1, WorldBlock::CopperOreDeposit),
+        (6i32, 0i32, Structure::IronOreDeposit),
+        (6, 1, Structure::IronOreDeposit),
+        (6, -1, Structure::IronOreDeposit),
+        (-6, 0, Structure::CopperOreDeposit),
+        (-6, 1, Structure::CopperOreDeposit),
     ] {
         let entity = cmd.spawn_empty().id();
         let flb = o + WorldCoordsDelta::ZERO.north(ns).east(ew);
-        cmd.trigger(PlaceBlock {
+        cmd.trigger(PlaceStructure {
             entity,
-            block,
+            structure: block,
             brt: block.brt_for(flb, None),
             flb,
         });
@@ -121,20 +121,20 @@ fn spawn_flat_belts(mut cmd: Commands) {
 
     for flb in [o.step(HDir::North).step(Dir::Up), o, o.step(HDir::South)] {
         let entity = cmd.spawn_empty().id();
-        cmd.trigger(PlaceBlock {
+        cmd.trigger(PlaceStructure {
             entity,
-            block: WorldBlock::Belt,
-            brt: WorldBlock::Belt.brt_for(flb, Some(HDir::North)),
+            structure: Structure::Belt,
+            brt: Structure::Belt.brt_for(flb, Some(HDir::North)),
             flb,
         });
     }
 
     let flb = o.step(WorldCoordsDelta::ZERO.west(3));
     let entity = cmd.spawn_empty().id();
-    cmd.trigger(PlaceBlock {
+    cmd.trigger(PlaceStructure {
         entity,
-        block: WorldBlock::Furnace,
-        brt: WorldBlock::Furnace.brt_for(flb, Some(HDir::North)),
+        structure: Structure::Furnace,
+        brt: Structure::Furnace.brt_for(flb, Some(HDir::North)),
         flb,
     });
 }
@@ -160,18 +160,18 @@ fn spawn_perlin_terrain(mut cmd: Commands, config: Res<WorldGenConfig>) {
 
             // Always place the base terrain block.
             let terrain_block = if height_half <= 0 {
-                WorldBlock::Rock
+                Structure::Rock
             } else {
-                WorldBlock::Dirt
+                Structure::Dirt
             };
             let entity = cmd.spawn_empty().id();
             let flb = o + WorldCoordsDelta::ZERO
                 .height(height_half)
                 .north(ns)
                 .east(ew);
-            cmd.trigger(PlaceBlock {
+            cmd.trigger(PlaceStructure {
                 entity,
-                block: terrain_block,
+                structure: terrain_block,
                 brt: terrain_block.brt_for(flb, None),
                 flb,
             });
@@ -198,9 +198,9 @@ fn spawn_perlin_terrain(mut cmd: Commands, config: Res<WorldGenConfig>) {
                     .height(height_half + 2)
                     .north(ns)
                     .east(ew);
-                cmd.trigger(PlaceBlock {
+                cmd.trigger(PlaceStructure {
                     entity,
-                    block,
+                    structure: block,
                     brt: block.brt_for(flb, None),
                     flb,
                 });

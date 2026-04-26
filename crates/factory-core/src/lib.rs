@@ -60,7 +60,7 @@ impl Plugin for CorePlugin {
         app.init_resource::<CoordsMap>();
         app.insert_resource(Recipes::new());
 
-        app.add_observer(on_place_block);
+        app.add_observer(on_place_structure);
         app.add_observer(on_place_item);
         app.add_observer(on_remove_block);
         app.add_observer(on_incline);
@@ -113,16 +113,16 @@ impl Plugin for CorePlugin {
 
 #[derive(EntityEvent, Debug, Clone, Copy)]
 /// `flb` should always be contained in the bounding box, while `brt` never is.
-pub struct PlaceBlock {
+pub struct PlaceStructure {
     pub entity: Entity,
-    pub block: WorldBlock,
+    pub structure: Structure,
     /// Front Left Bottom, inclusive
     pub flb: WorldCoords,
     /// Back Right Top, exclusive
     pub brt: WorldCoords,
 }
 
-impl PlaceBlock {
+impl PlaceStructure {
     /// Going from back to front.
     /// Returns `None` for non-directional blocks (brt directly above flb, dx==0 && dz==0).
     pub fn facing(&self) -> Option<HDir> {
@@ -132,10 +132,10 @@ impl PlaceBlock {
             return None;
         }
         match (dx.signum(), dz.signum()) {
-            (-1,  1) => Some(HDir::North),
-            ( 1, -1) => Some(HDir::South),
+            (-1, 1) => Some(HDir::North),
+            (1, -1) => Some(HDir::South),
             (-1, -1) => Some(HDir::East),
-            ( 1,  1) => Some(HDir::West),
+            (1, 1) => Some(HDir::West),
             _ => None,
         }
     }
@@ -146,7 +146,7 @@ pub struct Incline {
     pub entity: Entity,
 }
 
-impl PlaceBlock {
+impl PlaceStructure {
     fn to_bundle(&self) -> impl Bundle {
         // Mirror the ghost-preview formula so placed blocks appear at the same position.
         // Ghost uses: Vec3::from(flb) + block.size().center_offset()
@@ -154,10 +154,11 @@ impl PlaceBlock {
             .facing()
             .map(|d| Quat::from_rotation_y(d.angle()))
             .unwrap_or(Quat::IDENTITY);
-        let transform =
-            Transform::from_translation(Vec3::from(self.flb) + self.block.size().center_offset())
-                .with_rotation(rotation);
-        (self.block, self.flb, transform)
+        let transform = Transform::from_translation(
+            Vec3::from(self.flb) + self.structure.size().center_offset(),
+        )
+        .with_rotation(rotation);
+        (self.structure, self.flb, transform)
     }
 }
 
@@ -423,18 +424,18 @@ impl Item {
     }
 
     /// Returns the world block this item places, or `None` if the item cannot be placed.
-    pub fn can_place(self) -> Option<WorldBlock> {
+    pub fn can_place(self) -> Option<Structure> {
         match self {
-            Item::Belt => Some(WorldBlock::Belt),
-            Item::Source => Some(WorldBlock::Source),
-            Item::Sink => Some(WorldBlock::Sink),
-            Item::Rock => Some(WorldBlock::Rock),
-            Item::Dirt => Some(WorldBlock::Dirt),
-            Item::Miner => Some(WorldBlock::Miner),
-            Item::Furnace => Some(WorldBlock::Furnace),
-            Item::Assembler => Some(WorldBlock::Assembler),
-            Item::Collector => Some(WorldBlock::Collector),
-            Item::CornKernels => Some(WorldBlock::Corn),
+            Item::Belt => Some(Structure::Belt),
+            Item::Source => Some(Structure::Source),
+            Item::Sink => Some(Structure::Sink),
+            Item::Rock => Some(Structure::Rock),
+            Item::Dirt => Some(Structure::Dirt),
+            Item::Miner => Some(Structure::Miner),
+            Item::Furnace => Some(Structure::Furnace),
+            Item::Assembler => Some(Structure::Assembler),
+            Item::Collector => Some(Structure::Collector),
+            Item::CornKernels => Some(Structure::Corn),
             Item::IronOre
             | Item::CopperOre
             | Item::IronIngot
@@ -449,7 +450,7 @@ impl Item {
 /// World block type — everything that occupies a position in the world, whether placed by the
 /// player or spawned by world generation. Not all world blocks have a corresponding item.
 #[derive(Component, Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord, Hash)]
-pub enum WorldBlock {
+pub enum Structure {
     Belt,
     Source,
     Sink,
@@ -464,29 +465,29 @@ pub enum WorldBlock {
     Corn,
 }
 
-impl WorldBlock {
+impl Structure {
     pub fn name(self) -> &'static str {
         match self {
-            WorldBlock::Belt => "Belt",
-            WorldBlock::Source => "Source",
-            WorldBlock::Sink => "Sink",
-            WorldBlock::Rock => "Rock",
-            WorldBlock::Dirt => "Dirt",
-            WorldBlock::IronOreDeposit => "Iron Ore Deposit",
-            WorldBlock::CopperOreDeposit => "Copper Ore Deposit",
-            WorldBlock::Miner => "Miner",
-            WorldBlock::Furnace => "Furnace",
-            WorldBlock::Assembler => "Assembler",
-            WorldBlock::Collector => "Collector",
-            WorldBlock::Corn => "Corn",
+            Structure::Belt => "Belt",
+            Structure::Source => "Source",
+            Structure::Sink => "Sink",
+            Structure::Rock => "Rock",
+            Structure::Dirt => "Dirt",
+            Structure::IronOreDeposit => "Iron Ore Deposit",
+            Structure::CopperOreDeposit => "Copper Ore Deposit",
+            Structure::Miner => "Miner",
+            Structure::Furnace => "Furnace",
+            Structure::Assembler => "Assembler",
+            Structure::Collector => "Collector",
+            Structure::Corn => "Corn",
         }
     }
 
     /// Item produced when a miner harvests this block. `None` means not minable.
     pub fn mine(self) -> Option<Item> {
         match self {
-            WorldBlock::IronOreDeposit => Some(Item::IronOre),
-            WorldBlock::CopperOreDeposit => Some(Item::CopperOre),
+            Structure::IronOreDeposit => Some(Item::IronOre),
+            Structure::CopperOreDeposit => Some(Item::CopperOre),
             _ => None,
         }
     }
@@ -494,17 +495,17 @@ impl WorldBlock {
     /// What is dropped when a player breaks this block.
     pub fn break_drop(self) -> BreakDrop {
         match self {
-            WorldBlock::Belt => BreakDrop::Item(Item::Belt),
-            WorldBlock::Source => BreakDrop::Item(Item::Source),
-            WorldBlock::Sink => BreakDrop::Item(Item::Sink),
-            WorldBlock::Rock => BreakDrop::Item(Item::Rock),
-            WorldBlock::Dirt => BreakDrop::Item(Item::Dirt),
-            WorldBlock::Miner => BreakDrop::Item(Item::Miner),
-            WorldBlock::Furnace => BreakDrop::Custom(TypeId::of::<Furnace>()),
-            WorldBlock::Assembler => BreakDrop::Custom(TypeId::of::<Assembler>()),
-            WorldBlock::Collector => BreakDrop::Item(Item::Collector),
-            WorldBlock::IronOreDeposit | WorldBlock::CopperOreDeposit => BreakDrop::None,
-            WorldBlock::Corn => BreakDrop::Custom(TypeId::of::<Corn>()),
+            Structure::Belt => BreakDrop::Item(Item::Belt),
+            Structure::Source => BreakDrop::Item(Item::Source),
+            Structure::Sink => BreakDrop::Item(Item::Sink),
+            Structure::Rock => BreakDrop::Item(Item::Rock),
+            Structure::Dirt => BreakDrop::Item(Item::Dirt),
+            Structure::Miner => BreakDrop::Item(Item::Miner),
+            Structure::Furnace => BreakDrop::Custom(TypeId::of::<Furnace>()),
+            Structure::Assembler => BreakDrop::Custom(TypeId::of::<Assembler>()),
+            Structure::Collector => BreakDrop::Item(Item::Collector),
+            Structure::IronOreDeposit | Structure::CopperOreDeposit => BreakDrop::None,
+            Structure::Corn => BreakDrop::Custom(TypeId::of::<Corn>()),
         }
     }
 
@@ -525,12 +526,12 @@ impl WorldBlock {
 
     pub fn size(self) -> StructureSize {
         match self {
-            WorldBlock::Belt => StructureSize {
+            Structure::Belt => StructureSize {
                 height: 1,
                 width: 1,
                 depth: 1,
             },
-            WorldBlock::Furnace => StructureSize {
+            Structure::Furnace => StructureSize {
                 height: 6,
                 width: 2,
                 depth: 2,
@@ -669,8 +670,8 @@ fn despawn_old_entities(mut cmd: Commands, q: Query<Entity, With<Delete>>) {
     }
 }
 
-fn on_place_block(
-    event: On<PlaceBlock>,
+fn on_place_structure(
+    event: On<PlaceStructure>,
     mut cmd: Commands,
     mut coord_map: ResMut<CoordsMap>,
     belts_q: Query<&ItemLanes, With<Belt>>,
@@ -678,9 +679,9 @@ fn on_place_block(
     let facing = event.facing();
     debug!(
         "Placing {:?} at {:?} facing {:?}",
-        event.flb, event.block, facing
+        event.flb, event.structure, facing
     );
-    let size = event.block.size();
+    let size = event.structure.size();
 
     // Full-height blocks must sit at an even y coordinate. If the ray lands
     // on an odd slot (e.g. top face of a belt), snap down to the nearest even.
@@ -693,7 +694,7 @@ fn on_place_block(
         (event.flb, event.brt)
     };
 
-    let place = PlaceBlock {
+    let place = PlaceStructure {
         flb,
         brt,
         ..*event.event()
@@ -706,7 +707,7 @@ fn on_place_block(
     let first_conflict = size.iter_coords(flb).find(|c| coord_map.0.contains_key(c));
 
     if let Some(conflict) = first_conflict {
-        if event.block == WorldBlock::Belt {
+        if event.structure == Structure::Belt {
             if let Some(&existing) = coord_map.0.get(&conflict)
                 && let Ok(old_lanes) = belts_q.get(existing)
             {
@@ -726,8 +727,8 @@ fn on_place_block(
         return;
     }
 
-    match event.block {
-        WorldBlock::Belt => {
+    match event.structure {
+        Structure::Belt => {
             if let Some(dir) = facing {
                 cmd.entity(event.entity)
                     .insert((Belt, ItemLanes::default(), rt, dir));
@@ -736,7 +737,7 @@ fn on_place_block(
                     .insert((Belt, ItemLanes::default(), rt));
             }
         }
-        WorldBlock::Source => {
+        Structure::Source => {
             cmd.entity(event.entity).insert((
                 Source::default(),
                 OutputBuffer::default(),
@@ -746,11 +747,11 @@ fn on_place_block(
                 rt,
             ));
         }
-        WorldBlock::Sink => {
+        Structure::Sink => {
             cmd.entity(event.entity)
                 .insert((Sink, InputBuffer::default(), rt));
         }
-        WorldBlock::Miner => {
+        Structure::Miner => {
             let dir = facing.expect("Miner must have a facing direction");
             cmd.entity(event.entity).insert((
                 Miner { ticks: 0, dir },
@@ -762,7 +763,7 @@ fn on_place_block(
                 dir,
             ));
         }
-        WorldBlock::Furnace => {
+        Structure::Furnace => {
             cmd.entity(event.entity).insert((
                 Furnace::default(),
                 InputBuffer::default(),
@@ -774,7 +775,7 @@ fn on_place_block(
                 rt,
             ));
         }
-        WorldBlock::Assembler => {
+        Structure::Assembler => {
             cmd.entity(event.entity).insert((
                 Assembler::default(),
                 InputBuffer::default(),
@@ -786,7 +787,7 @@ fn on_place_block(
                 rt,
             ));
         }
-        WorldBlock::Collector => {
+        Structure::Collector => {
             cmd.entity(event.entity).insert((
                 Collector {
                     state: CollectorState::ReadyToPickUp,
@@ -794,20 +795,22 @@ fn on_place_block(
                 rt,
             ));
         }
-        WorldBlock::Corn => {
+        Structure::Corn => {
             cmd.entity(event.entity)
                 .insert((Corn::Growing { age: 0 }, rt));
         }
-        WorldBlock::Rock
-        | WorldBlock::Dirt
-        | WorldBlock::IronOreDeposit
-        | WorldBlock::CopperOreDeposit => {
+        Structure::Rock
+        | Structure::Dirt
+        | Structure::IronOreDeposit
+        | Structure::CopperOreDeposit => {
             cmd.entity(event.entity).insert(rt);
         }
     };
 
     if let Some(dir) = facing {
-        cmd.entity(event.entity).insert(place.to_bundle()).insert(dir);
+        cmd.entity(event.entity)
+            .insert(place.to_bundle())
+            .insert(dir);
     } else {
         cmd.entity(event.entity).insert(place.to_bundle());
     }
@@ -831,7 +834,7 @@ fn on_remove_block(
     outputs_to_belts: Query<Option<&OutputsToBelt>>,
     coords_q: Query<&WorldCoords>,
     lanes_q: Query<&ItemLanes>,
-    blocks_q: Query<&WorldBlock>,
+    blocks_q: Query<&Structure>,
     mut coord_map: ResMut<CoordsMap>,
     player: Res<Player>,
     type_registry: Res<AppTypeRegistry>,
@@ -1292,7 +1295,7 @@ fn grow_corn(mut corns: Query<&mut Corn>) {
 
 fn fill_miners(
     mut miners: Query<(&WorldCoords, &mut Miner, &mut OutputBuffer)>,
-    world_blocks: Query<&WorldBlock>,
+    world_blocks: Query<&Structure>,
     coord_map: Res<CoordsMap>,
 ) {
     for (miner_coords, mut miner, mut buffer) in &mut miners {
@@ -1850,7 +1853,7 @@ fn parse_layout(s: &str) -> Vec<(i32, i32, HDir)> {
 #[cfg(test)]
 pub trait AppExtension {
     fn add_belt(&mut self, coords: impl Into<WorldCoords>, dir: HDir) -> Entity;
-    fn add_world_block(&mut self, coords: impl Into<WorldCoords>, block: WorldBlock) -> Entity;
+    fn add_world_block(&mut self, coords: impl Into<WorldCoords>, block: Structure) -> Entity;
     fn add_item(&mut self, belt: Entity, pos: i32, side: Side) -> Entity;
     fn find_item(&mut self, item: Entity) -> Option<(Item, Transform)>;
     fn find_belt(&mut self, belt: Entity) -> Option<(BeltShape, Transform)>;
@@ -1870,23 +1873,23 @@ impl AppExtension for App {
     fn add_belt(&mut self, coords: impl Into<WorldCoords>, dir: HDir) -> Entity {
         let entity = self.world_mut().spawn_empty().id();
         let flb: WorldCoords = coords.into();
-        let brt = WorldBlock::Belt.brt_for(flb, Some(dir));
-        self.world_mut().trigger(PlaceBlock {
+        let brt = Structure::Belt.brt_for(flb, Some(dir));
+        self.world_mut().trigger(PlaceStructure {
             entity,
-            block: WorldBlock::Belt,
+            structure: Structure::Belt,
             flb,
             brt,
         });
         entity
     }
 
-    fn add_world_block(&mut self, coords: impl Into<WorldCoords>, block: WorldBlock) -> Entity {
+    fn add_world_block(&mut self, coords: impl Into<WorldCoords>, block: Structure) -> Entity {
         let entity = self.world_mut().spawn_empty().id();
         let flb: WorldCoords = coords.into();
         let brt = block.brt_for(flb, None);
-        self.world_mut().trigger(PlaceBlock {
+        self.world_mut().trigger(PlaceStructure {
             entity,
-            block,
+            structure: block,
             flb,
             brt,
         });
@@ -2159,15 +2162,15 @@ mod tests {
         // Place iron ore deposit two steps away — not adjacent to the miner.
         app.add_world_block(
             o.step(HDir::South).step(HDir::South),
-            WorldBlock::IronOreDeposit,
+            Structure::IronOreDeposit,
         );
 
         let miner = app.world_mut().spawn_empty().id();
         let flb = o;
-        app.world_mut().trigger(PlaceBlock {
+        app.world_mut().trigger(PlaceStructure {
             entity: miner,
-            block: WorldBlock::Miner,
-            brt: WorldBlock::Miner.brt_for(flb, Some(HDir::South)),
+            structure: Structure::Miner,
+            brt: Structure::Miner.brt_for(flb, Some(HDir::South)),
             flb,
         });
 
@@ -2186,15 +2189,15 @@ mod tests {
         let o = WorldCoords::ORIGIN;
 
         // Place iron ore deposit adjacent to the south of the miner position.
-        app.add_world_block(o.step(HDir::South), WorldBlock::IronOreDeposit);
+        app.add_world_block(o.step(HDir::South), Structure::IronOreDeposit);
 
         // Place miner at origin facing the ore to the south.
         let miner = app.world_mut().spawn_empty().id();
         let flb = o;
-        app.world_mut().trigger(PlaceBlock {
+        app.world_mut().trigger(PlaceStructure {
             entity: miner,
-            block: WorldBlock::Miner,
-            brt: WorldBlock::Miner.brt_for(flb, Some(HDir::South)),
+            structure: Structure::Miner,
+            brt: Structure::Miner.brt_for(flb, Some(HDir::South)),
             flb,
         });
 
@@ -2212,8 +2215,8 @@ mod tests {
     #[test]
     fn miner_outputs_correct_ore_for_deposit() {
         for (deposit, expected_ore) in [
-            (WorldBlock::IronOreDeposit, Item::IronOre),
-            (WorldBlock::CopperOreDeposit, Item::CopperOre),
+            (Structure::IronOreDeposit, Item::IronOre),
+            (Structure::CopperOreDeposit, Item::CopperOre),
         ] {
             let mut app = test_app();
             let o = WorldCoords::ORIGIN;
@@ -2222,10 +2225,10 @@ mod tests {
 
             let miner = app.world_mut().spawn_empty().id();
             let flb = o;
-            app.world_mut().trigger(PlaceBlock {
+            app.world_mut().trigger(PlaceStructure {
                 entity: miner,
-                block: WorldBlock::Miner,
-                brt: WorldBlock::Miner.brt_for(flb, Some(HDir::South)),
+                structure: Structure::Miner,
+                brt: Structure::Miner.brt_for(flb, Some(HDir::South)),
                 flb,
             });
 
@@ -2360,10 +2363,10 @@ mod tests {
         let furnace = {
             let e = app.world_mut().spawn_empty().id();
             let flb: WorldCoords = (0i32, 0i32, -2i32).into();
-            app.world_mut().trigger(PlaceBlock {
+            app.world_mut().trigger(PlaceStructure {
                 entity: e,
-                block: WorldBlock::Furnace,
-                brt: WorldBlock::Furnace.brt_for(flb, Some(HDir::North)),
+                structure: Structure::Furnace,
+                brt: Structure::Furnace.brt_for(flb, Some(HDir::North)),
                 flb,
             });
             e
@@ -2371,10 +2374,10 @@ mod tests {
         let _collector = {
             let e = app.world_mut().spawn_empty().id();
             let flb: WorldCoords = (0i32, 0i32, 0i32).into();
-            app.world_mut().trigger(PlaceBlock {
+            app.world_mut().trigger(PlaceStructure {
                 entity: e,
-                block: WorldBlock::Collector,
-                brt: WorldBlock::Collector.brt_for(flb, Some(HDir::North)),
+                structure: Structure::Collector,
+                brt: Structure::Collector.brt_for(flb, Some(HDir::North)),
                 flb,
             });
             e
@@ -2459,7 +2462,7 @@ mod tests {
         let mut app = test_app();
 
         let player = app.spawn_player();
-        let furnace = app.add_world_block(WorldCoords::ORIGIN, WorldBlock::Furnace);
+        let furnace = app.add_world_block(WorldCoords::ORIGIN, Structure::Furnace);
         app.update();
 
         // Give the player 2 iron ore and find which slot they land in.
@@ -2557,9 +2560,9 @@ mod tests {
             },
         ];
         for case in cases {
-            let event = PlaceBlock {
+            let event = PlaceStructure {
                 entity: Entity::PLACEHOLDER,
-                block: WorldBlock::Dirt,
+                structure: Structure::Dirt,
                 flb: case.flb,
                 brt: case.brt,
             };

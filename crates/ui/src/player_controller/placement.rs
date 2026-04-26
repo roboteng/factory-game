@@ -1,4 +1,4 @@
-use super::{cast_ray, FirstPersonCamera, PlacementDirection, RayTarget};
+use super::{FirstPersonCamera, PlacementDirection, RayTarget, cast_ray};
 use crate::hotbar::{Hotbar, PlacementItem};
 use crate::visuals::BlockModels;
 use crate::{InteractionMode, WorldMode};
@@ -31,7 +31,7 @@ pub(crate) struct NeedsGhostTint(pub(crate) Color);
 #[derive(Resource)]
 pub(super) struct PlacementTarget {
     pub(super) item: Item,
-    pub(super) block: WorldBlock,
+    pub(super) block: Structure,
     pub(super) facing: HDir,
     pub(super) raycast_coords: Option<WorldCoords>,
     pub(super) inv_count: u16,
@@ -99,7 +99,7 @@ fn belt_line_coords(start: WorldCoords, end: WorldCoords, facing: HDir) -> Vec<W
         .collect()
 }
 
-fn resolve_item(mode: &InteractionMode, hotbar: &Hotbar) -> Option<(Item, WorldBlock)> {
+fn resolve_item(mode: &InteractionMode, hotbar: &Hotbar) -> Option<(Item, Structure)> {
     let InteractionMode::InWorld(WorldMode::Placing(tool)) = mode else {
         return None;
     };
@@ -172,7 +172,7 @@ pub fn handle_click_to_place(
     coord_map: Res<CoordsMap>,
 ) {
     let Some(target) = target else { return };
-    if target.block == WorldBlock::Belt {
+    if target.block == Structure::Belt {
         return;
     }
 
@@ -206,9 +206,9 @@ pub fn handle_click_to_place(
 
     let entity = cmd.spawn_empty().id();
     let flb = coords;
-    let event = PlaceBlock {
+    let event = PlaceStructure {
         entity,
-        block: target.block,
+        structure: target.block,
         brt: target.block.brt_for(flb, Some(target.facing)),
         flb,
     };
@@ -235,7 +235,7 @@ pub(super) fn update_belt_placement(
         return;
     };
 
-    if target.block != WorldBlock::Belt {
+    if target.block != Structure::Belt {
         if belt_placement.is_some() {
             cmd.remove_resource::<BeltPlacement>();
         }
@@ -388,7 +388,7 @@ pub(super) fn update_single_ghost(
         return;
     };
 
-    if target.block == WorldBlock::Belt {
+    if target.block == Structure::Belt {
         for (e, _, _) in single_ghost.iter() {
             cmd.entity(e).despawn();
         }
@@ -482,10 +482,10 @@ pub(super) fn commit_belt_placement(
             for &coord in &line {
                 let e = cmd.spawn_empty().id();
                 inv.take_items(Stack::from(item));
-                cmd.trigger(PlaceBlock {
+                cmd.trigger(PlaceStructure {
                     entity: e,
-                    block: WorldBlock::Belt,
-                    brt: WorldBlock::Belt.brt_for(coord, Some(facing)),
+                    structure: Structure::Belt,
+                    brt: Structure::Belt.brt_for(coord, Some(facing)),
                     flb: coord,
                 });
             }
