@@ -536,6 +536,11 @@ impl Structure {
                 width: 2,
                 depth: 2,
             },
+            Structure::Assembler => StructureSize {
+                height: 4,
+                width: 3,
+                depth: 2,
+            },
             _ => StructureSize {
                 height: 2,
                 width: 1,

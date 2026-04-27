@@ -105,8 +105,24 @@ fn setup_models(mut cmd: Commands, asset_server: Res<AssetServer>) {
         ),
         source: ModelDef::TintedScene(block.clone(), Color::srgb(0.2, 0.8, 0.2)),
         sink: ModelDef::TintedScene(block.clone(), Color::srgb(0.8, 0.2, 0.2)),
-        rock: ModelDef::TintedScene(block.clone(), Color::srgb(0.55, 0.55, 0.55)),
-        dirt: ModelDef::TintedScene(block.clone(), Color::srgb(0.55, 0.35, 0.15)),
+        rock: ModelDef::Random(
+            (0..4)
+                .map(|i| {
+                    ModelDef::Scene(
+                        asset_server.load(GltfAssetLabel::Scene(i).from_asset("models/Rock.glb")),
+                    )
+                })
+                .collect(),
+        ),
+        dirt: ModelDef::Random(
+            (0..4)
+                .map(|i| {
+                    ModelDef::Scene(
+                        asset_server.load(GltfAssetLabel::Scene(i).from_asset("models/Dirt.glb")),
+                    )
+                })
+                .collect(),
+        ),
         iron_ore: {
             ModelDef::Random(
                 [
@@ -252,10 +268,14 @@ impl BlockModels {
             Structure::Collector => &self.collector,
             _ => return None,
         };
-        match model {
-            ModelDef::Scene(h) | ModelDef::TintedScene(h, _) => Some(h.clone()),
-            ModelDef::Random(_) => None,
+        fn mdl(model: &ModelDef) -> Option<Handle<Scene>> {
+            match model {
+                ModelDef::Scene(handle) => Some(handle.clone()),
+                ModelDef::TintedScene(handle, _) => Some(handle.clone()),
+                ModelDef::Random(model_defs) => model_defs.get(0).and_then(mdl),
+            }
         }
+        mdl(model)
     }
 }
 
