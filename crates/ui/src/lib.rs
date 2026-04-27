@@ -1,4 +1,4 @@
-use factory_core::{inventory::Inventory, Player};
+use factory_core::{Player, inventory::Inventory};
 
 use bevy::prelude::*;
 
@@ -14,24 +14,24 @@ mod source;
 mod visuals;
 
 use assembler::{
-    handle_assembler_inventory_slot_clicks, handle_assembler_output_slot_clicks,
-    handle_assembler_recipe_button, handle_clear_assembler_recipe, setup_assembler_pane,
-    update_assembler_pane, CloseAssemblerButton,
+    CloseAssemblerButton, handle_assembler_inventory_slot_clicks,
+    handle_assembler_output_slot_clicks, handle_assembler_recipe_button,
+    handle_clear_assembler_recipe, setup_assembler_pane, update_assembler_pane,
 };
-use common::{stack_label, InventorySlot};
+use common::{InventorySlot, stack_label};
 use furnace::{
-    handle_furnace_inventory_slot_clicks, handle_furnace_output_slot_clicks, setup_furnace_pane,
-    update_furnace_pane, CloseFurnaceButton,
+    CloseFurnaceButton, handle_furnace_inventory_slot_clicks, handle_furnace_output_slot_clicks,
+    setup_furnace_pane, update_furnace_pane,
 };
 use hotbar::PlacementItem;
-use inventory::{setup_inventory_pane, update_inventory_pane, CloseInventoryButton};
-use menu::{setup_menu_pane, update_menu_pane, ResumeButton};
+use inventory::{CloseInventoryButton, setup_inventory_pane, update_inventory_pane};
+use menu::{ResumeButton, setup_menu_pane, update_menu_pane};
 use miner::{
-    handle_miner_output_slot_clicks, setup_miner_pane, update_miner_pane, CloseMinerButton,
+    CloseMinerButton, handle_miner_output_slot_clicks, setup_miner_pane, update_miner_pane,
 };
 use source::{
-    handle_source_item_button, handle_source_scroll, setup_source_pane, update_source_pane,
-    CloseSourceButton,
+    CloseSourceButton, handle_source_item_button, handle_source_scroll, setup_source_pane,
+    update_source_pane,
 };
 
 pub struct UiPlugin;

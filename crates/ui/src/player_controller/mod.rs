@@ -131,9 +131,23 @@ fn setup(
 ) {
     let ambient = AmbientLight {
         color: Color::WHITE,
-        brightness: 500.0,
+        brightness: 150.0,
         ..Default::default()
     };
+
+    cmd.spawn((
+        DirectionalLight {
+            illuminance: 3000.0,
+            shadows_enabled: false,
+            ..Default::default()
+        },
+        Transform::from_rotation(Quat::from_euler(
+            EulerRot::XYZ,
+            -std::f32::consts::FRAC_PI_4,
+            std::f32::consts::FRAC_PI_6,
+            0.0,
+        )),
+    ));
 
     if fly_mode.0 {
         // Free-fly (noclip) mode: camera is a standalone entity, no physics body.
