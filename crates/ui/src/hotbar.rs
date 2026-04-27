@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use factory_core::{inventory::Inventory, *};
 
-use super::common::{SLOT_BG, SLOT_BORDER, SLOT_FONT_SIZE, SLOT_SIZE, StackView};
+use super::common::{InventorySlot, StackView, SLOT_BG, SLOT_BORDER, SLOT_FONT_SIZE, SLOT_SIZE};
 use super::{InteractionMode, WorldMode};
 
 pub struct HotbarPlugin;
@@ -24,6 +24,8 @@ impl Plugin for HotbarPlugin {
         app.add_systems(PreUpdate, handle_tool_selection);
         app.add_systems(Update, update_hotbar_selection);
         app.add_systems(Update, update_hotbar_counts);
+        app.add_systems(Update, handle_hotbar_assignment);
+        app.add_systems(Update, update_hotbar_items);
     }
 }
 
@@ -85,50 +87,54 @@ fn spawn_hotbar_slot(parent: &mut ChildSpawnerCommands, index: usize, tool: Opti
             HotbarSlot(index as u16),
         ))
         .with_children(|parent| {
-            let Some(tool) = tool else { return };
-            parent.spawn((
-                Text::new(format!("{}", index + 1)),
-                TextFont {
-                    font_size: 14.0,
-                    ..default()
-                },
-                TextColor(TEXT_COLOR_NORMAL),
-                Node {
-                    position_type: PositionType::Absolute,
-                    top: Val::Px(2.0),
-                    left: Val::Px(4.0),
-                    ..default()
-                },
-                HotbarSlotText(index as u16),
-            ));
-
-            parent.spawn((
-                Text::new(tool.name()),
-                TextFont {
-                    font_size: SLOT_FONT_SIZE,
-                    ..default()
-                },
-                TextColor(TEXT_COLOR_NORMAL),
-                HotbarSlotText(index as u16),
-            ));
-
-            parent.spawn((
-                Text::new("0"),
-                TextFont {
-                    font_size: SLOT_FONT_SIZE,
-                    ..default()
-                },
-                TextColor(TEXT_COLOR_NORMAL),
-                Node {
-                    position_type: PositionType::Absolute,
-                    bottom: Val::Px(2.0),
-                    right: Val::Px(4.0),
-                    ..default()
-                },
-                HotbarSlotCount(index as u16),
-                HotbarSlotText(index as u16),
-            ));
+            spawn_slot_children(parent, index, tool);
         });
+}
+
+fn spawn_slot_children(parent: &mut ChildSpawnerCommands, index: usize, tool: Option<Item>) {
+    let Some(tool) = tool else { return };
+    parent.spawn((
+        Text::new(format!("{}", index + 1)),
+        TextFont {
+            font_size: 14.0,
+            ..default()
+        },
+        TextColor(TEXT_COLOR_NORMAL),
+        Node {
+            position_type: PositionType::Absolute,
+            top: Val::Px(2.0),
+            left: Val::Px(4.0),
+            ..default()
+        },
+        HotbarSlotText(index as u16),
+    ));
+
+    parent.spawn((
+        Text::new(tool.name()),
+        TextFont {
+            font_size: SLOT_FONT_SIZE,
+            ..default()
+        },
+        TextColor(TEXT_COLOR_NORMAL),
+        HotbarSlotText(index as u16),
+    ));
+
+    parent.spawn((
+        Text::new("0"),
+        TextFont {
+            font_size: SLOT_FONT_SIZE,
+            ..default()
+        },
+        TextColor(TEXT_COLOR_NORMAL),
+        Node {
+            position_type: PositionType::Absolute,
+            bottom: Val::Px(2.0),
+            right: Val::Px(4.0),
+            ..default()
+        },
+        HotbarSlotCount(index as u16),
+        HotbarSlotText(index as u16),
+    ));
 }
 
 const DIGITS: [KeyCode; 10] = [
@@ -207,6 +213,52 @@ fn update_hotbar_counts(
             TEXT_COLOR_EMPTY
         } else {
             TEXT_COLOR_NORMAL
+        });
+    }
+}
+
+fn handle_hotbar_assignment(
+    keys: Res<ButtonInput<KeyCode>>,
+    mode: Res<InteractionMode>,
+    player: Res<Player>,
+    inventories: Query<&Inventory>,
+    slots: Query<(&Interaction, &InventorySlot)>,
+    mut hotbar: ResMut<Hotbar>,
+) {
+    if !matches!(*mode, InteractionMode::InScreen(_)) {
+        return;
+    }
+
+    let Some(index) = DIGITS
+        .iter()
+        .enumerate()
+        .find_map(|(i, key)| keys.just_pressed(*key).then_some(i))
+    else {
+        return;
+    };
+
+    let hovered_slot = slots.iter().find_map(|(interaction, slot)| {
+        matches!(interaction, Interaction::Hovered | Interaction::Pressed).then_some(slot.0)
+    });
+
+    hotbar.0[index] = hovered_slot
+        .and_then(|idx| inventories.get(player.0).ok()?.get(idx))
+        .map(|s| s.item);
+}
+
+fn update_hotbar_items(
+    hotbar: Res<Hotbar>,
+    mut commands: Commands,
+    slots: Query<(Entity, &HotbarSlot)>,
+) {
+    if !hotbar.is_changed() {
+        return;
+    }
+    for (entity, slot) in &slots {
+        commands.entity(entity).despawn_children();
+        let item = hotbar.0.get(slot.0 as usize).copied().flatten();
+        commands.entity(entity).with_children(|parent| {
+            spawn_slot_children(parent, slot.0 as usize, item);
         });
     }
 }
