@@ -35,7 +35,7 @@ pub const ITEM_SIZE: f32 = 1.0 / (ITEMS_PER_BELT as f32);
 pub struct MinerTicksPerExtract(pub u32);
 impl Default for MinerTicksPerExtract {
     fn default() -> Self {
-        Self(60)
+        Self(600)
     }
 }
 
@@ -663,7 +663,7 @@ pub trait WorldDrop {
 pub struct CornGrowthTicks(pub u32);
 impl Default for CornGrowthTicks {
     fn default() -> Self {
-        Self(360)
+        Self(3600)
     }
 }
 
