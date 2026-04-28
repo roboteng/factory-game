@@ -4,7 +4,7 @@ use factory_core::{
     *,
 };
 
-use super::common::{InventorySlot, SLOT_BG, SLOT_BORDER, SLOT_FONT_SIZE, SLOT_SIZE, StackView};
+use super::common::{InventorySlot, StackView, SLOT_BG, SLOT_BORDER, SLOT_FONT_SIZE, SLOT_SIZE};
 use super::{InteractionMode, WorldMode};
 
 pub struct HotbarPlugin;
@@ -25,8 +25,7 @@ impl Plugin for SurvivalHotbar {
         let mut inv = Inventory::with_max_slots(64);
         inv.insert(Stack::new(Item::Miner, 1)).unwrap();
         inv.insert(Stack::new(Item::Furnace, 1)).unwrap();
-        let player = app.world_mut().spawn(inv).id();
-        app.insert_resource(Player(player));
+        spawn_player(app.world_mut(), inv);
 
         let mut hotbar = [None; 10];
         hotbar[0] = Some(Item::Miner);
@@ -50,8 +49,7 @@ impl Plugin for FreeHotbar {
         inv.insert(Stack::new(Item::Collector, 5)).unwrap();
         inv.insert(Stack::new(Item::CornKernels, 10)).unwrap();
         inv.insert(Stack::new(Item::IronOre, 5)).unwrap();
-        let player = app.world_mut().spawn(inv).id();
-        app.insert_resource(Player(player));
+        spawn_player(app.world_mut(), inv);
 
         let mut hotbar = [None; 10];
         hotbar[0] = Some(Item::Belt);

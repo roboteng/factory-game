@@ -6,8 +6,10 @@ use std::f32::consts::PI;
 pub mod dir;
 pub mod inventory;
 pub mod machine;
+pub mod player;
 pub mod world_gen;
 
+pub use player::{spawn_player, HandCrafter, Player};
 pub use world_gen::{FlatWorldPlugin, PerlinWorldPlugin};
 #[cfg(feature = "invariant-check")]
 pub mod invariants;
@@ -83,6 +85,7 @@ impl Plugin for CorePlugin {
                 (recalculate_filters, pull_from_belt, tick_collectors).chain(),
                 process_furnace,
                 process_assembler,
+                player::process_hand_crafter,
                 consume_sink_buffer,
                 side_loading,
                 grow_corn,
@@ -232,10 +235,40 @@ impl From<machine::FurnaceRecipe> for Recipe {
     }
 }
 
+impl Recipe {
+    pub fn ticks(&self) -> u32 {
+        match self {
+            Recipe::FurnaceRecipe(r) => r.ticks,
+            Recipe::AssemblerRecipe(r) => r.ticks,
+        }
+    }
+
+    pub fn inputs(&self) -> Vec<Stack> {
+        match self {
+            Recipe::FurnaceRecipe(r) => vec![r.input],
+            Recipe::AssemblerRecipe(r) => r.input.clone(),
+        }
+    }
+
+    pub fn outputs(&self) -> Vec<Stack> {
+        match self {
+            Recipe::FurnaceRecipe(r) => vec![r.output],
+            Recipe::AssemblerRecipe(r) => r.output.clone(),
+        }
+    }
+}
+
 #[derive(Resource)]
 pub struct Recipes(pub Vec<Recipe>);
 
 impl Recipes {
+    pub fn hand_craftable(&self) -> impl Iterator<Item = (usize, &Recipe)> {
+        self.0
+            .iter()
+            .enumerate()
+            .filter(|(_, r)| matches!(r, Recipe::AssemblerRecipe(_)))
+    }
+
     fn new() -> Self {
         Self(vec![
             Recipe::FurnaceRecipe(machine::FurnaceRecipe {
@@ -645,8 +678,6 @@ pub struct Sided<T> {
     pub right: T,
 }
 
-#[derive(Resource)]
-pub struct Player(pub Entity);
 
 #[derive(Resource, Default)]
 pub struct CreativeMode(pub bool);

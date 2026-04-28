@@ -25,7 +25,10 @@ use furnace::{
 };
 use hotbar::PlacementItem;
 pub use hotbar::{FreeHotbar, SurvivalHotbar};
-use inventory::{setup_inventory_pane, update_inventory_pane, CloseInventoryButton};
+use inventory::{
+    handle_inventory_recipe_button, setup_inventory_pane, update_inventory_pane,
+    CloseInventoryButton,
+};
 use menu::{setup_menu_pane, update_menu_pane, ResumeButton};
 use miner::{
     handle_miner_output_slot_clicks, setup_miner_pane, update_miner_pane, CloseMinerButton,
@@ -52,6 +55,7 @@ impl Plugin for UiPlugin {
             update_inventory_pane.after(player_controller::cursor_grab),
         );
         app.add_systems(Update, handle_close_button::<CloseInventoryButton>);
+        app.add_systems(Update, handle_inventory_recipe_button);
         app.add_systems(
             Update,
             update_menu_pane.after(player_controller::cursor_grab),
