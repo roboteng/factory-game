@@ -1,12 +1,13 @@
 use bevy::prelude::*;
 use factory_core::{CorePlugin, FlatWorldPlugin, PerlinWorldPlugin};
 use physics::PhysicsPlugin;
-use ui::{FlyMode, UiPlugin};
+use ui::{FlyMode, FreeHotbar, SurvivalHotbar, UiPlugin};
 
 fn main() {
     let fly_mode = std::env::args().any(|a| a == "--fly");
     let flat_mode = std::env::args().any(|a| a == "--flat");
     let max_framerate_mode = std::env::args().any(|a| a == "--max");
+    let creative_mode = std::env::args().any(|a| a == "--creative");
 
     let mut app = App::new();
 
@@ -23,6 +24,12 @@ fn main() {
         app.add_plugins(FlatWorldPlugin);
     } else {
         app.add_plugins(PerlinWorldPlugin);
+    }
+
+    if creative_mode {
+        app.add_plugins(FreeHotbar);
+    } else {
+        app.add_plugins(SurvivalHotbar);
     }
 
     app.add_plugins((UiPlugin, PhysicsPlugin));
@@ -55,7 +62,7 @@ fn screenshot_on_f10(
     mut counter: Local<u32>,
     mut commands: Commands,
 ) {
-    use bevy::render::view::screenshot::{Screenshot, save_to_disk};
+    use bevy::render::view::screenshot::{save_to_disk, Screenshot};
     if input.just_pressed(KeyCode::F10) {
         let path = format!("./screenshot-{}.png", *counter);
         *counter += 1;

@@ -69,20 +69,6 @@ impl Plugin for CorePlugin {
         app.add_observer(on_set_assembler_recipe);
         app.add_observer(on_set_source_item);
 
-        let mut inv = Inventory::with_max_slots(64);
-        inv.insert(Stack::new(Item::Belt, 15)).unwrap();
-        inv.insert(Stack::new(Item::Source, 5)).unwrap();
-        inv.insert(Stack::new(Item::Sink, 5)).unwrap();
-        inv.insert(Stack::new(Item::Rock, 5)).unwrap();
-        inv.insert(Stack::new(Item::Dirt, 5)).unwrap();
-        inv.insert(Stack::new(Item::Furnace, 5)).unwrap();
-        inv.insert(Stack::new(Item::Assembler, 5)).unwrap();
-        inv.insert(Stack::new(Item::Miner, 5)).unwrap();
-        inv.insert(Stack::new(Item::Collector, 5)).unwrap();
-        inv.insert(Stack::new(Item::CornKernels, 10)).unwrap();
-        inv.insert(Stack::new(Item::IronOre, 5)).unwrap();
-        let player = app.world_mut().spawn(inv).id();
-        app.insert_resource(Player(player));
 
         app.add_systems(
             Update,
@@ -661,6 +647,9 @@ pub struct Sided<T> {
 
 #[derive(Resource)]
 pub struct Player(pub Entity);
+
+#[derive(Resource, Default)]
+pub struct CreativeMode(pub bool);
 
 #[derive(Resource, Default)]
 pub struct CoordsMap(pub HashMap<WorldCoords, Entity>);

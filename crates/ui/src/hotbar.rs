@@ -1,12 +1,58 @@
 use bevy::prelude::*;
-use factory_core::{inventory::Inventory, *};
+use factory_core::{
+    inventory::{Inventory, Stack},
+    *,
+};
 
-use super::common::{InventorySlot, StackView, SLOT_BG, SLOT_BORDER, SLOT_FONT_SIZE, SLOT_SIZE};
+use super::common::{InventorySlot, SLOT_BG, SLOT_BORDER, SLOT_FONT_SIZE, SLOT_SIZE, StackView};
 use super::{InteractionMode, WorldMode};
 
 pub struct HotbarPlugin;
 impl Plugin for HotbarPlugin {
     fn build(&self, app: &mut App) {
+        app.add_systems(Startup, setup_hotbar);
+        app.add_systems(PreUpdate, handle_tool_selection);
+        app.add_systems(Update, update_hotbar_selection);
+        app.add_systems(Update, update_hotbar_counts);
+        app.add_systems(Update, handle_hotbar_assignment);
+        app.add_systems(Update, update_hotbar_items);
+    }
+}
+
+pub struct SurvivalHotbar;
+impl Plugin for SurvivalHotbar {
+    fn build(&self, app: &mut App) {
+        let mut inv = Inventory::with_max_slots(64);
+        inv.insert(Stack::new(Item::Miner, 1)).unwrap();
+        inv.insert(Stack::new(Item::Furnace, 1)).unwrap();
+        let player = app.world_mut().spawn(inv).id();
+        app.insert_resource(Player(player));
+
+        let mut hotbar = [None; 10];
+        hotbar[0] = Some(Item::Miner);
+        hotbar[1] = Some(Item::Furnace);
+        app.insert_resource(Hotbar(hotbar));
+    }
+}
+
+pub struct FreeHotbar;
+impl Plugin for FreeHotbar {
+    fn build(&self, app: &mut App) {
+        let mut inv = Inventory::with_max_slots(64);
+        inv.insert(Stack::new(Item::Belt, 15)).unwrap();
+        inv.insert(Stack::new(Item::Source, 5)).unwrap();
+        inv.insert(Stack::new(Item::Sink, 5)).unwrap();
+        inv.insert(Stack::new(Item::Rock, 5)).unwrap();
+        inv.insert(Stack::new(Item::Dirt, 5)).unwrap();
+        inv.insert(Stack::new(Item::Furnace, 5)).unwrap();
+        inv.insert(Stack::new(Item::Assembler, 5)).unwrap();
+        inv.insert(Stack::new(Item::Miner, 5)).unwrap();
+        inv.insert(Stack::new(Item::Collector, 5)).unwrap();
+        inv.insert(Stack::new(Item::CornKernels, 10)).unwrap();
+        inv.insert(Stack::new(Item::IronOre, 5)).unwrap();
+        let player = app.world_mut().spawn(inv).id();
+        app.insert_resource(Player(player));
+
         let mut hotbar = [None; 10];
         hotbar[0] = Some(Item::Belt);
         hotbar[1] = Some(Item::Source);
@@ -19,13 +65,6 @@ impl Plugin for HotbarPlugin {
         hotbar[8] = Some(Item::Collector);
         hotbar[9] = Some(Item::CornKernels);
         app.insert_resource(Hotbar(hotbar));
-
-        app.add_systems(Startup, setup_hotbar);
-        app.add_systems(PreUpdate, handle_tool_selection);
-        app.add_systems(Update, update_hotbar_selection);
-        app.add_systems(Update, update_hotbar_counts);
-        app.add_systems(Update, handle_hotbar_assignment);
-        app.add_systems(Update, update_hotbar_items);
     }
 }
 
