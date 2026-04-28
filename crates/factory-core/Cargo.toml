@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-bevy = {workspace = true, features = ["bevy_log"]}
+bevy = {workspace = true, features = ["bevy_log", "debug"]}
 noise = "0.9.0"
 rand = "0.8"
 

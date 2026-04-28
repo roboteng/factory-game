@@ -12,8 +12,8 @@ pub struct HandCrafter {
     pub status: MachineStatus<Recipe>,
 }
 
-pub fn spawn_player(world: &mut World, inventory: Inventory) {
-    let entity = world.spawn((inventory, HandCrafter::default())).id();
+pub fn spawn_player(world: &mut World) {
+    let entity = world.spawn((Inventory::new(), HandCrafter::default())).id();
     world.insert_resource(Player(entity));
 }
 

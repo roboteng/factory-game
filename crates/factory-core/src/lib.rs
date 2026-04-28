@@ -9,7 +9,7 @@ pub mod machine;
 pub mod player;
 pub mod world_gen;
 
-pub use player::{spawn_player, HandCrafter, Player};
+pub use player::{HandCrafter, Player, spawn_player};
 pub use world_gen::{FlatWorldPlugin, PerlinWorldPlugin};
 #[cfg(feature = "invariant-check")]
 pub mod invariants;
@@ -31,8 +31,21 @@ pub const LANE_OFFSET: f32 = 0.25;
 pub const BELT_HEIGHT: f32 = 0.25;
 
 pub const ITEM_SIZE: f32 = 1.0 / (ITEMS_PER_BELT as f32);
-pub const MINER_TICKS_PER_EXTRACT: u32 = 60;
-pub const COLLECTOR_MOVE_TICKS: u32 = 60;
+#[derive(Resource)]
+pub struct MinerTicksPerExtract(pub u32);
+impl Default for MinerTicksPerExtract {
+    fn default() -> Self {
+        Self(60)
+    }
+}
+
+#[derive(Resource)]
+pub struct CollectorMoveTicks(pub u32);
+impl Default for CollectorMoveTicks {
+    fn default() -> Self {
+        Self(60)
+    }
+}
 pub const ITEM_SPACING: i32 = POSITIONS_PER_BELT / ITEMS_PER_BELT;
 pub const POSITIONS_PER_INNER_CURVE: i32 =
     ((0.5 - LANE_OFFSET) * POSITIONS_PER_BELT as f32 * PI / 2.0).round() as i32;
@@ -61,6 +74,9 @@ impl Plugin for CorePlugin {
 
         app.init_resource::<CoordsMap>();
         app.insert_resource(Recipes::new());
+        app.init_resource::<MinerTicksPerExtract>();
+        app.init_resource::<CollectorMoveTicks>();
+        app.init_resource::<CornGrowthTicks>();
 
         app.add_observer(on_place_structure);
         app.add_observer(on_place_item);
@@ -71,6 +87,7 @@ impl Plugin for CorePlugin {
         app.add_observer(on_set_assembler_recipe);
         app.add_observer(on_set_source_item);
 
+        spawn_player(app.world_mut());
 
         app.add_systems(
             Update,
@@ -642,10 +659,16 @@ pub trait WorldDrop {
     fn drop_items(&self) -> Vec<Stack>;
 }
 
-pub const CORN_TICKS_PER_STAGE: u32 = 120;
+#[derive(Resource)]
+pub struct CornGrowthTicks(pub u32);
+impl Default for CornGrowthTicks {
+    fn default() -> Self {
+        Self(360)
+    }
+}
 
 /// State of a planted corn block. `Growing` tracks total age in ticks across all stages;
-/// stages A/B/C are each `CORN_TICKS_PER_STAGE` ticks wide. `FullyGrown` is stage D.
+/// there are 3 equal stages (A/B/C), each `total / 3` ticks wide. `FullyGrown` is stage D.
 #[derive(Component, Debug, Reflect)]
 #[reflect(Component)]
 pub enum Corn {
@@ -664,10 +687,11 @@ impl WorldDrop for Corn {
 
 impl Corn {
     /// Returns 0..=3 mapping to stages A–D, for model selection.
-    pub fn visual_stage(&self) -> u8 {
+    /// `total_ticks` is the full growth duration from `CornGrowthTicks`.
+    pub fn visual_stage(&self, total_ticks: u32) -> u8 {
         match self {
             Corn::FullyGrown => 3,
-            Corn::Growing { age } => (*age / CORN_TICKS_PER_STAGE).min(2) as u8,
+            Corn::Growing { age } => (*age / (total_ticks / 3)).min(2) as u8,
         }
     }
 }
@@ -677,7 +701,6 @@ pub struct Sided<T> {
     pub left: T,
     pub right: T,
 }
-
 
 #[derive(Resource, Default)]
 pub struct CreativeMode(pub bool);
@@ -1291,7 +1314,8 @@ fn on_set_source_item(event: On<SetSourceItem>, mut sources: Query<&mut Source>)
     source.configured_item = event.item;
 }
 
-fn grow_corn(mut corns: Query<&mut Corn>) {
+fn grow_corn(mut corns: Query<&mut Corn>, corn_ticks: Res<CornGrowthTicks>) {
+    let ticks_per_stage = corn_ticks.0 / 3;
     for mut corn in &mut corns {
         let age = match corn.bypass_change_detection() {
             Corn::Growing { age } => *age,
@@ -1299,10 +1323,10 @@ fn grow_corn(mut corns: Query<&mut Corn>) {
         };
 
         let new_age = age + 1;
-        if new_age >= CORN_TICKS_PER_STAGE * 3 {
+        if new_age >= corn_ticks.0 {
             // Transition to fully grown — triggers Changed<Corn> for visual update
             *corn = Corn::FullyGrown;
-        } else if new_age % CORN_TICKS_PER_STAGE == 0 {
+        } else if new_age % ticks_per_stage == 0 {
             // Stage boundary crossed — trigger Changed<Corn> for visual update
             match &mut *corn {
                 Corn::Growing { age } => *age = new_age,
@@ -1322,10 +1346,11 @@ fn fill_miners(
     mut miners: Query<(&WorldCoords, &mut Miner, &mut OutputBuffer)>,
     world_blocks: Query<&Structure>,
     coord_map: Res<CoordsMap>,
+    miner_ticks: Res<MinerTicksPerExtract>,
 ) {
     for (miner_coords, mut miner, mut buffer) in &mut miners {
         miner.ticks += 1;
-        if miner.ticks < MINER_TICKS_PER_EXTRACT {
+        if miner.ticks < miner_ticks.0 {
             continue;
         }
         miner.ticks = 0;
@@ -1426,6 +1451,7 @@ fn tick_collectors(
     mut visual_transforms: Query<&mut Transform>,
     coord_map: Res<CoordsMap>,
     mut cmd: Commands,
+    collector_ticks: Res<CollectorMoveTicks>,
 ) {
     for (mut collector, &coords, &dir) in &mut collectors {
         let forward = coords.step(dir);
@@ -1503,12 +1529,12 @@ fn tick_collectors(
                         item,
                     });
                 }
-                let t = (ticks as f32 / COLLECTOR_MOVE_TICKS as f32).min(1.0);
+                let t = (ticks as f32 / collector_ticks.0 as f32).min(1.0);
                 let pos = start.lerp(end, t);
                 if let Ok(mut transform) = visual_transforms.get_mut(visual) {
                     transform.translation = pos;
                 }
-                if ticks >= COLLECTOR_MOVE_TICKS {
+                if ticks >= collector_ticks.0 {
                     collector.state = CollectorState::ReadyToDropOff { item, visual };
                 } else {
                     collector.state = CollectorState::MovingItem {
@@ -1558,7 +1584,7 @@ fn tick_collectors(
 
                 if deposited {
                     collector.state = CollectorState::MovingToStart {
-                        ticks: COLLECTOR_MOVE_TICKS,
+                        ticks: collector_ticks.0,
                     };
                 }
             }
@@ -2201,7 +2227,8 @@ mod tests {
 
         let belt = app.add_belt(o.step(HDir::North), HDir::North);
 
-        for _ in 0..=MINER_TICKS_PER_EXTRACT {
+        let miner_ticks = app.world().resource::<MinerTicksPerExtract>().0;
+        for _ in 0..=miner_ticks {
             app.update();
         }
 
@@ -2230,7 +2257,8 @@ mod tests {
         let belt = app.add_belt(o.step(HDir::North), HDir::North);
 
         // Tick until the miner has had enough time to extract and push.
-        for _ in 0..=MINER_TICKS_PER_EXTRACT {
+        let miner_ticks = app.world().resource::<MinerTicksPerExtract>().0;
+        for _ in 0..=miner_ticks {
             app.update();
         }
 
@@ -2259,7 +2287,8 @@ mod tests {
 
             let belt = app.add_belt(o.step(HDir::North), HDir::North);
 
-            for _ in 0..=MINER_TICKS_PER_EXTRACT {
+            let miner_ticks = app.world().resource::<MinerTicksPerExtract>().0;
+            for _ in 0..=miner_ticks {
                 app.update();
             }
 
@@ -2444,8 +2473,8 @@ mod tests {
             );
         }
 
-        // Run COLLECTOR_MOVE_TICKS more ticks
-        for _ in 0..COLLECTOR_MOVE_TICKS {
+        let collector_move_ticks = app.world().resource::<CollectorMoveTicks>().0;
+        for _ in 0..collector_move_ticks {
             app.update();
         }
 

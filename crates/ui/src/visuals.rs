@@ -489,10 +489,11 @@ fn on_place_item(
 fn attach_corn_models(
     corns: Query<(Entity, &Corn), Changed<Corn>>,
     all_models: Res<BlockModels>,
+    corn_ticks: Res<factory_core::CornGrowthTicks>,
     mut cmd: Commands,
 ) {
     for (entity, corn) in &corns {
-        let model = match corn.visual_stage() {
+        let model = match corn.visual_stage(corn_ticks.0) {
             0 => &all_models.corn_stage_a,
             1 => &all_models.corn_stage_b,
             2 => &all_models.corn_stage_c,
