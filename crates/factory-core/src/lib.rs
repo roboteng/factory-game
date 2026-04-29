@@ -217,7 +217,7 @@ pub struct Source {
 
 #[derive(Component)]
 pub struct Miner {
-    ticks: u32,
+    pub ticks: u32,
     dir: HDir,
 }
 
