@@ -1,5 +1,6 @@
-use factory_core::{inventory::Inventory, Player};
+use crate::common::{inventory::Inventory, Player};
 
+use avian3d;
 use bevy::prelude::*;
 
 mod assembler;
@@ -41,6 +42,8 @@ use source::{
 pub struct UiPlugin;
 impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(avian3d::PhysicsPlugins::default());
+        app.add_systems(Update, player_controller::add_block_colliders);
         app.add_plugins(hotbar::HotbarPlugin);
         app.add_plugins(player_controller::PlayerControllerPlugin);
         app.add_plugins(visuals::VisualsPlugin);
@@ -102,7 +105,7 @@ impl Plugin for UiPlugin {
 pub struct FlyMode(pub bool);
 
 #[derive(Default, PartialEq, Eq)]
-pub(crate) enum WorldMode {
+pub enum WorldMode {
     #[default]
     None,
     Placing(PlacementItem),
@@ -111,7 +114,7 @@ pub(crate) enum WorldMode {
 }
 
 #[derive(PartialEq, Eq)]
-pub(crate) enum ScreenMode {
+pub enum ScreenMode {
     Inventory,
     Menu,
     Furnace(Entity),
@@ -121,7 +124,7 @@ pub(crate) enum ScreenMode {
 }
 
 #[derive(Resource, PartialEq, Eq)]
-pub(crate) enum InteractionMode {
+pub enum InteractionMode {
     InWorld(WorldMode),
     InScreen(ScreenMode),
 }

@@ -1,38 +1,38 @@
 use bevy::prelude::*;
-use factory_core::inventory::Stack;
+use crate::common::inventory::Stack;
 
 // ── Theme ─────────────────────────────────────────────────────────────────────
 
-pub(super) const PANE_BG: Color = Color::srgba(0.08, 0.08, 0.12, 0.95);
-pub(super) const CLOSE_BTN_BG: Color = Color::srgba(0.3, 0.1, 0.1, 0.9);
-pub(super) const SLOT_BG: Color = Color::srgba(0.1, 0.1, 0.1, 0.8);
-pub(super) const SLOT_BORDER: Color = Color::srgba(0.3, 0.3, 0.3, 0.8);
-pub(super) const LABEL_COLOR: Color = Color::srgba(0.7, 0.7, 0.7, 1.0);
+pub const PANE_BG: Color = Color::srgba(0.08, 0.08, 0.12, 0.95);
+pub const CLOSE_BTN_BG: Color = Color::srgba(0.3, 0.1, 0.1, 0.9);
+pub const SLOT_BG: Color = Color::srgba(0.1, 0.1, 0.1, 0.8);
+pub const SLOT_BORDER: Color = Color::srgba(0.3, 0.3, 0.3, 0.8);
+pub const LABEL_COLOR: Color = Color::srgba(0.7, 0.7, 0.7, 1.0);
 
-pub(super) const SLOT_SIZE: f32 = 64.0;
-pub(super) const CLOSE_BTN_SIZE: f32 = 32.0;
-pub(super) const TITLE_FONT_SIZE: f32 = 20.0;
-pub(super) const LABEL_FONT_SIZE: f32 = 14.0;
-pub(super) const SLOT_FONT_SIZE: f32 = 12.0;
-pub(super) const CLOSE_BTN_FONT_SIZE: f32 = 16.0;
+pub const SLOT_SIZE: f32 = 64.0;
+pub const CLOSE_BTN_SIZE: f32 = 32.0;
+pub const TITLE_FONT_SIZE: f32 = 20.0;
+pub const LABEL_FONT_SIZE: f32 = 14.0;
+pub const SLOT_FONT_SIZE: f32 = 12.0;
+pub const CLOSE_BTN_FONT_SIZE: f32 = 16.0;
 
-pub(super) const PLAYER_INVENTORY_SLOTS: u16 = 64;
+pub const PLAYER_INVENTORY_SLOTS: u16 = 64;
 
 // ── Shared component ──────────────────────────────────────────────────────────
 
 /// Marks a UI button slot that displays a player inventory slot.
 /// Shared by the inventory screen and the furnace screen's inventory panel.
 #[derive(Component)]
-pub(super) struct InventorySlot(pub(super) u16);
+pub struct InventorySlot(pub u16);
 
 /// Marker component for slot UI elements that display a Stack.
 /// Encapsulates all visual styling (background, border, text colors).
 /// Slots are always spawned with this component to manage appearance consistently.
 #[derive(Component)]
-pub(super) struct StackView;
+pub struct StackView;
 
 /// Formats a slot label showing item name and count, or empty string for empty slots.
-pub(super) fn stack_label(stack: Option<Stack>) -> String {
+pub fn stack_label(stack: Option<Stack>) -> String {
     match stack {
         Some(s) => format!("{}\n\u{00d7}{}", s.item.name(), s.count),
         None => String::new(),
@@ -41,7 +41,7 @@ pub(super) fn stack_label(stack: Option<Stack>) -> String {
 
 /// Returns the components that define a stack slot's appearance.
 /// Useful for changing all slot styling in one place.
-pub(super) fn stack_view_style() -> (Node, BackgroundColor, BorderColor) {
+pub fn stack_view_style() -> (Node, BackgroundColor, BorderColor) {
     (
         Node {
             width: Val::Px(SLOT_SIZE),
@@ -61,7 +61,7 @@ pub(super) fn stack_view_style() -> (Node, BackgroundColor, BorderColor) {
 
 /// Absolute-positioned column pane, hidden by default.
 /// Callers add their own marker component after spawning.
-pub(super) fn pane_node(
+pub fn pane_node(
     left: Val,
     right: Val,
     top: Val,
@@ -83,7 +83,7 @@ pub(super) fn pane_node(
 }
 
 /// Title bar row: screen title on the left, close button on the right.
-pub(super) fn spawn_title_bar(
+pub fn spawn_title_bar(
     parent: &mut ChildSpawnerCommands,
     title: &str,
     close_marker: impl Bundle,
@@ -132,7 +132,7 @@ pub(super) fn spawn_title_bar(
 }
 
 /// 64×64 button slot with a dark background, border, and an empty text child.
-pub(super) fn spawn_slot(parent: &mut ChildSpawnerCommands, marker: impl Bundle) {
+pub fn spawn_slot(parent: &mut ChildSpawnerCommands, marker: impl Bundle) {
     let (node, bg, border) = stack_view_style();
     parent
         .spawn((Button, node, bg, border, StackView, marker))
@@ -152,7 +152,7 @@ pub(super) fn spawn_slot(parent: &mut ChildSpawnerCommands, marker: impl Bundle)
 ///
 /// `left_content` fills the 40% left panel (use `|_| {}` for an empty placeholder).
 /// `inventory_marker` is passed through to `spawn_inventory_panel` for the 60% right panel.
-pub(super) fn spawn_screen_layout<M: Bundle + Clone>(
+pub fn spawn_screen_layout<M: Bundle + Clone>(
     parent: &mut ChildSpawnerCommands,
     title: &str,
     close_marker: impl Bundle,
@@ -192,7 +192,7 @@ pub(super) fn spawn_screen_layout<M: Bundle + Clone>(
 ///
 /// `extra_marker` is cloned onto every slot — use `()` when no extra tagging is needed,
 /// or e.g. `FurnaceInventoryPanel` to scope click handlers to a specific screen.
-pub(super) fn spawn_inventory_panel<M: Bundle + Clone>(
+pub fn spawn_inventory_panel<M: Bundle + Clone>(
     parent: &mut ChildSpawnerCommands,
     extra_marker: M,
 ) {
@@ -212,7 +212,7 @@ pub(super) fn spawn_inventory_panel<M: Bundle + Clone>(
 }
 
 /// Muted section-label text (e.g. "Input", "Inventory").
-pub(super) fn section_label(parent: &mut ChildSpawnerCommands, label: &str) {
+pub fn section_label(parent: &mut ChildSpawnerCommands, label: &str) {
     parent.spawn((
         Text::new(label),
         TextFont {

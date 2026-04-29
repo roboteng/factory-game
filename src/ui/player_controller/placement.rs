@@ -1,52 +1,52 @@
-use super::{cast_ray, FirstPersonCamera, PlacementDirection, RayTarget};
-use crate::hotbar::{Hotbar, PlacementItem};
-use crate::visuals::BlockModels;
-use crate::{InteractionMode, WorldMode};
-use factory_core::{
+use crate::common::{
     inventory::{Inventory, Stack},
     *,
 };
+use crate::ui::hotbar::{Hotbar, PlacementItem};
+use crate::ui::player_controller::{cast_ray, FirstPersonCamera, PlacementDirection, RayTarget};
+use crate::ui::visuals::BlockModels;
+use crate::ui::{InteractionMode, WorldMode};
 
 use bevy::{prelude::*, window::CursorGrabMode, window::CursorOptions};
 
 /// Marker for all ghost preview entities (belt and single).
 #[derive(Component)]
-pub(super) struct GhostPreview;
+pub struct GhostPreview;
 
 /// Marker for belt-drag ghost entities.
 #[derive(Component)]
-pub(super) struct BeltGhost;
+pub struct BeltGhost;
 
 /// Marker for the single-item ghost entity.
 #[derive(Component)]
-pub(super) struct SingleGhost;
+pub struct SingleGhost;
 
 /// Attached to a ghost entity to request semi-transparent tinting of its children.
 /// Removed once tinting is applied; re-added when the color needs to change.
 #[derive(Component)]
-pub(crate) struct NeedsGhostTint(pub(crate) Color);
+pub struct NeedsGhostTint(pub Color);
 
 /// Computed each frame when the player is in placement mode.
 /// Removed when not placing.
 #[derive(Resource)]
-pub(super) struct PlacementTarget {
-    pub(super) item: Item,
-    pub(super) block: Structure,
-    pub(super) facing: HDir,
-    pub(super) raycast_coords: Option<WorldCoords>,
-    pub(super) inv_count: u16,
+pub struct PlacementTarget {
+    pub item: Item,
+    pub block: Structure,
+    pub facing: HDir,
+    pub raycast_coords: Option<WorldCoords>,
+    pub inv_count: u16,
     cam_origin: Vec3,
     cam_forward: Vec3,
 }
 
 /// Belt placement state. Present only while placing belts.
 #[derive(Resource)]
-pub(super) struct BeltPlacement {
-    pub(super) item: Item,
+pub struct BeltPlacement {
+    pub item: Item,
     facing: HDir,
     drag_start: Option<WorldCoords>,
-    pub(super) line: Vec<WorldCoords>,
-    pub(super) valid: bool,
+    pub line: Vec<WorldCoords>,
+    pub valid: bool,
 }
 
 fn ghost_color(valid: bool) -> Color {
@@ -113,7 +113,7 @@ fn resolve_item(mode: &InteractionMode, hotbar: &Hotbar) -> Option<(Item, Struct
 
 /// Resolves the current placement item, raycast target, and inventory count
 /// into a single resource for downstream systems.
-pub(super) fn compute_placement_target(
+pub fn compute_placement_target(
     mode: Res<InteractionMode>,
     camera_q: Single<(&Transform, &GlobalTransform), With<FirstPersonCamera>>,
     player: Res<Player>,
@@ -219,7 +219,7 @@ pub fn handle_click_to_place(
 /// Computes belt placement state each frame and writes it to `BeltPlacement`.
 /// Removes the resource when not in belt-placing mode — `sync_belt_ghosts` will
 /// then despawn ghost entities on the same frame.
-pub(super) fn update_belt_placement(
+pub fn update_belt_placement(
     target: Option<Res<PlacementTarget>>,
     cursor_options: Single<&CursorOptions>,
     mouse: Res<ButtonInput<MouseButton>>,
@@ -294,7 +294,7 @@ pub(super) fn update_belt_placement(
 /// Pool grows/shrinks as needed — new entities start `Hidden` so their position
 /// can be set next frame without a flash at the origin.
 /// When `BeltPlacement` is absent, despawns all belt ghosts.
-pub(super) fn sync_belt_ghosts(
+pub fn sync_belt_ghosts(
     belt_placement: Option<Res<BeltPlacement>>,
     mut belt_ghost_q: Query<
         (Entity, &mut Transform, &mut Visibility),
@@ -369,7 +369,7 @@ pub(super) fn sync_belt_ghosts(
 }
 
 /// Updates the single-item ghost entity each frame for non-belt placements.
-pub(super) fn update_single_ghost(
+pub fn update_single_ghost(
     target: Option<Res<PlacementTarget>>,
     mut single_ghost: Query<
         (Entity, &mut Transform, &mut Visibility),
@@ -458,7 +458,7 @@ pub(super) fn update_single_ghost(
 /// Places belts on left-mouse release, then clears `drag_start`.
 /// Ghost entities are left in place; `sync_belt_ghosts` will shrink them to a hover ghost.
 /// Runs before `update_belt_placement` so it sees the cleared `drag_start` on the same frame.
-pub(super) fn commit_belt_placement(
+pub fn commit_belt_placement(
     mouse: Res<ButtonInput<MouseButton>>,
     belt_placement: Option<ResMut<BeltPlacement>>,
     player: Res<Player>,

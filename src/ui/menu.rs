@@ -4,12 +4,12 @@ use super::common::PANE_BG;
 use super::{InteractionMode, ScreenMode};
 
 #[derive(Component)]
-pub(super) struct MenuPane;
+pub struct MenuPane;
 
 #[derive(Component)]
-pub(super) struct ResumeButton;
+pub struct ResumeButton;
 
-pub(super) fn setup_menu_pane(mut cmd: Commands) {
+pub fn setup_menu_pane(mut cmd: Commands) {
     cmd.spawn((
         Node {
             position_type: PositionType::Absolute,
@@ -62,7 +62,7 @@ pub(super) fn setup_menu_pane(mut cmd: Commands) {
     });
 }
 
-pub(super) fn update_menu_pane(
+pub fn update_menu_pane(
     mode: Res<InteractionMode>,
     mut pane: Single<&mut Visibility, With<MenuPane>>,
 ) {

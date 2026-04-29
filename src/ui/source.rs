@@ -2,7 +2,7 @@ use bevy::input::mouse::{AccumulatedMouseScroll, MouseScrollUnit};
 use bevy::prelude::*;
 use bevy::ui::ComputedNode;
 
-use factory_core::{Item, SetSourceItem};
+use crate::common::{Item, SetSourceItem};
 
 use super::common::{
     section_label, spawn_title_bar, LABEL_FONT_SIZE, PANE_BG, SLOT_BG, SLOT_BORDER,
@@ -10,17 +10,17 @@ use super::common::{
 use super::{InteractionMode, ScreenMode};
 
 #[derive(Component)]
-pub(super) struct SourcePane;
+pub struct SourcePane;
 
 #[derive(Component)]
-pub(super) struct SourceScrollList;
+pub struct SourceScrollList;
 
 #[derive(Component)]
-pub(super) struct CloseSourceButton;
+pub struct CloseSourceButton;
 
 /// Button for selecting a specific item to produce.
 #[derive(Component, Clone, Copy)]
-pub(super) struct SourceItemButton(pub(super) Item);
+pub struct SourceItemButton(pub Item);
 
 /// All items a source can be configured to produce.
 const ALL_ITEMS: &[Item] = &[
@@ -40,7 +40,7 @@ const ALL_ITEMS: &[Item] = &[
     Item::Gear,
 ];
 
-pub(super) fn setup_source_pane(mut cmd: Commands) {
+pub fn setup_source_pane(mut cmd: Commands) {
     cmd.spawn((
         Node {
             position_type: PositionType::Absolute,
@@ -102,7 +102,7 @@ pub(super) fn setup_source_pane(mut cmd: Commands) {
     });
 }
 
-pub(super) fn update_source_pane(
+pub fn update_source_pane(
     mode: Res<InteractionMode>,
     mut pane: Single<&mut Visibility, With<SourcePane>>,
 ) {
@@ -115,7 +115,7 @@ pub(super) fn update_source_pane(
 
 const SCROLL_SPEED_LINE: f32 = 20.0;
 
-pub(super) fn handle_source_scroll(
+pub fn handle_source_scroll(
     scroll_input: Res<AccumulatedMouseScroll>,
     mut scroll_q: Query<(&mut ScrollPosition, &ComputedNode), With<SourceScrollList>>,
     mode: Res<InteractionMode>,
@@ -138,7 +138,7 @@ pub(super) fn handle_source_scroll(
     scroll_pos.y = (scroll_pos.y + dy).clamp(0.0, max_offset.max(0.0));
 }
 
-pub(super) fn handle_source_item_button(
+pub fn handle_source_item_button(
     interactions: Query<(&Interaction, &SourceItemButton), Changed<Interaction>>,
     mode: Res<InteractionMode>,
     mut cmd: Commands,

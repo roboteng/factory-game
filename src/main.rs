@@ -1,6 +1,8 @@
+mod common;
+mod ui;
+
 use bevy::prelude::*;
-use factory_core::{CorePlugin, FlatWorldPlugin, PerlinWorldPlugin};
-use physics::PhysicsPlugin;
+use common::{CorePlugin, FlatWorldPlugin, PerlinWorldPlugin};
 use ui::{FlyMode, FreeHotbar, SurvivalHotbar, UiPlugin};
 
 fn main() {
@@ -12,13 +14,7 @@ fn main() {
     let mut app = App::new();
 
     app.insert_resource(FlyMode(fly_mode));
-    app.add_plugins((
-        DefaultPlugins.set(AssetPlugin {
-            file_path: concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets").to_string(),
-            ..default()
-        }),
-        CorePlugin,
-    ));
+    app.add_plugins((DefaultPlugins, CorePlugin));
 
     if flat_mode {
         app.add_plugins(FlatWorldPlugin);
@@ -32,7 +28,7 @@ fn main() {
         app.add_plugins(SurvivalHotbar);
     }
 
-    app.add_plugins((UiPlugin, PhysicsPlugin));
+    app.add_plugins(UiPlugin);
     app.add_systems(Update, screenshot_on_f10);
     #[cfg(feature = "dev")]
     {
@@ -62,7 +58,7 @@ fn screenshot_on_f10(
     mut counter: Local<u32>,
     mut commands: Commands,
 ) {
-    use bevy::render::view::screenshot::{save_to_disk, Screenshot};
+    use bevy::render::view::screenshot::{Screenshot, save_to_disk};
     if input.just_pressed(KeyCode::F10) {
         let path = format!("./screenshot-{}.png", *counter);
         *counter += 1;

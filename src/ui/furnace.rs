@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 
-use factory_core::{
+use crate::common::{
     Furnace, InputBuffer, LoadMachineInput, MachineStatus, OutputBuffer, UnloadMachineOutput,
 };
 
@@ -10,26 +10,26 @@ use super::common::{
 use super::{InteractionMode, ScreenMode};
 
 #[derive(Component)]
-pub(super) struct FurnacePane;
+pub struct FurnacePane;
 
 #[derive(Component)]
-pub(super) struct CloseFurnaceButton;
+pub struct CloseFurnaceButton;
 
 #[derive(Component)]
-pub(super) struct FurnaceInputSlot(pub(super) usize);
+pub struct FurnaceInputSlot(pub usize);
 
 #[derive(Component)]
-pub(super) struct FurnaceOutputSlot(pub(super) usize);
+pub struct FurnaceOutputSlot(pub usize);
 
 #[derive(Component)]
-pub(super) struct FurnaceProgressFill;
+pub struct FurnaceProgressFill;
 
 /// Marks the InventorySlot entities that belong to the furnace screen's inventory panel.
 /// Used to distinguish them from the standalone inventory screen's slots for click handling.
 #[derive(Component, Clone)]
-pub(super) struct FurnaceInventoryPanel;
+pub struct FurnaceInventoryPanel;
 
-pub(super) fn setup_furnace_pane(mut cmd: Commands) {
+pub fn setup_furnace_pane(mut cmd: Commands) {
     cmd.spawn((
         pane_node(
             Val::Percent(5.0),
@@ -91,7 +91,7 @@ pub(super) fn setup_furnace_pane(mut cmd: Commands) {
     });
 }
 
-pub(super) fn update_furnace_pane(
+pub fn update_furnace_pane(
     mode: Res<InteractionMode>,
     mut pane: Single<&mut Visibility, With<FurnacePane>>,
     furnace_q: Query<(&Furnace, &InputBuffer, &OutputBuffer)>,
@@ -139,7 +139,7 @@ pub(super) fn update_furnace_pane(
     }
 }
 
-pub(super) fn handle_furnace_inventory_slot_clicks(
+pub fn handle_furnace_inventory_slot_clicks(
     interactions: Query<
         (&Interaction, &InventorySlot),
         (Changed<Interaction>, With<FurnaceInventoryPanel>),
@@ -160,7 +160,7 @@ pub(super) fn handle_furnace_inventory_slot_clicks(
     }
 }
 
-pub(super) fn handle_furnace_output_slot_clicks(
+pub fn handle_furnace_output_slot_clicks(
     interactions: Query<(&Interaction, &FurnaceOutputSlot), Changed<Interaction>>,
     mode: Res<InteractionMode>,
     mut cmd: Commands,

@@ -1,4 +1,4 @@
-use super::Side;
+use crate::common::Side;
 use bevy::prelude::*;
 use std::f32::consts::PI;
 
@@ -195,7 +195,7 @@ impl WorldCoordsDelta {
         self + diff
     }
 
-    pub(crate) const fn xyz(self) -> (i32, i32, i32) {
+    pub const fn xyz(self) -> (i32, i32, i32) {
         (self.x, self.y, self.z)
     }
 }

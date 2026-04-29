@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 
-use crate::Item;
+use crate::common::Item;
 
 #[derive(Component, Debug, PartialEq)]
 pub struct Inventory {
@@ -154,7 +154,8 @@ impl From<Item> for Stack {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use crate::common::inventory::InventoryAddError;
+    use crate::common::*;
 
     #[test]
     fn inventory_is_empty() {

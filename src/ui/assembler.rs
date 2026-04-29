@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 
-use factory_core::{
+use crate::common::{
     Assembler, InputBuffer, LoadMachineInput, MachineStatus, OutputBuffer, Recipe, Recipes,
     SetAssemblerRecipe, UnloadMachineOutput,
 };
@@ -16,35 +16,35 @@ const MAX_INPUT_SLOTS: usize = 4;
 const MAX_OUTPUT_SLOTS: usize = 4;
 
 #[derive(Component)]
-pub(super) struct AssemblerPane;
+pub struct AssemblerPane;
 
 #[derive(Component)]
-pub(super) struct CloseAssemblerButton;
+pub struct CloseAssemblerButton;
 
 #[derive(Component)]
-pub(super) struct AssemblerRecipePanel;
+pub struct AssemblerRecipePanel;
 
 /// Index into RECIPES for a specific assembler recipe button.
 #[derive(Component)]
-pub(super) struct AssemblerRecipeButton(usize);
+pub struct AssemblerRecipeButton(usize);
 
 #[derive(Component)]
-pub(super) struct AssemblerProcessingPanel;
+pub struct AssemblerProcessingPanel;
 
 #[derive(Component)]
-pub(super) struct AssemblerInputSlot(pub(super) usize);
+pub struct AssemblerInputSlot(pub usize);
 
 #[derive(Component)]
-pub(super) struct AssemblerOutputSlot(pub(super) usize);
+pub struct AssemblerOutputSlot(pub usize);
 
 #[derive(Component)]
-pub(super) struct AssemblerProgressFill;
+pub struct AssemblerProgressFill;
 
 #[derive(Component, Clone)]
-pub(super) struct AssemblerInventoryPanel;
+pub struct AssemblerInventoryPanel;
 
 #[derive(Component)]
-pub(super) struct ClearAssemblerRecipeButton;
+pub struct ClearAssemblerRecipeButton;
 
 fn recipe_label(recipe: &Recipe) -> String {
     let Recipe::AssemblerRecipe(ar) = recipe else {
@@ -65,7 +65,7 @@ fn recipe_label(recipe: &Recipe) -> String {
     format!("{} \u{2192} {}", inputs, outputs)
 }
 
-pub(super) fn setup_assembler_pane(mut cmd: Commands, recipes: Res<Recipes>) {
+pub fn setup_assembler_pane(mut cmd: Commands, recipes: Res<Recipes>) {
     cmd.spawn((
         pane_node(
             Val::Percent(5.0),
@@ -233,7 +233,7 @@ pub(super) fn setup_assembler_pane(mut cmd: Commands, recipes: Res<Recipes>) {
     });
 }
 
-pub(super) fn update_assembler_pane(
+pub fn update_assembler_pane(
     mode: Res<InteractionMode>,
     mut pane: Single<
         &mut Visibility,
@@ -329,7 +329,7 @@ pub(super) fn update_assembler_pane(
     }
 }
 
-pub(super) fn handle_assembler_recipe_button(
+pub fn handle_assembler_recipe_button(
     interactions: Query<(&Interaction, &AssemblerRecipeButton), Changed<Interaction>>,
     mode: Res<InteractionMode>,
     mut cmd: Commands,
@@ -350,7 +350,7 @@ pub(super) fn handle_assembler_recipe_button(
     }
 }
 
-pub(super) fn handle_clear_assembler_recipe(
+pub fn handle_clear_assembler_recipe(
     interactions: Query<&Interaction, (Changed<Interaction>, With<ClearAssemblerRecipeButton>)>,
     mode: Res<InteractionMode>,
     mut cmd: Commands,
@@ -368,7 +368,7 @@ pub(super) fn handle_clear_assembler_recipe(
     }
 }
 
-pub(super) fn handle_assembler_inventory_slot_clicks(
+pub fn handle_assembler_inventory_slot_clicks(
     interactions: Query<
         (&Interaction, &InventorySlot),
         (Changed<Interaction>, With<AssemblerInventoryPanel>),
@@ -389,7 +389,7 @@ pub(super) fn handle_assembler_inventory_slot_clicks(
     }
 }
 
-pub(super) fn handle_assembler_output_slot_clicks(
+pub fn handle_assembler_output_slot_clicks(
     interactions: Query<(&Interaction, &AssemblerOutputSlot), Changed<Interaction>>,
     mode: Res<InteractionMode>,
     mut cmd: Commands,

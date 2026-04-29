@@ -20,7 +20,7 @@ pub use dir::*;
 
 pub use machine::*;
 
-use crate::inventory::{Inventory, Stack};
+use inventory::{Inventory, Stack};
 
 pub const ITEMS_PER_BELT: i32 = 4;
 pub const POSITIONS_PER_BELT: i32 = 256;
@@ -63,7 +63,7 @@ pub struct CorePlugin;
 impl Plugin for CorePlugin {
     fn build(&self, app: &mut App) {
         #[cfg(feature = "invariant-check")]
-        app.add_plugins(crate::invariants::InvariantsPlugin);
+        app.add_plugins(crate::common::invariants::InvariantsPlugin);
 
         app.register_type::<Corn>()
             .register_type_data::<Corn, ReflectWorldDrop>()

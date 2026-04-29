@@ -1,10 +1,10 @@
 use bevy::prelude::*;
 
-use factory_core::{BeltShape, Corn, Item, PlaceItem, Structure, ITEM_SIZE};
+use crate::common::{BeltShape, Corn, Item, PlaceItem, Structure, ITEM_SIZE};
 
-use crate::player_controller::NeedsGhostTint;
+use crate::ui::player_controller::NeedsGhostTint;
 
-pub(super) struct VisualsPlugin;
+pub struct VisualsPlugin;
 impl Plugin for VisualsPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(ClearColor(Color::srgb(0.01, 0.01, 0.05))); // Dark night sky
@@ -35,14 +35,14 @@ enum ItemModelDef {
 }
 
 #[derive(Component)]
-pub(super) struct SceneTint {
-    pub(super) color: Color,
-    pub(super) metallic: f32,
-    pub(super) roughness: f32,
+pub struct SceneTint {
+    pub color: Color,
+    pub metallic: f32,
+    pub roughness: f32,
 }
 
 #[derive(Resource)]
-pub(crate) struct BlockModels {
+pub struct BlockModels {
     belt_straight: ModelDef,
     belt_curve_cw: ModelDef,
     belt_curve_ccw: ModelDef,
@@ -255,7 +255,7 @@ fn setup_models(mut cmd: Commands, asset_server: Res<AssetServer>) {
 }
 
 impl BlockModels {
-    pub(crate) fn ghost_scene(&self, item: Item) -> Option<Handle<Scene>> {
+    pub fn ghost_scene(&self, item: Item) -> Option<Handle<Scene>> {
         let model = match item.can_place()? {
             Structure::Belt => &self.belt_straight,
             Structure::Source => &self.source,
@@ -489,7 +489,7 @@ fn on_place_item(
 fn attach_corn_models(
     corns: Query<(Entity, &Corn), Changed<Corn>>,
     all_models: Res<BlockModels>,
-    corn_ticks: Res<factory_core::CornGrowthTicks>,
+    corn_ticks: Res<crate::common::CornGrowthTicks>,
     mut cmd: Commands,
 ) {
     for (entity, corn) in &corns {

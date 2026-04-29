@@ -1,7 +1,7 @@
 use bevy::platform::collections::HashSet;
 
-use super::*;
-use crate::inventory::Stack;
+use crate::common::*;
+use crate::common::inventory::Stack;
 use std::ops::Deref;
 use std::ops::DerefMut;
 
@@ -378,7 +378,7 @@ impl Collector {
 mod tests {
     use bevy::ecs::relationship::RelationshipSourceCollection;
 
-    use super::*;
+    use crate::common::*;
 
     #[test]
     fn buffer_accepts_items() {

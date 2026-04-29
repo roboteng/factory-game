@@ -1,10 +1,10 @@
 use bevy::prelude::*;
-use factory_core::{
+use crate::common::{
     inventory::{Inventory, Stack},
     *,
 };
 
-use super::common::{InventorySlot, SLOT_BG, SLOT_BORDER, SLOT_FONT_SIZE, SLOT_SIZE, StackView};
+use super::common::{InventorySlot, StackView, SLOT_BG, SLOT_BORDER, SLOT_FONT_SIZE, SLOT_SIZE};
 use super::{InteractionMode, WorldMode};
 
 pub struct HotbarPlugin;

@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 
-use crate::{HDir, PlaceStructure, Structure, WorldCoords, WorldCoordsDelta};
+use crate::common::{HDir, PlaceStructure, Structure, WorldCoords, WorldCoordsDelta};
 
 /// Describes one type of resource patch in world generation.
 pub struct ResourcePatch {
@@ -116,7 +116,7 @@ fn spawn_flat_terrain(mut cmd: Commands) {
 }
 
 fn spawn_flat_belts(mut cmd: Commands) {
-    use crate::Dir;
+    use crate::common::Dir;
     let o = WorldCoords::ORIGIN;
 
     for flb in [o.step(HDir::North).step(Dir::Up), o, o.step(HDir::South)] {

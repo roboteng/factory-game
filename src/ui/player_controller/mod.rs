@@ -1,12 +1,12 @@
 mod placement;
-pub(crate) use placement::NeedsGhostTint;
+pub use placement::NeedsGhostTint;
 use placement::{
     commit_belt_placement, compute_placement_target, handle_click_to_place, sync_belt_ghosts,
     update_belt_placement, update_single_ghost,
 };
 
-use crate::{FlyMode, InteractionMode, ScreenMode, WorldMode};
-use factory_core::*;
+use crate::common::*;
+use crate::ui::{FlyMode, InteractionMode, ScreenMode, WorldMode};
 
 use avian3d::prelude::*;
 use bevy::{
@@ -16,7 +16,7 @@ use bevy::{
 };
 use rand::Rng;
 
-pub(super) struct PlayerControllerPlugin;
+pub struct PlayerControllerPlugin;
 impl Plugin for PlayerControllerPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<PlacementDirection>();
@@ -90,7 +90,7 @@ impl BlockUIScreen for Miner {
 }
 
 #[derive(Resource)]
-pub(super) struct PlacementDirection(pub(super) HDir);
+pub struct PlacementDirection(pub HDir);
 
 impl Default for PlacementDirection {
     fn default() -> Self {
@@ -320,7 +320,7 @@ fn setup_reticle(mut cmd: Commands) {
     });
 }
 
-pub(super) fn cursor_grab(
+pub fn cursor_grab(
     mut cursor_options: Single<&mut CursorOptions>,
     key: Res<ButtonInput<KeyCode>>,
     mut mode: ResMut<InteractionMode>,
@@ -865,4 +865,27 @@ fn draw_crosshair_gizmo(
         Transform::from_translation(pos).with_scale(size),
         Color::srgba(1.0, 1.0, 1.0, 0.6),
     );
+}
+
+/// Gives static physics colliders to every world block as it is placed.
+pub fn add_block_colliders(
+    mut cmd: Commands,
+    blocks: Query<(Entity, &RaycastTarget), Added<RaycastTarget>>,
+) {
+    for (entity, rt) in &blocks {
+        let half = rt.half_extents;
+        // The block's Transform is at its bottom corner. Bake the Y offset
+        // directly into a compound collider on the block entity itself so no
+        // child entity is needed. This keeps all block colliders out of
+        // Bevy's transform hierarchy, avoiding per-frame propagation cost
+        // across thousands of static blocks.
+        cmd.entity(entity).insert((
+            RigidBody::Static,
+            Collider::compound(vec![(
+                Vec3::new(0.0, half.y, 0.0),
+                Quat::IDENTITY,
+                Collider::cuboid(half.x * 2.0, half.y * 2.0, half.z * 2.0),
+            )]),
+        ));
+    }
 }

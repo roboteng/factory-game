@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 
-use factory_core::{inventory::Inventory, HandCrafter, MachineStatus, Player, Recipe, Recipes};
+use crate::common::{inventory::Inventory, HandCrafter, MachineStatus, Player, Recipe, Recipes};
 
 use super::common::{
     pane_node, section_label, spawn_inventory_panel, spawn_slot, spawn_title_bar, stack_label,
@@ -11,25 +11,25 @@ use super::{InteractionMode, ScreenMode};
 const MAX_OUTPUT_SLOTS: usize = 4;
 
 #[derive(Component)]
-pub(super) struct InventoryPane;
+pub struct InventoryPane;
 
 #[derive(Component)]
-pub(super) struct CloseInventoryButton;
+pub struct CloseInventoryButton;
 
 #[derive(Component)]
-pub(super) struct InventoryRecipePanel;
+pub struct InventoryRecipePanel;
 
 #[derive(Component)]
-pub(super) struct InventoryProcessingPanel;
+pub struct InventoryProcessingPanel;
 
 #[derive(Component)]
-pub(super) struct InventoryRecipeButton(usize);
+pub struct InventoryRecipeButton(usize);
 
 #[derive(Component)]
-pub(super) struct InventoryProgressFill;
+pub struct InventoryProgressFill;
 
 #[derive(Component)]
-pub(super) struct InventoryOutputSlot(usize);
+pub struct InventoryOutputSlot(usize);
 
 fn recipe_label(recipe: &Recipe) -> String {
     let inputs = recipe
@@ -47,7 +47,7 @@ fn recipe_label(recipe: &Recipe) -> String {
     format!("{} \u{2192} {}", inputs, outputs)
 }
 
-pub(super) fn setup_inventory_pane(mut cmd: Commands, recipes: Res<Recipes>) {
+pub fn setup_inventory_pane(mut cmd: Commands, recipes: Res<Recipes>) {
     cmd.spawn((
         pane_node(
             Val::Percent(5.0),
@@ -176,7 +176,7 @@ pub(super) fn setup_inventory_pane(mut cmd: Commands, recipes: Res<Recipes>) {
     });
 }
 
-pub(super) fn update_inventory_pane(
+pub fn update_inventory_pane(
     mode: Res<InteractionMode>,
     mut pane: Single<
         &mut Visibility,
@@ -261,7 +261,7 @@ pub(super) fn update_inventory_pane(
     }
 }
 
-pub(super) fn handle_inventory_recipe_button(
+pub fn handle_inventory_recipe_button(
     interactions: Query<(&Interaction, &InventoryRecipeButton), Changed<Interaction>>,
     mode: Res<InteractionMode>,
     recipes: Res<Recipes>,

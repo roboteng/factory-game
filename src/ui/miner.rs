@@ -1,27 +1,27 @@
 use bevy::prelude::*;
 
-use factory_core::{Miner, MinerTicksPerExtract, OutputBuffer, UnloadMachineOutput};
+use crate::common::{Miner, MinerTicksPerExtract, OutputBuffer, UnloadMachineOutput};
 
 use super::common::{pane_node, section_label, spawn_screen_layout, spawn_slot, stack_label};
 use super::{InteractionMode, ScreenMode};
 
 #[derive(Component)]
-pub(super) struct MinerPane;
+pub struct MinerPane;
 
 #[derive(Component)]
-pub(super) struct CloseMinerButton;
+pub struct CloseMinerButton;
 
 #[derive(Component)]
-pub(super) struct MinerOutputSlot(pub(super) usize);
+pub struct MinerOutputSlot(pub usize);
 
 #[derive(Component)]
-pub(super) struct MinerProgressFill;
+pub struct MinerProgressFill;
 
 /// Marks the InventorySlot entities that belong to the miner screen's inventory panel.
 #[derive(Component, Clone)]
-pub(super) struct MinerInventoryPanel;
+pub struct MinerInventoryPanel;
 
-pub(super) fn setup_miner_pane(mut cmd: Commands) {
+pub fn setup_miner_pane(mut cmd: Commands) {
     cmd.spawn((
         pane_node(
             Val::Percent(5.0),
@@ -76,7 +76,7 @@ pub(super) fn setup_miner_pane(mut cmd: Commands) {
     });
 }
 
-pub(super) fn update_miner_pane(
+pub fn update_miner_pane(
     mode: Res<InteractionMode>,
     mut pane: Single<&mut Visibility, With<MinerPane>>,
     miner_q: Query<(&Miner, &OutputBuffer)>,
@@ -113,7 +113,7 @@ pub(super) fn update_miner_pane(
     }
 }
 
-pub(super) fn handle_miner_output_slot_clicks(
+pub fn handle_miner_output_slot_clicks(
     interactions: Query<(&Interaction, &MinerOutputSlot), Changed<Interaction>>,
     mode: Res<InteractionMode>,
     mut cmd: Commands,

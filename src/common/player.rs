@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 
-use crate::{MachineStatus, Recipe, inventory::Inventory};
+use crate::common::{MachineStatus, Recipe, inventory::Inventory};
 
 #[derive(Resource)]
 pub struct Player(pub Entity);
@@ -17,7 +17,7 @@ pub fn spawn_player(world: &mut World) {
     world.insert_resource(Player(entity));
 }
 
-pub(crate) fn process_hand_crafter(
+pub fn process_hand_crafter(
     player: Res<Player>,
     mut q: Query<(&mut HandCrafter, &mut Inventory)>,
 ) {
