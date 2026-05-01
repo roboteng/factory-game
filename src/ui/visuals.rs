@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 
-use crate::common::{BeltShape, Corn, Item, PlaceItem, Structure, ITEM_SIZE};
+use crate::common::{BeltShape, Corn, ITEM_SIZE, Item, PlaceItem, Structure};
 
 use crate::ui::player_controller::NeedsGhostTint;
 
@@ -75,6 +75,10 @@ struct ItemModels {
     copper_ore: ItemModelDef,
     iron_ingot: ItemModelDef,
     copper_ingot: ItemModelDef,
+    iron_plate: ItemModelDef,
+    iron_rod: ItemModelDef,
+    copper_wire: ItemModelDef,
+    circuit: ItemModelDef,
     miner: ItemModelDef,
     furnace: ItemModelDef,
     assembler: ItemModelDef,
@@ -228,6 +232,10 @@ fn setup_models(mut cmd: Commands, asset_server: Res<AssetServer>) {
             metallic: 0.9,
             roughness: 0.2,
         },
+        iron_plate: ItemModelDef::Color(Color::srgb(0.75, 0.75, 0.8), ITEM_SIZE),
+        iron_rod: ItemModelDef::Color(Color::srgb(0.6, 0.6, 0.65), ITEM_SIZE),
+        copper_wire: ItemModelDef::Color(Color::srgb(0.8, 0.45, 0.1), ITEM_SIZE),
+        circuit: ItemModelDef::Color(Color::srgb(0.15, 0.5, 0.2), ITEM_SIZE),
         miner: ItemModelDef::Mesh(
             asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Miner.glb")),
             ITEM_SIZE,
@@ -430,6 +438,10 @@ fn on_place_item(
         Item::CopperOre => &item_models.copper_ore,
         Item::IronIngot => &item_models.iron_ingot,
         Item::CopperIngot => &item_models.copper_ingot,
+        Item::IronPlate => &item_models.iron_plate,
+        Item::IronRod => &item_models.iron_rod,
+        Item::CopperWire => &item_models.copper_wire,
+        Item::Circuit => &item_models.circuit,
         Item::Miner => &item_models.miner,
         Item::Furnace => &item_models.furnace,
         Item::Assembler => &item_models.assembler,

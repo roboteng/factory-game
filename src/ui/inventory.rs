@@ -1,10 +1,10 @@
 use bevy::prelude::*;
 
-use crate::common::{inventory::Inventory, HandCrafter, MachineStatus, Player, Recipe, Recipes};
+use crate::common::{HandCrafter, MachineStatus, Player, Recipe, Recipes, inventory::Inventory};
 
 use super::common::{
-    pane_node, section_label, spawn_inventory_panel, spawn_slot, spawn_title_bar, stack_label,
-    LABEL_FONT_SIZE, SLOT_BG, SLOT_BORDER,
+    LABEL_FONT_SIZE, SLOT_BG, SLOT_BORDER, pane_node, section_label, spawn_inventory_panel,
+    spawn_slot, spawn_title_bar, stack_label,
 };
 use super::{InteractionMode, ScreenMode};
 

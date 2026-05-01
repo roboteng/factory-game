@@ -287,85 +287,71 @@ impl Recipes {
     }
 
     fn new() -> Self {
+        let furnace = |input, output, ticks| {
+            Recipe::FurnaceRecipe(machine::FurnaceRecipe {
+                input,
+                output,
+                ticks,
+            })
+        };
+        let assembler = |input, output, ticks| {
+            Recipe::AssemblerRecipe(machine::AssemblerRecipe {
+                input,
+                output,
+                ticks,
+            })
+        };
+        let s = |item, count| Stack { item, count };
         Self(vec![
-            Recipe::FurnaceRecipe(machine::FurnaceRecipe {
-                input: Stack {
-                    item: Item::IronOre,
-                    count: 1,
-                },
-                output: Stack {
-                    item: Item::IronIngot,
-                    count: 1,
-                },
-                ticks: 100,
-            }),
-            Recipe::FurnaceRecipe(machine::FurnaceRecipe {
-                input: Stack {
-                    item: Item::CopperOre,
-                    count: 1,
-                },
-                output: Stack {
-                    item: Item::CopperIngot,
-                    count: 1,
-                },
-                ticks: 100,
-            }),
-            Recipe::AssemblerRecipe(AssemblerRecipe {
-                input: vec![Stack {
-                    item: Item::IronIngot,
-                    count: 2,
-                }],
-                output: vec![Stack {
-                    item: Item::Belt,
-                    count: 1,
-                }],
-                ticks: 60,
-            }),
-            Recipe::AssemblerRecipe(machine::AssemblerRecipe {
-                input: vec![
-                    Stack {
-                        item: Item::IronIngot,
-                        count: 1,
-                    },
-                    Stack {
-                        item: Item::CopperIngot,
-                        count: 1,
-                    },
-                ],
-                output: vec![Stack {
-                    item: Item::Miner,
-                    count: 1,
-                }],
-                ticks: 120,
-            }),
-            Recipe::AssemblerRecipe(machine::AssemblerRecipe {
-                input: vec![
-                    Stack {
-                        item: Item::IronIngot,
-                        count: 2,
-                    },
-                    Stack {
-                        item: Item::CopperIngot,
-                        count: 1,
-                    },
-                ],
-                output: vec![Stack {
-                    item: Item::Furnace,
-                    count: 1,
-                }],
-                ticks: 150,
-            }),
-            Recipe::AssemblerRecipe(AssemblerRecipe {
-                input: vec![Stack {
-                    item: Item::IronIngot,
-                    count: 1,
-                }],
-                output: vec![Stack {
-                    item: Item::Gear,
-                    count: 1,
-                }],
-                ticks: 360,
-            }),
+            // Smelting — 2 miners saturate 1 furnace (600t ore / 300t smelt = 2:1)
+            furnace(s(Item::IronOre, 1), s(Item::IronIngot, 1), 300),
+            furnace(s(Item::CopperOre, 1), s(Item::CopperIngot, 1), 300),
+            // Basic components — 1 furnace : 1 component assembler
+            assembler(
+                vec![s(Item::IronIngot, 1)],
+                vec![s(Item::IronPlate, 2)],
+                300,
+            ),
+            assembler(vec![s(Item::IronIngot, 1)], vec![s(Item::IronRod, 2)], 300),
+            assembler(
+                vec![s(Item::CopperIngot, 1)],
+                vec![s(Item::CopperWire, 2)],
+                300,
+            ),
+            assembler(vec![s(Item::IronPlate, 2)], vec![s(Item::Gear, 1)], 300),
+            // Circuit — 2 circuit assemblers saturate 1 machine assembler (300t × 2 = 600t machine)
+            assembler(
+                vec![s(Item::IronPlate, 1), s(Item::CopperWire, 2)],
+                vec![s(Item::Circuit, 1)],
+                300,
+            ),
+            // Infrastructure
+            assembler(
+                vec![s(Item::IronPlate, 1), s(Item::IronRod, 1)],
+                vec![s(Item::Belt, 2)],
+                150,
+            ),
+            // Machines
+            assembler(
+                vec![s(Item::IronPlate, 1), s(Item::Gear, 1), s(Item::Circuit, 1)],
+                vec![s(Item::Miner, 1)],
+                600,
+            ),
+            assembler(
+                vec![s(Item::IronPlate, 2), s(Item::IronRod, 2)],
+                vec![s(Item::Furnace, 1)],
+                600,
+            ),
+            assembler(
+                vec![s(Item::IronPlate, 2), s(Item::Gear, 1), s(Item::Circuit, 1)],
+                vec![s(Item::Assembler, 1)],
+                600,
+            ),
+            assembler(
+                vec![s(Item::IronPlate, 1), s(Item::Circuit, 1)],
+                vec![s(Item::Collector, 1)],
+                300,
+            ),
         ])
     }
 }
@@ -421,6 +407,10 @@ pub enum Item {
     CopperOre,
     IronIngot,
     CopperIngot,
+    IronPlate,
+    IronRod,
+    CopperWire,
+    Circuit,
     Miner,
     Furnace,
     Assembler,
@@ -444,6 +434,10 @@ impl Item {
             CopperOre => "Copper Ore",
             IronIngot => "Iron Ingot",
             CopperIngot => "Copper Ingot",
+            IronPlate => "Iron Plate",
+            IronRod => "Iron Rod",
+            CopperWire => "Copper Wire",
+            Circuit => "Circuit",
             Miner => "Miner",
             Furnace => "Furnace",
             Assembler => "Assembler",
@@ -476,6 +470,10 @@ impl Item {
             | Item::CopperOre
             | Item::IronIngot
             | Item::CopperIngot
+            | Item::IronPlate
+            | Item::IronRod
+            | Item::CopperWire
+            | Item::Circuit
             | Item::CornStalk
             | Item::Biomass
             | Item::Gear => None,

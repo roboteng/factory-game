@@ -4,7 +4,7 @@ use crate::common::{
 };
 use bevy::prelude::*;
 
-use super::common::{InventorySlot, StackView, SLOT_BG, SLOT_BORDER, SLOT_FONT_SIZE, SLOT_SIZE};
+use super::common::{InventorySlot, SLOT_BG, SLOT_BORDER, SLOT_FONT_SIZE, SLOT_SIZE, StackView};
 use super::{InteractionMode, WorldMode};
 
 pub struct HotbarPlugin;

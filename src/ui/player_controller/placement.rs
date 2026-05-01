@@ -3,7 +3,7 @@ use crate::common::{
     *,
 };
 use crate::ui::hotbar::{Hotbar, PlacementItem};
-use crate::ui::player_controller::{cast_ray, FirstPersonCamera, PlacementDirection, RayTarget};
+use crate::ui::player_controller::{FirstPersonCamera, PlacementDirection, RayTarget, cast_ray};
 use crate::ui::visuals::BlockModels;
 use crate::ui::{InteractionMode, WorldMode};
 

@@ -17,10 +17,7 @@ pub fn spawn_player(world: &mut World) {
     world.insert_resource(Player(entity));
 }
 
-pub fn process_hand_crafter(
-    player: Res<Player>,
-    mut q: Query<(&mut HandCrafter, &mut Inventory)>,
-) {
+pub fn process_hand_crafter(player: Res<Player>, mut q: Query<(&mut HandCrafter, &mut Inventory)>) {
     let Ok((mut crafter, mut inventory)) = q.get_mut(player.0) else {
         return;
     };

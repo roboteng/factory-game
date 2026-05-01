@@ -6,9 +6,9 @@ use crate::common::{
 };
 
 use super::common::{
-    pane_node, section_label, spawn_inventory_panel, spawn_slot, spawn_title_bar, stack_label,
-    InventorySlot, CLOSE_BTN_BG, CLOSE_BTN_FONT_SIZE, CLOSE_BTN_SIZE, LABEL_FONT_SIZE, SLOT_BG,
-    SLOT_BORDER,
+    CLOSE_BTN_BG, CLOSE_BTN_FONT_SIZE, CLOSE_BTN_SIZE, InventorySlot, LABEL_FONT_SIZE, SLOT_BG,
+    SLOT_BORDER, pane_node, section_label, spawn_inventory_panel, spawn_slot, spawn_title_bar,
+    stack_label,
 };
 use super::{InteractionMode, ScreenMode};
 

@@ -1,7 +1,7 @@
 use bevy::platform::collections::HashSet;
 
-use crate::common::*;
 use crate::common::inventory::Stack;
+use crate::common::*;
 use std::ops::Deref;
 use std::ops::DerefMut;
 

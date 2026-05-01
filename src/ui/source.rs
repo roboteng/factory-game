@@ -5,7 +5,7 @@ use bevy::ui::ComputedNode;
 use crate::common::{Item, SetSourceItem};
 
 use super::common::{
-    section_label, spawn_title_bar, LABEL_FONT_SIZE, PANE_BG, SLOT_BG, SLOT_BORDER,
+    LABEL_FONT_SIZE, PANE_BG, SLOT_BG, SLOT_BORDER, section_label, spawn_title_bar,
 };
 use super::{InteractionMode, ScreenMode};
 
@@ -33,6 +33,10 @@ const ALL_ITEMS: &[Item] = &[
     Item::CopperOre,
     Item::IronIngot,
     Item::CopperIngot,
+    Item::IronPlate,
+    Item::IronRod,
+    Item::CopperWire,
+    Item::Circuit,
     Item::Miner,
     Item::Furnace,
     Item::Assembler,
