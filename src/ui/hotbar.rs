@@ -1,8 +1,8 @@
-use bevy::prelude::*;
 use crate::common::{
     inventory::{Inventory, Stack},
     *,
 };
+use bevy::prelude::*;
 
 use super::common::{InventorySlot, StackView, SLOT_BG, SLOT_BORDER, SLOT_FONT_SIZE, SLOT_SIZE};
 use super::{InteractionMode, WorldMode};

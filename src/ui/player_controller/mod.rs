@@ -6,7 +6,7 @@ use placement::{
 };
 
 use crate::common::*;
-use crate::ui::{FlyMode, InteractionMode, ScreenMode, WorldMode};
+use crate::ui::{FlyMode, Interact, InteractionMode, LookTarget, ScreenMode, WorldMode};
 
 use avian3d::prelude::*;
 use bevy::{
@@ -14,16 +14,12 @@ use bevy::{
     prelude::*,
     window::{CursorGrabMode, CursorOptions},
 };
-use rand::Rng;
 
 pub struct PlayerControllerPlugin;
 impl Plugin for PlayerControllerPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<PlacementDirection>();
         app.add_systems(Startup, setup);
-        app.add_systems(Startup, setup_reticle);
-        app.add_systems(Startup, setup_delete_preview);
-        app.add_systems(Startup, setup_incline_preview);
 
         app.add_systems(
             FixedUpdate,
@@ -35,57 +31,28 @@ impl Plugin for PlayerControllerPlugin {
             (
                 handle_mode_inputs,
                 (
-                    handle_right_click_block_ui::<Furnace>,
-                    handle_right_click_block_ui::<Assembler>,
-                    handle_right_click_block_ui::<Source>,
-                    handle_right_click_block_ui::<Miner>,
-                    update_delete_preview,
-                    handle_change_incline,
+                    update_look_target,
                     (
-                        compute_placement_target,
-                        handle_click_to_place,
-                        commit_belt_placement,
-                        update_belt_placement,
-                        sync_belt_ghosts,
-                        update_single_ghost,
+                        handle_right_click,
+                        handle_delete_input,
+                        handle_incline_input,
+                        (
+                            compute_placement_target,
+                            handle_click_to_place,
+                            commit_belt_placement,
+                            update_belt_placement,
+                            sync_belt_ghosts,
+                            update_single_ghost,
+                        )
+                            .chain(),
                     )
-                        .chain(),
+                        .after(update_look_target),
                 )
                     .after(handle_mode_inputs),
             ),
         );
 
-        app.add_systems(Update, draw_crosshair_gizmo);
         app.add_systems(Update, camera_look);
-        app.add_systems(Update, cursor_grab.after(handle_click_to_place));
-    }
-}
-
-trait BlockUIScreen: Component {
-    fn screen(entity: Entity) -> ScreenMode;
-}
-
-impl BlockUIScreen for Assembler {
-    fn screen(entity: Entity) -> ScreenMode {
-        ScreenMode::Assembler(entity)
-    }
-}
-
-impl BlockUIScreen for Furnace {
-    fn screen(entity: Entity) -> ScreenMode {
-        ScreenMode::Furnace(entity)
-    }
-}
-
-impl BlockUIScreen for Source {
-    fn screen(entity: Entity) -> ScreenMode {
-        ScreenMode::Source(entity)
-    }
-}
-
-impl BlockUIScreen for Miner {
-    fn screen(entity: Entity) -> ScreenMode {
-        ScreenMode::Miner(entity)
     }
 }
 
@@ -97,12 +64,6 @@ impl Default for PlacementDirection {
         Self(HDir::North)
     }
 }
-
-#[derive(Component)]
-struct DeletePreview;
-
-#[derive(Component)]
-struct InclinePreview;
 
 /// The physics body for the player. The camera is a child entity.
 #[derive(Component)]
@@ -117,18 +78,13 @@ struct PlayerBody {
 }
 
 #[derive(Component)]
-struct FirstPersonCamera {
+pub(super) struct FirstPersonCamera {
     pitch: f32,
     yaw: f32,
     sensitivity: f32,
 }
 
-fn setup(
-    mut cmd: Commands,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    fly_mode: Res<FlyMode>,
-) {
+fn setup(mut cmd: Commands, fly_mode: Res<FlyMode>) {
     let ambient = AmbientLight {
         color: Color::WHITE,
         brightness: 150.0,
@@ -202,145 +158,6 @@ fn setup(
             ambient,
             ChildOf(body),
         ));
-    }
-
-    spawn_stars(&mut cmd, &mut meshes, &mut materials);
-}
-
-fn spawn_stars(
-    cmd: &mut Commands,
-    meshes: &mut ResMut<Assets<Mesh>>,
-    materials: &mut ResMut<Assets<StandardMaterial>>,
-) {
-    let mut rng = rand::thread_rng();
-    let star_count = 500;
-    let sky_radius = 500.0;
-
-    // Create a small sphere mesh for stars
-    let star_mesh = meshes.add(Sphere::new(0.5).mesh().ico(2).unwrap());
-
-    for _ in 0..star_count {
-        // Generate random point on sphere using spherical coordinates
-        let theta = rng.gen_range(0.0..std::f32::consts::TAU);
-        let phi = rng.gen_range(0.0..std::f32::consts::PI);
-
-        let x = sky_radius * phi.sin() * theta.cos();
-        let y = sky_radius * phi.cos();
-        let z = sky_radius * phi.sin() * theta.sin();
-
-        // Random brightness for stars
-        let brightness = rng.gen_range(0.5..1.5);
-        let star_color = Color::srgb(brightness, brightness, brightness * 0.95);
-
-        // Create emissive material for star
-        let star_material = materials.add(StandardMaterial {
-            base_color: star_color,
-            emissive: LinearRgba::new(brightness * 2.0, brightness * 2.0, brightness * 1.9, 1.0),
-            ..default()
-        });
-
-        cmd.spawn((
-            Mesh3d(star_mesh.clone()),
-            MeshMaterial3d(star_material),
-            Transform::from_translation(Vec3::new(x, y, z)),
-        ));
-    }
-}
-
-fn setup_delete_preview(
-    mut cmd: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-) {
-    cmd.spawn((
-        Mesh3d(meshes.add(Cuboid::new(1.0, 1.0, 1.0))),
-        MeshMaterial3d(materials.add(StandardMaterial {
-            base_color: Color::srgba(1.0, 0.1, 0.1, 0.4),
-            alpha_mode: AlphaMode::Blend,
-            ..default()
-        })),
-        Transform::default(),
-        Visibility::Hidden,
-        DeletePreview,
-    ));
-}
-
-fn setup_incline_preview(
-    mut cmd: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-) {
-    cmd.spawn((
-        Mesh3d(meshes.add(Cuboid::new(1.0, 1.0, 1.0))),
-        MeshMaterial3d(materials.add(StandardMaterial {
-            base_color: Color::srgba(0.1, 1.0, 0.1, 0.4),
-            alpha_mode: AlphaMode::Blend,
-            ..default()
-        })),
-        Transform::default(),
-        Visibility::Hidden,
-        InclinePreview,
-    ));
-}
-
-fn setup_reticle(mut cmd: Commands) {
-    let color = Color::srgba(1.0, 1.0, 1.0, 0.8);
-    let thickness = 2.0;
-    let length = 12.0;
-    let gap = 4.0;
-
-    // (width, height, left, top) for each crosshair segment
-    let segments = [
-        (length, thickness, -length - gap, -thickness / 2.0), // left
-        (length, thickness, gap, -thickness / 2.0),           // right
-        (thickness, length, -thickness / 2.0, -length - gap), // top
-        (thickness, length, -thickness / 2.0, gap),           // bottom
-    ];
-
-    cmd.spawn(Node {
-        position_type: PositionType::Absolute,
-        left: Val::Percent(50.0),
-        top: Val::Percent(50.0),
-        ..default()
-    })
-    .with_children(|parent| {
-        for (w, h, l, t) in segments {
-            parent.spawn((
-                Node {
-                    position_type: PositionType::Absolute,
-                    width: Val::Px(w),
-                    height: Val::Px(h),
-                    left: Val::Px(l),
-                    top: Val::Px(t),
-                    ..default()
-                },
-                BackgroundColor(color),
-            ));
-        }
-    });
-}
-
-pub fn cursor_grab(
-    mut cursor_options: Single<&mut CursorOptions>,
-    key: Res<ButtonInput<KeyCode>>,
-    mut mode: ResMut<InteractionMode>,
-) {
-    if key.just_pressed(KeyCode::Escape) {
-        *mode = match *mode {
-            InteractionMode::InWorld(_) => InteractionMode::InScreen(ScreenMode::Menu),
-            InteractionMode::InScreen(_) => InteractionMode::InWorld(WorldMode::None),
-        };
-    }
-
-    match *mode {
-        InteractionMode::InWorld(_) => {
-            cursor_options.visible = false;
-            cursor_options.grab_mode = CursorGrabMode::Locked;
-        }
-        InteractionMode::InScreen(_) => {
-            cursor_options.visible = true;
-            cursor_options.grab_mode = CursorGrabMode::None;
-        }
     }
 }
 
@@ -519,29 +336,14 @@ struct RayHit {
     place_coords: WorldCoords,
 }
 
-/// Cast a ray from the camera and look up the hit entity in the coord map.
-struct ResolvedHit {
-    /// World-space bottom-centre of the block (entity Transform translation).
-    center: Vec3,
-    entity: Entity,
-    half_extents: Vec3,
-}
-
 fn raycast_and_resolve(
     origin: Vec3,
     forward: Vec3,
     targets: impl Iterator<Item = RayTarget>,
     coord_map: &CoordsMap,
-    find_entity: impl Fn(Entity) -> Option<(Vec3, Vec3)>,
-) -> Option<ResolvedHit> {
+) -> Option<Entity> {
     let hit = cast_ray(origin, forward, targets)?;
-    let &entity = coord_map.0.get(&hit.hit_coords)?;
-    let (center, half_extents) = find_entity(entity)?;
-    Some(ResolvedHit {
-        center,
-        entity,
-        half_extents,
-    })
+    coord_map.0.get(&hit.hit_coords).copied()
 }
 
 fn cast_ray(origin: Vec3, dir: Vec3, targets: impl Iterator<Item = RayTarget>) -> Option<RayHit> {
@@ -669,202 +471,78 @@ fn handle_mode_inputs(
     }
 }
 
-fn update_delete_preview(
-    mode: Res<InteractionMode>,
-    mouse: Res<ButtonInput<MouseButton>>,
-    cursor_options: Single<&CursorOptions>,
-    camera_q: Single<(&Transform, &GlobalTransform), With<FirstPersonCamera>>,
-    coord_map: Res<CoordsMap>,
-    mut preview_q: Single<
-        (&mut Transform, &mut Visibility),
-        (With<DeletePreview>, Without<FirstPersonCamera>),
-    >,
-    mut cmd: Commands,
-    targets: Query<(&WorldCoords, &Transform, &RaycastTarget), Without<DeletePreview>>,
-) {
-    let (ref mut t, ref mut vis) = *preview_q;
-    let cursor_locked = cursor_options.grab_mode == CursorGrabMode::Locked;
-
-    if *mode != InteractionMode::InWorld(WorldMode::Deleting) || !cursor_locked {
-        **vis = Visibility::Hidden;
-        return;
-    }
-
-    let (cam_local, cam_global) = camera_q.into_inner();
-    let Some(resolved) = raycast_and_resolve(
-        cam_global.translation(),
-        *cam_local.forward(),
-        targets.iter().map(|(c, tr, rt)| RayTarget {
-            coords: *c,
-            center: tr.translation,
-            half_extents: rt.half_extents,
-        }),
-        &coord_map,
-        |e| {
-            targets
-                .get(e)
-                .ok()
-                .map(|(_, tr, rt)| (tr.translation, rt.half_extents))
-        },
-    ) else {
-        **vis = Visibility::Hidden;
-        return;
-    };
-
-    **vis = Visibility::Visible;
-    let mut pos = resolved.center;
-    pos.y += resolved.half_extents.y;
-    t.translation = pos;
-    t.scale = resolved.half_extents * 2.0 * 1.05;
-
-    if mouse.just_pressed(MouseButton::Left) {
-        cmd.trigger(RemoveBlock {
-            entity: resolved.entity,
-        });
-    }
-}
-
-fn handle_change_incline(
-    mode: Res<InteractionMode>,
-    mouse: Res<ButtonInput<MouseButton>>,
-    cursor_options: Single<&CursorOptions>,
-    camera_q: Single<(&Transform, &GlobalTransform), With<FirstPersonCamera>>,
-    coord_map: Res<CoordsMap>,
-    mut preview_q: Single<
-        (&mut Transform, &mut Visibility),
-        (With<InclinePreview>, Without<FirstPersonCamera>),
-    >,
-    mut cmd: Commands,
-    targets: Query<
-        (&WorldCoords, &Transform, &RaycastTarget),
-        (Without<InclinePreview>, With<Belt>),
-    >,
-) {
-    let (ref mut t, ref mut vis) = *preview_q;
-    let cursor_locked = cursor_options.grab_mode == CursorGrabMode::Locked;
-
-    if *mode != InteractionMode::InWorld(WorldMode::ChangingIncline) || !cursor_locked {
-        **vis = Visibility::Hidden;
-        return;
-    }
-
-    let (cam_local, cam_global) = camera_q.into_inner();
-    let Some(resolved) = raycast_and_resolve(
-        cam_global.translation(),
-        *cam_local.forward(),
-        targets.iter().map(|(c, tr, rt)| RayTarget {
-            coords: *c,
-            center: tr.translation,
-            half_extents: rt.half_extents,
-        }),
-        &coord_map,
-        |e| {
-            targets
-                .get(e)
-                .ok()
-                .map(|(_, tr, rt)| (tr.translation, rt.half_extents))
-        },
-    ) else {
-        **vis = Visibility::Hidden;
-        return;
-    };
-
-    **vis = Visibility::Visible;
-    let mut pos = resolved.center;
-    pos.y += resolved.half_extents.y;
-    t.translation = pos;
-    t.scale = resolved.half_extents * 2.0 * 1.05;
-
-    if mouse.just_pressed(MouseButton::Left) {
-        cmd.trigger(Incline {
-            entity: resolved.entity,
-        });
-    }
-}
-
-fn handle_right_click_block_ui<T: BlockUIScreen>(
-    mouse: Res<ButtonInput<MouseButton>>,
+fn update_look_target(
     cursor_options: Single<&CursorOptions>,
     camera_q: Single<(&Transform, &GlobalTransform), With<FirstPersonCamera>>,
     coord_map: Res<CoordsMap>,
     targets: Query<(&WorldCoords, &Transform, &RaycastTarget)>,
-    blocks: Query<(), With<T>>,
-    mut mode: ResMut<InteractionMode>,
+    mut look_target: ResMut<LookTarget>,
 ) {
     if cursor_options.grab_mode != CursorGrabMode::Locked {
+        look_target.0 = None;
         return;
     }
+    let (cam_local, cam_global) = camera_q.into_inner();
+    look_target.0 = raycast_and_resolve(
+        cam_global.translation(),
+        *cam_local.forward(),
+        targets.iter().map(|(c, tr, rt)| RayTarget {
+            coords: *c,
+            center: tr.translation,
+            half_extents: rt.half_extents,
+        }),
+        &coord_map,
+    );
+}
+
+fn handle_right_click(
+    mouse: Res<ButtonInput<MouseButton>>,
+    look_target: Res<LookTarget>,
+    mode: Res<InteractionMode>,
+    mut cmd: Commands,
+) {
     if !mouse.just_pressed(MouseButton::Right) {
         return;
     }
     if !matches!(*mode, InteractionMode::InWorld(_)) {
         return;
     }
+    let Some(entity) = look_target.0 else { return };
+    cmd.trigger(Interact(entity));
+}
 
-    let (cam_local, cam_global) = camera_q.into_inner();
-    let origin = cam_global.translation();
-    let ray_dir = *cam_local.forward();
-
-    let Some(hit) = cast_ray(
-        origin,
-        ray_dir,
-        targets.iter().map(|(c, t, rt)| RayTarget {
-            coords: *c,
-            center: t.translation,
-            half_extents: rt.half_extents,
-        }),
-    ) else {
+fn handle_delete_input(
+    mode: Res<InteractionMode>,
+    mouse: Res<ButtonInput<MouseButton>>,
+    look_target: Res<LookTarget>,
+    mut cmd: Commands,
+) {
+    if *mode != InteractionMode::InWorld(WorldMode::Deleting) {
         return;
-    };
-
-    let Some(&entity) = coord_map.0.get(&hit.hit_coords) else {
-        return;
-    };
-
-    if blocks.get(entity).is_ok() {
-        *mode = InteractionMode::InScreen(T::screen(entity));
+    }
+    let Some(entity) = look_target.0 else { return };
+    if mouse.just_pressed(MouseButton::Left) {
+        cmd.trigger(RemoveBlock { entity });
     }
 }
 
-fn draw_crosshair_gizmo(
-    mut gizmos: Gizmos,
-    cursor_options: Single<&CursorOptions>,
-    camera_q: Single<(&Transform, &GlobalTransform), With<FirstPersonCamera>>,
-    targets: Query<(&WorldCoords, &Transform, &RaycastTarget)>,
-    coord_map: Res<CoordsMap>,
+fn handle_incline_input(
+    mode: Res<InteractionMode>,
+    mouse: Res<ButtonInput<MouseButton>>,
+    look_target: Res<LookTarget>,
+    belts: Query<(), With<Belt>>,
+    mut cmd: Commands,
 ) {
-    if cursor_options.grab_mode != CursorGrabMode::Locked {
+    if *mode != InteractionMode::InWorld(WorldMode::ChangingIncline) {
         return;
     }
-
-    let (cam_local, cam_global) = camera_q.into_inner();
-    let Some(resolved) = raycast_and_resolve(
-        cam_global.translation(),
-        *cam_local.forward(),
-        targets.iter().map(|(c, t, rt)| RayTarget {
-            coords: *c,
-            center: t.translation,
-            half_extents: rt.half_extents,
-        }),
-        &coord_map,
-        |e| {
-            targets
-                .get(e)
-                .ok()
-                .map(|(_, t, rt)| (t.translation, rt.half_extents))
-        },
-    ) else {
+    let Some(entity) = look_target.0 else { return };
+    if belts.get(entity).is_err() {
         return;
-    };
-
-    let mut pos = resolved.center;
-    pos.y += resolved.half_extents.y;
-    let size = resolved.half_extents * 2.0;
-
-    gizmos.cube(
-        Transform::from_translation(pos).with_scale(size),
-        Color::srgba(1.0, 1.0, 1.0, 0.6),
-    );
+    }
+    if mouse.just_pressed(MouseButton::Left) {
+        cmd.trigger(Incline { entity });
+    }
 }
 
 /// Gives static physics colliders to every world block as it is placed.

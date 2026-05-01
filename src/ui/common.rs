@@ -1,5 +1,5 @@
-use bevy::prelude::*;
 use crate::common::inventory::Stack;
+use bevy::prelude::*;
 
 // ── Theme ─────────────────────────────────────────────────────────────────────
 
@@ -83,11 +83,7 @@ pub fn pane_node(
 }
 
 /// Title bar row: screen title on the left, close button on the right.
-pub fn spawn_title_bar(
-    parent: &mut ChildSpawnerCommands,
-    title: &str,
-    close_marker: impl Bundle,
-) {
+pub fn spawn_title_bar(parent: &mut ChildSpawnerCommands, title: &str, close_marker: impl Bundle) {
     parent
         .spawn(Node {
             width: Val::Percent(100.0),
