@@ -1485,6 +1485,12 @@ mod tests {
     #[allow(unused_imports)]
     use pretty_assertions::{assert_eq, assert_ne};
 
+    fn find_slot(inv: &Inventory, item: Item) -> u16 {
+        (0..64)
+            .find(|&s| inv.get(s).map(|st| st.item == item).unwrap_or(false))
+            .expect("item not found in inventory")
+    }
+
     #[test]
     fn into_raycast() {
         let i = StructureSize {
@@ -1559,5 +1565,92 @@ mod tests {
             let actual = event.facing();
             assert_eq!(actual, case.expected, "{case:#?}");
         }
+    }
+
+    #[test]
+    fn filter_accepts_item_transfers() {
+        let mut app = test_app();
+
+        let player = app.world_mut().spawn(Inventory::new()).id();
+        let machine = app
+            .world_mut()
+            .spawn((InputBuffer::default(), Filter::from_iter([Item::IronOre])))
+            .id();
+
+        {
+            let mut inv = app.world_mut().get_mut::<Inventory>(player).unwrap();
+            inv.insert(Stack::new(Item::IronOre, 1)).unwrap();
+        }
+        let ore_slot = find_slot(app.world().get::<Inventory>(player).unwrap(), Item::IronOre);
+
+        app.world_mut().trigger(LoadMachineInput {
+            player,
+            player_inventory_slot: ore_slot,
+            machine,
+            machine_input_slot: None,
+        });
+
+        let buf = app.world().get::<InputBuffer>(machine).unwrap();
+        assert!(buf.slots.iter().any(|s| s.item == Item::IronOre));
+        assert!(app.world().get::<Inventory>(player).unwrap().get(ore_slot).is_none());
+    }
+
+    #[test]
+    fn filter_rejects_item_no_transfer() {
+        let mut app = test_app();
+
+        let player = app.world_mut().spawn(Inventory::new()).id();
+        let machine = app
+            .world_mut()
+            .spawn((InputBuffer::default(), Filter::from_iter([Item::IronOre])))
+            .id();
+
+        {
+            let mut inv = app.world_mut().get_mut::<Inventory>(player).unwrap();
+            inv.insert(Stack::new(Item::CopperOre, 1)).unwrap();
+        }
+        let copper_slot =
+            find_slot(app.world().get::<Inventory>(player).unwrap(), Item::CopperOre);
+
+        app.world_mut().trigger(LoadMachineInput {
+            player,
+            player_inventory_slot: copper_slot,
+            machine,
+            machine_input_slot: None,
+        });
+
+        let buf = app.world().get::<InputBuffer>(machine).unwrap();
+        assert!(buf.slots.is_empty());
+        assert!(app
+            .world()
+            .get::<Inventory>(player)
+            .unwrap()
+            .get(copper_slot)
+            .is_some());
+    }
+
+    #[test]
+    fn no_filter_component_accepts_any_item() {
+        let mut app = test_app();
+
+        let player = app.world_mut().spawn(Inventory::new()).id();
+        let machine = app.world_mut().spawn(InputBuffer::default()).id();
+
+        {
+            let mut inv = app.world_mut().get_mut::<Inventory>(player).unwrap();
+            inv.insert(Stack::new(Item::CopperOre, 1)).unwrap();
+        }
+        let copper_slot =
+            find_slot(app.world().get::<Inventory>(player).unwrap(), Item::CopperOre);
+
+        app.world_mut().trigger(LoadMachineInput {
+            player,
+            player_inventory_slot: copper_slot,
+            machine,
+            machine_input_slot: None,
+        });
+
+        let buf = app.world().get::<InputBuffer>(machine).unwrap();
+        assert!(buf.slots.iter().any(|s| s.item == Item::CopperOre));
     }
 }

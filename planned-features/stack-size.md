@@ -1,3 +1,8 @@
+---
+title: Stack Size
+done: true
+---
+
 # Overview
 
 It should seem to the player that items have stack sizes, and take up space.

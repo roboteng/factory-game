@@ -2,3 +2,4 @@
 /assets
 trace-*.json
 /blender/
+.hugo_build.lock
