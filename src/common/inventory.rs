@@ -2,7 +2,7 @@ use bevy::prelude::*;
 
 use crate::common::Item;
 
-#[derive(Component, Debug, PartialEq)]
+#[derive(Component, Debug, PartialEq, Clone)]
 pub struct Inventory {
     slots: Vec<Option<Stack>>,
     max_slots: usize,
@@ -75,6 +75,11 @@ impl Inventory {
         }
 
         Ok(())
+    }
+
+    pub fn can_fit_all(&self, stacks: &[Stack]) -> bool {
+        let mut test = self.clone();
+        stacks.iter().all(|s| test.insert(*s).is_ok())
     }
 
     /// Adding items at a specific location in the inventory

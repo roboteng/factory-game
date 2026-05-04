@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 
-use crate::common::{Miner, MinerTicksPerExtract, OutputBuffer, UnloadMachineOutput};
+use crate::common::{Miner, MinerTicksPerExtract, OutputBuffer, Player, UnloadMachineOutput};
 
 use super::common::{pane_node, section_label, spawn_screen_layout, spawn_slot, stack_label};
 use super::{InteractionMode, ScreenMode};
@@ -116,6 +116,7 @@ pub fn update_miner_pane(
 pub fn handle_miner_output_slot_clicks(
     interactions: Query<(&Interaction, &MinerOutputSlot), Changed<Interaction>>,
     mode: Res<InteractionMode>,
+    player: Res<Player>,
     mut cmd: Commands,
 ) {
     let InteractionMode::InScreen(ScreenMode::Miner(miner_entity)) = *mode else {
@@ -124,6 +125,7 @@ pub fn handle_miner_output_slot_clicks(
     for (&interaction, slot_marker) in &interactions {
         if interaction == Interaction::Pressed {
             cmd.trigger(UnloadMachineOutput {
+                player: player.0,
                 machine: miner_entity,
                 output_slot: slot_marker.0,
             });

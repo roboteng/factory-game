@@ -1,9 +1,6 @@
-use crate::common::{
-    inventory::{Inventory, Stack},
-    *,
-};
+use crate::common::{inventory::Inventory, *};
 use crate::ui::hotbar::{Hotbar, PlacementItem};
-use crate::ui::player_controller::{FirstPersonCamera, PlacementDirection, RayTarget, cast_ray};
+use crate::ui::player_controller::{cast_ray, FirstPersonCamera, PlacementDirection, RayTarget};
 use crate::ui::visuals::BlockModels;
 use crate::ui::{InteractionMode, WorldMode};
 
@@ -167,7 +164,7 @@ pub fn handle_click_to_place(
     cursor_options: Single<&CursorOptions>,
     target: Option<Res<PlacementTarget>>,
     player: Res<Player>,
-    mut invs: Query<&mut Inventory>,
+    invs: Query<&Inventory>,
     mut cmd: Commands,
     coord_map: Res<CoordsMap>,
 ) {
@@ -195,20 +192,18 @@ pub fn handle_click_to_place(
         return;
     }
 
-    let Ok(mut inv) = invs.get_mut(player.0) else {
+    let Ok(inv) = invs.get(player.0) else {
         return;
     };
     if inv.item_count(target.item) == 0 {
         return;
     }
-    inv.take_items(Stack::from(target.item));
-    drop(inv);
-
     let entity = cmd.spawn_empty().id();
     let flb = coords;
     let event = PlaceStructure {
         entity,
-        structure: target.block,
+        item: target.item,
+        player: player.0,
         brt: target.block.brt_for(flb, Some(target.facing)),
         flb,
     };
@@ -462,7 +457,6 @@ pub fn commit_belt_placement(
     mouse: Res<ButtonInput<MouseButton>>,
     belt_placement: Option<ResMut<BeltPlacement>>,
     player: Res<Player>,
-    mut invs: Query<&mut Inventory>,
     mut cmd: Commands,
 ) {
     if !mouse.just_released(MouseButton::Left) {
@@ -478,17 +472,15 @@ pub fn commit_belt_placement(
         let item = placement.item;
         let facing = placement.facing;
         let line = placement.line.clone();
-        if let Ok(mut inv) = invs.get_mut(player.0) {
-            for &coord in &line {
-                let e = cmd.spawn_empty().id();
-                inv.take_items(Stack::from(item));
-                cmd.trigger(PlaceStructure {
-                    entity: e,
-                    structure: Structure::Belt,
-                    brt: Structure::Belt.brt_for(coord, Some(facing)),
-                    flb: coord,
-                });
-            }
+        for &coord in &line {
+            let e = cmd.spawn_empty().id();
+            cmd.trigger(PlaceStructure {
+                entity: e,
+                item,
+                player: player.0,
+                brt: Structure::Belt.brt_for(coord, Some(facing)),
+                flb: coord,
+            });
         }
     }
     placement.drag_start = None;

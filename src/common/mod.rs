@@ -121,11 +121,12 @@ impl Plugin for CorePlugin {
 /// `flb` should always be contained in the bounding box, while `brt` never is.
 pub struct PlaceStructure {
     pub entity: Entity,
-    pub structure: Structure,
+    pub item: Item,
     /// Front Left Bottom, inclusive
     pub flb: WorldCoords,
     /// Back Right Top, exclusive
     pub brt: WorldCoords,
+    pub player: Entity,
 }
 
 impl PlaceStructure {
@@ -152,21 +153,6 @@ pub struct Incline {
     pub entity: Entity,
 }
 
-impl PlaceStructure {
-    fn to_bundle(&self) -> impl Bundle {
-        // Mirror the ghost-preview formula so placed blocks appear at the same position.
-        // Ghost uses: Vec3::from(flb) + block.size().center_offset()
-        let rotation = self
-            .facing()
-            .map(|d| Quat::from_rotation_y(d.angle()))
-            .unwrap_or(Quat::IDENTITY);
-        let transform = Transform::from_translation(
-            Vec3::from(self.flb) + self.structure.size().center_offset(),
-        )
-        .with_rotation(rotation);
-        (self.structure, self.flb, transform)
-    }
-}
 
 #[derive(EntityEvent, Debug, Clone, Copy)]
 pub struct PlaceItem {
@@ -177,18 +163,25 @@ pub struct PlaceItem {
 #[derive(EntityEvent, Debug, Clone)]
 pub struct RemoveBlock {
     pub entity: Entity,
+    /// `Some(entity)` = player-triggered (drops returned, capacity checked first).
+    /// `None` = internal removal (drops skipped, block still cleaned up).
+    pub player: Option<Entity>,
 }
 
 /// Player moved one item from their inventory into a machine's input buffer.
 #[derive(Event, Debug, Clone)]
 pub struct LoadMachineInput {
+    pub player: Entity,
     pub player_inventory_slot: u16,
     pub machine: Entity,
+    /// Which machine input slot to target. `None` = first slot whose filter accepts the item.
+    pub machine_input_slot: Option<usize>,
 }
 
 /// Player collected an item from a machine's output buffer into their inventory.
 #[derive(Event, Debug, Clone)]
 pub struct UnloadMachineOutput {
+    pub player: Entity,
     pub machine: Entity,
     pub output_slot: usize,
 }
@@ -538,7 +531,7 @@ impl Structure {
             Structure::Furnace => BreakDrop::Custom(TypeId::of::<Furnace>()),
             Structure::Assembler => BreakDrop::Custom(TypeId::of::<Assembler>()),
             Structure::Collector => BreakDrop::Item(Item::Collector),
-            Structure::IronOreDeposit | Structure::CopperOreDeposit => BreakDrop::None,
+            Structure::IronOreDeposit | Structure::CopperOreDeposit => BreakDrop::Unbreakable,
             Structure::Corn => BreakDrop::Custom(TypeId::of::<Corn>()),
         }
     }
@@ -580,6 +573,106 @@ impl Structure {
                 width: 1,
                 depth: 1,
             },
+        }
+    }
+
+    /// Inserts all components for this structure type onto `cmd`, updates `coord_map`,
+    /// and inserts the spatial bundle (transform, structure, flb coords).
+    /// Does not consume a player inventory — callers are responsible for that.
+    pub fn attach_bundle(
+        self,
+        cmd: &mut EntityCommands,
+        coord_map: &mut CoordsMap,
+        flb: WorldCoords,
+        facing: Option<HDir>,
+    ) {
+        let size = self.size();
+        let rt = size.into_raycast_target(facing.unwrap_or(HDir::North));
+        let rotation = facing
+            .map(|d| Quat::from_rotation_y(d.angle()))
+            .unwrap_or(Quat::IDENTITY);
+        let transform =
+            Transform::from_translation(Vec3::from(flb) + size.center_offset())
+                .with_rotation(rotation);
+
+        match self {
+            Structure::Belt => {
+                cmd.insert((Belt, ItemLanes::default(), rt));
+            }
+            Structure::Source => {
+                cmd.insert((
+                    Source::default(),
+                    OutputBuffer::default(),
+                    OutputsToBelt {
+                        at: flb.step(facing.unwrap_or(HDir::North)),
+                    },
+                    rt,
+                ));
+            }
+            Structure::Sink => {
+                cmd.insert((Sink, InputBuffer::default(), rt));
+            }
+            Structure::Miner => {
+                let dir = facing.expect("Miner must have a facing direction");
+                cmd.insert((
+                    Miner { ticks: 0, dir },
+                    OutputBuffer::default(),
+                    OutputsToBelt {
+                        at: flb.step(dir.opposite()),
+                    },
+                    rt,
+                ));
+            }
+            Structure::Furnace => {
+                cmd.insert((
+                    Furnace::default(),
+                    InputBuffer::default(),
+                    Filter::none(),
+                    OutputBuffer::default(),
+                    OutputsToBelt {
+                        at: flb.step(facing.unwrap_or(HDir::North)),
+                    },
+                    rt,
+                ));
+            }
+            Structure::Assembler => {
+                cmd.insert((
+                    Assembler::default(),
+                    InputBuffer::default(),
+                    Filter::none(),
+                    OutputBuffer::default(),
+                    OutputsToBelt {
+                        at: flb.step(facing.unwrap_or(HDir::North)),
+                    },
+                    rt,
+                ));
+            }
+            Structure::Collector => {
+                cmd.insert((
+                    Collector {
+                        state: CollectorState::ReadyToPickUp,
+                    },
+                    rt,
+                ));
+            }
+            Structure::Corn => {
+                cmd.insert((Corn::Growing { age: 0 }, rt));
+            }
+            Structure::Rock
+            | Structure::Dirt
+            | Structure::IronOreDeposit
+            | Structure::CopperOreDeposit => {
+                cmd.insert(rt);
+            }
+        }
+
+        cmd.insert((self, flb, transform));
+        if let Some(dir) = facing {
+            cmd.insert(dir);
+        }
+
+        for c in size.iter_coords(flb) {
+            coord_map.0.insert(c, cmd.id());
         }
     }
 }
@@ -639,8 +732,10 @@ impl StructureSize {
 
 /// What is dropped when a player breaks a block.
 pub enum BreakDrop {
-    /// Block cannot be broken or drops nothing.
-    None,
+    /// Block cannot be broken; `RemoveBlock` returns early, nothing changes.
+    Unbreakable,
+    /// Block can be broken and despawns, but nothing is returned to inventory.
+    NoDrop,
     /// Drops a single static item.
     Item(Item),
     /// Drops are determined by the `WorldDrop` reflect-trait implemented on the component
@@ -721,149 +816,66 @@ fn on_place_structure(
     mut cmd: Commands,
     mut coord_map: ResMut<CoordsMap>,
     belts_q: Query<&ItemLanes, With<Belt>>,
+    mut inventories: Query<&mut Inventory>,
 ) {
+    let Some(structure) = event.item.can_place() else {
+        cmd.entity(event.entity).despawn();
+        return;
+    };
+
     let facing = event.facing();
-    debug!(
-        "Placing {:?} at {:?} facing {:?}",
-        event.flb, event.structure, facing
-    );
-    let size = event.structure.size();
+    debug!("Placing {:?} at {:?} facing {:?}", structure, event.flb, facing);
+    let size = structure.size();
 
     // Full-height blocks must sit at an even y coordinate. If the ray lands
     // on an odd slot (e.g. top face of a belt), snap down to the nearest even.
-    let (flb, brt) = if size.is_full_block() {
-        let snapped = event.flb.snap_height_even();
-        let dy = snapped.y - event.flb.y;
-        let brt_adj = event.brt.step(WorldCoordsDelta::ZERO.height(dy));
-        (snapped, brt_adj)
+    let flb = if size.is_full_block() {
+        event.flb.snap_height_even()
     } else {
-        (event.flb, event.brt)
+        event.flb
     };
 
-    let place = PlaceStructure {
-        flb,
-        brt,
-        ..*event.event()
+    // Validate player has the item before touching any state.
+    let Ok(mut inv) = inventories.get_mut(event.player) else {
+        cmd.entity(event.entity).despawn();
+        return;
     };
-
-    // Direction for raycast sizing; defaults to North for non-directional (symmetric) blocks.
-    let rt = size.into_raycast_target(facing.unwrap_or(HDir::North));
+    if inv.item_count(event.item) == 0 {
+        cmd.entity(event.entity).despawn();
+        return;
+    }
 
     // Check if any WorldCoords the structure would occupy is already taken.
     let first_conflict = size.iter_coords(flb).find(|c| coord_map.0.contains_key(c));
 
     if let Some(conflict) = first_conflict {
-        if event.structure == Structure::Belt {
+        if structure == Structure::Belt {
             if let Some(&existing) = coord_map.0.get(&conflict)
                 && let Ok(old_lanes) = belts_q.get(existing)
             {
-                // Belt-on-belt: replace the old belt and transfer its items to the new one.
+                // Belt-on-belt: consume item, replace the old belt, transfer its items.
+                inv.take_items(Stack::from(event.item));
                 let transferred = old_lanes.0.clone();
+                drop(inv);
                 cmd.entity(existing).despawn();
                 coord_map.0.remove(&conflict);
-                cmd.entity(event.entity)
-                    .insert((Belt, ItemLanes(transferred), rt));
-                cmd.entity(event.entity).insert(place.to_bundle());
-                coord_map.0.insert(flb, event.entity);
+                {
+                    let mut ec = cmd.entity(event.entity);
+                    structure.attach_bundle(&mut ec, &mut coord_map, flb, facing);
+                }
+                cmd.entity(event.entity).insert(ItemLanes(transferred));
                 return;
             }
         }
-        // Any other collision: ignore the placement.
+        // Any other collision: leave inventory untouched, despawn pre-allocated entity.
         cmd.entity(event.entity).despawn();
         return;
     }
 
-    match event.structure {
-        Structure::Belt => {
-            if let Some(dir) = facing {
-                cmd.entity(event.entity)
-                    .insert((Belt, ItemLanes::default(), rt, dir));
-            } else {
-                cmd.entity(event.entity)
-                    .insert((Belt, ItemLanes::default(), rt));
-            }
-        }
-        Structure::Source => {
-            cmd.entity(event.entity).insert((
-                Source::default(),
-                OutputBuffer::default(),
-                OutputsToBelt {
-                    at: flb.step(facing.unwrap_or(HDir::North)),
-                },
-                rt,
-            ));
-        }
-        Structure::Sink => {
-            cmd.entity(event.entity)
-                .insert((Sink, InputBuffer::default(), rt));
-        }
-        Structure::Miner => {
-            let dir = facing.expect("Miner must have a facing direction");
-            cmd.entity(event.entity).insert((
-                Miner { ticks: 0, dir },
-                OutputBuffer::default(),
-                OutputsToBelt {
-                    at: flb.step(dir.opposite()),
-                },
-                rt,
-                dir,
-            ));
-        }
-        Structure::Furnace => {
-            cmd.entity(event.entity).insert((
-                Furnace::default(),
-                InputBuffer::default(),
-                Filter::none(),
-                OutputBuffer::default(),
-                OutputsToBelt {
-                    at: flb.step(facing.unwrap_or(HDir::North)),
-                },
-                rt,
-            ));
-        }
-        Structure::Assembler => {
-            cmd.entity(event.entity).insert((
-                Assembler::default(),
-                InputBuffer::default(),
-                Filter::none(),
-                OutputBuffer::default(),
-                OutputsToBelt {
-                    at: flb.step(facing.unwrap_or(HDir::North)),
-                },
-                rt,
-            ));
-        }
-        Structure::Collector => {
-            cmd.entity(event.entity).insert((
-                Collector {
-                    state: CollectorState::ReadyToPickUp,
-                },
-                rt,
-            ));
-        }
-        Structure::Corn => {
-            cmd.entity(event.entity)
-                .insert((Corn::Growing { age: 0 }, rt));
-        }
-        Structure::Rock
-        | Structure::Dirt
-        | Structure::IronOreDeposit
-        | Structure::CopperOreDeposit => {
-            cmd.entity(event.entity).insert(rt);
-        }
-    };
-
-    if let Some(dir) = facing {
-        cmd.entity(event.entity)
-            .insert(place.to_bundle())
-            .insert(dir);
-    } else {
-        cmd.entity(event.entity).insert(place.to_bundle());
-    }
-    // Register every WorldCoords the structure occupies.
-    for c in size.iter_coords(flb) {
-        coord_map.0.insert(c, event.entity);
-    }
+    inv.take_items(Stack::from(event.item));
+    drop(inv);
+    let mut ec = cmd.entity(event.entity);
+    structure.attach_bundle(&mut ec, &mut coord_map, flb, facing);
 }
 
 fn on_place_item(event: On<PlaceItem>, mut cmd: Commands, transforms: Query<&Transform>) {
@@ -882,7 +894,6 @@ fn on_remove_block(
     lanes_q: Query<&ItemLanes>,
     blocks_q: Query<&Structure>,
     mut coord_map: ResMut<CoordsMap>,
-    player: Res<Player>,
     type_registry: Res<AppTypeRegistry>,
     // EntityRef reads all components, so it conflicts with &mut Inventory — use ParamSet.
     mut params: ParamSet<(Query<EntityRef>, Query<&mut Inventory>)>,
@@ -890,6 +901,61 @@ fn on_remove_block(
     mut cmd: Commands,
 ) {
     debug!("Removing {:?}", event.entity);
+
+    // Must be first: refuse to destroy unbreakable blocks before any state mutation.
+    if let Ok(block) = blocks_q.get(event.entity) {
+        if matches!(block.break_drop(), BreakDrop::Unbreakable) {
+            return;
+        }
+    }
+
+    // Collect all drops before touching any state.
+    let stacks: Vec<Stack> = if let Ok(block) = blocks_q.get(event.entity) {
+        let mut s: Vec<Stack> = match block.break_drop() {
+            BreakDrop::Unbreakable => unreachable!(),
+            BreakDrop::NoDrop => vec![],
+            BreakDrop::Item(item) => vec![Stack::from(item)],
+            BreakDrop::Custom(type_id) => {
+                let registry = type_registry.read();
+                let entities = params.p0();
+                let entity_ref = entities.get(event.entity).unwrap();
+                registry
+                    .get_type_data::<ReflectComponent>(type_id)
+                    .and_then(|rc| rc.reflect(entity_ref))
+                    .and_then(|reflect_val| {
+                        registry
+                            .get_type_data::<ReflectWorldDrop>(type_id)
+                            .and_then(|rwd| rwd.get(reflect_val))
+                            .map(|world_drop| world_drop.drop_items())
+                    })
+                    .unwrap()
+            }
+        };
+        if let Ok((input_buf, output_buf)) = buf_q.get(event.entity) {
+            if let Some(buf) = input_buf {
+                s.extend(buf.slots.iter().cloned());
+            }
+            if let Some(buf) = output_buf {
+                s.extend(buf.slots.iter().cloned());
+            }
+        }
+        s
+    } else {
+        vec![]
+    };
+
+    // For player-triggered removals, verify inventory has room before destroying anything.
+    if let Some(player_entity) = event.player {
+        let inv_q = params.p1();
+        let Ok(inv) = inv_q.get(player_entity) else {
+            return;
+        };
+        if !inv.can_fit_all(&stacks) {
+            return;
+        }
+    }
+
+    // State mutation begins here — all validation has passed.
     if let Ok(c) = outputs_to_belts.get(event.entity)
         && let Some(c) = c
         && let Some(&other) = coord_map.0.get(&c.at)
@@ -912,44 +978,15 @@ fn on_remove_block(
             cmd.entity(*item).despawn();
         }
     }
-    // Return the block's drops to the player's inventory.
-    if let Ok(block) = blocks_q.get(event.entity) {
-        let mut stacks: Vec<Stack> = match block.break_drop() {
-            BreakDrop::None => return,
-            BreakDrop::Item(item) => vec![Stack::from(item)],
-            BreakDrop::Custom(type_id) => {
-                let registry = type_registry.read();
-                let entities = params.p0();
-                let entity_ref = entities.get(event.entity).unwrap();
-                registry
-                    .get_type_data::<ReflectComponent>(type_id)
-                    .and_then(|rc| rc.reflect(entity_ref))
-                    .and_then(|reflect_val| {
-                        registry
-                            .get_type_data::<ReflectWorldDrop>(type_id)
-                            .and_then(|rwd| rwd.get(reflect_val))
-                            .map(|world_drop| world_drop.drop_items())
-                    })
-                    .unwrap()
-            }
-        };
-        // Drain input/output buffers — general mechanism for all machines.
-        if let Ok((input_buf, output_buf)) = buf_q.get(event.entity) {
-            if let Some(buf) = input_buf {
-                stacks.extend(buf.slots.iter().cloned());
-            }
-            if let Some(buf) = output_buf {
-                stacks.extend(buf.slots.iter().cloned());
-            }
-        }
-        if let Ok(mut inv) = params.p1().get_mut(player.0) {
+
+    if let Some(player_entity) = event.player {
+        if let Ok(mut inv) = params.p1().get_mut(player_entity) {
             for stack in stacks {
-                if let Err(e) = inv.insert(stack) {
-                    warn!("Could not add {:?} to player inventory: {e}", stack.item);
-                }
+                let _ = inv.insert(stack);
             }
         }
     }
+
     cmd.entity(event.entity).despawn();
 }
 
@@ -1030,14 +1067,26 @@ fn on_incline(
 
 fn on_load_machine_input(
     event: On<LoadMachineInput>,
-    player: Res<Player>,
     mut inventories: Query<&mut Inventory>,
     mut machine_q: Query<(&mut InputBuffer, Option<&Filter>)>,
 ) {
-    let Ok(mut inv) = inventories.get_mut(player.0) else {
+    let Ok((mut input_buf, filter)) = machine_q.get_mut(event.machine) else {
         return;
     };
-    let Ok((mut input_buf, filter)) = machine_q.get_mut(event.machine) else {
+    // Peek at the inventory slot before taking — validate filter first.
+    let Ok(inv) = inventories.get(event.player) else {
+        return;
+    };
+    let Some(stack) = inv.get(event.player_inventory_slot) else {
+        return;
+    };
+    if let Some(filter) = filter {
+        if !filter.accepts(stack.item) {
+            return;
+        }
+    }
+    // Validation passed — take the item and insert it.
+    let Ok(mut inv) = inventories.get_mut(event.player) else {
         return;
     };
     let Some(stack) = inv.take_slot(event.player_inventory_slot) else {
@@ -1048,19 +1097,21 @@ fn on_load_machine_input(
 
 fn on_unload_machine_output(
     event: On<UnloadMachineOutput>,
-    player: Res<Player>,
     mut inventories: Query<&mut Inventory>,
     mut output_bufs: Query<&mut OutputBuffer>,
 ) {
-    let Ok(mut inv) = inventories.get_mut(player.0) else {
-        return;
-    };
     let Ok(mut output_buf) = output_bufs.get_mut(event.machine) else {
         return;
     };
-    if event.output_slot < output_buf.buffer.slots.len() {
-        let item = output_buf.buffer.slots.remove(event.output_slot);
-        let _ = inv.insert(item);
+    let Some(&stack) = output_buf.buffer.slots.get(event.output_slot) else {
+        return;
+    };
+    // Insert into inventory first; only remove from output on success.
+    let Ok(mut inv) = inventories.get_mut(event.player) else {
+        return;
+    };
+    if inv.insert(stack).is_ok() {
+        output_buf.buffer.slots.remove(event.output_slot);
     }
 }
 
@@ -1922,26 +1973,24 @@ impl AppExtension for App {
     fn add_belt(&mut self, coords: impl Into<WorldCoords>, dir: HDir) -> Entity {
         let entity = self.world_mut().spawn_empty().id();
         let flb: WorldCoords = coords.into();
-        let brt = Structure::Belt.brt_for(flb, Some(dir));
-        self.world_mut().trigger(PlaceStructure {
-            entity,
-            structure: Structure::Belt,
-            flb,
-            brt,
+        self.world_mut().resource_scope(|world, mut coord_map: Mut<CoordsMap>| {
+            let mut cmd = world.commands();
+            let mut ec = cmd.entity(entity);
+            Structure::Belt.attach_bundle(&mut ec, &mut *coord_map, flb, Some(dir));
         });
+        self.world_mut().flush();
         entity
     }
 
     fn add_world_block(&mut self, coords: impl Into<WorldCoords>, block: Structure) -> Entity {
         let entity = self.world_mut().spawn_empty().id();
         let flb: WorldCoords = coords.into();
-        let brt = block.brt_for(flb, None);
-        self.world_mut().trigger(PlaceStructure {
-            entity,
-            structure: block,
-            flb,
-            brt,
+        self.world_mut().resource_scope(|world, mut coord_map: Mut<CoordsMap>| {
+            let mut cmd = world.commands();
+            let mut ec = cmd.entity(entity);
+            block.attach_bundle(&mut ec, &mut *coord_map, flb, None);
         });
+        self.world_mut().flush();
         entity
     }
 
@@ -1988,7 +2037,7 @@ impl AppExtension for App {
         let coords = coords.into();
         let entity = self.world().resource::<CoordsMap>().0.get(&coords).copied();
         if let Some(entity) = entity {
-            self.world_mut().trigger(RemoveBlock { entity });
+            self.world_mut().trigger(RemoveBlock { entity, player: None });
             true
         } else {
             false
@@ -2216,12 +2265,12 @@ mod tests {
 
         let miner = app.world_mut().spawn_empty().id();
         let flb = o;
-        app.world_mut().trigger(PlaceStructure {
-            entity: miner,
-            structure: Structure::Miner,
-            brt: Structure::Miner.brt_for(flb, Some(HDir::South)),
-            flb,
+        app.world_mut().resource_scope(|world, mut coord_map: Mut<CoordsMap>| {
+            let mut cmd = world.commands();
+            let mut ec = cmd.entity(miner);
+            Structure::Miner.attach_bundle(&mut ec, &mut *coord_map, flb, Some(HDir::South));
         });
+        app.world_mut().flush();
 
         let belt = app.add_belt(o.step(HDir::North), HDir::North);
 
@@ -2244,12 +2293,12 @@ mod tests {
         // Place miner at origin facing the ore to the south.
         let miner = app.world_mut().spawn_empty().id();
         let flb = o;
-        app.world_mut().trigger(PlaceStructure {
-            entity: miner,
-            structure: Structure::Miner,
-            brt: Structure::Miner.brt_for(flb, Some(HDir::South)),
-            flb,
+        app.world_mut().resource_scope(|world, mut coord_map: Mut<CoordsMap>| {
+            let mut cmd = world.commands();
+            let mut ec = cmd.entity(miner);
+            Structure::Miner.attach_bundle(&mut ec, &mut *coord_map, flb, Some(HDir::South));
         });
+        app.world_mut().flush();
 
         // Place belt to the north — the miner's OutputDir(None) will find it.
         let belt = app.add_belt(o.step(HDir::North), HDir::North);
@@ -2276,12 +2325,12 @@ mod tests {
 
             let miner = app.world_mut().spawn_empty().id();
             let flb = o;
-            app.world_mut().trigger(PlaceStructure {
-                entity: miner,
-                structure: Structure::Miner,
-                brt: Structure::Miner.brt_for(flb, Some(HDir::South)),
-                flb,
+            app.world_mut().resource_scope(|world, mut coord_map: Mut<CoordsMap>| {
+                let mut cmd = world.commands();
+                let mut ec = cmd.entity(miner);
+                Structure::Miner.attach_bundle(&mut ec, &mut *coord_map, flb, Some(HDir::South));
             });
+            app.world_mut().flush();
 
             let belt = app.add_belt(o.step(HDir::North), HDir::North);
 
@@ -2415,23 +2464,23 @@ mod tests {
         let furnace = {
             let e = app.world_mut().spawn_empty().id();
             let flb: WorldCoords = (0i32, 0i32, -2i32).into();
-            app.world_mut().trigger(PlaceStructure {
-                entity: e,
-                structure: Structure::Furnace,
-                brt: Structure::Furnace.brt_for(flb, Some(HDir::North)),
-                flb,
+            app.world_mut().resource_scope(|world, mut coord_map: Mut<CoordsMap>| {
+                let mut cmd = world.commands();
+                let mut ec = cmd.entity(e);
+                Structure::Furnace.attach_bundle(&mut ec, &mut *coord_map, flb, Some(HDir::North));
             });
+            app.world_mut().flush();
             e
         };
         let _collector = {
             let e = app.world_mut().spawn_empty().id();
             let flb: WorldCoords = (0i32, 0i32, 0i32).into();
-            app.world_mut().trigger(PlaceStructure {
-                entity: e,
-                structure: Structure::Collector,
-                brt: Structure::Collector.brt_for(flb, Some(HDir::North)),
-                flb,
+            app.world_mut().resource_scope(|world, mut coord_map: Mut<CoordsMap>| {
+                let mut cmd = world.commands();
+                let mut ec = cmd.entity(e);
+                Structure::Collector.attach_bundle(&mut ec, &mut *coord_map, flb, Some(HDir::North));
             });
+            app.world_mut().flush();
             e
         };
         let belt = app.add_belt((0i32, 0i32, 1i32), HDir::North);
@@ -2532,8 +2581,10 @@ mod tests {
         };
 
         app.world_mut().trigger(LoadMachineInput {
+            player,
             player_inventory_slot: ore_slot,
             machine: furnace,
+            machine_input_slot: None,
         });
         app.update();
 
@@ -2614,7 +2665,8 @@ mod tests {
         for case in cases {
             let event = PlaceStructure {
                 entity: Entity::PLACEHOLDER,
-                structure: Structure::Dirt,
+                item: Item::Dirt,
+                player: Entity::PLACEHOLDER,
                 flb: case.flb,
                 brt: case.brt,
             };

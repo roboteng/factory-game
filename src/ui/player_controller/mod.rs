@@ -515,6 +515,7 @@ fn handle_delete_input(
     mode: Res<InteractionMode>,
     mouse: Res<ButtonInput<MouseButton>>,
     look_target: Res<LookTarget>,
+    player: Res<Player>,
     mut cmd: Commands,
 ) {
     if *mode != InteractionMode::InWorld(WorldMode::Deleting) {
@@ -522,7 +523,10 @@ fn handle_delete_input(
     }
     let Some(entity) = look_target.0 else { return };
     if mouse.just_pressed(MouseButton::Left) {
-        cmd.trigger(RemoveBlock { entity });
+        cmd.trigger(RemoveBlock {
+            entity,
+            player: Some(player.0),
+        });
     }
 }
 

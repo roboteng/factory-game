@@ -1,14 +1,14 @@
 use bevy::prelude::*;
 
 use crate::common::{
-    Assembler, InputBuffer, LoadMachineInput, MachineStatus, OutputBuffer, Recipe, Recipes,
+    Assembler, InputBuffer, LoadMachineInput, MachineStatus, OutputBuffer, Player, Recipe, Recipes,
     SetAssemblerRecipe, UnloadMachineOutput,
 };
 
 use super::common::{
-    CLOSE_BTN_BG, CLOSE_BTN_FONT_SIZE, CLOSE_BTN_SIZE, InventorySlot, LABEL_FONT_SIZE, SLOT_BG,
-    SLOT_BORDER, pane_node, section_label, spawn_inventory_panel, spawn_slot, spawn_title_bar,
-    stack_label,
+    pane_node, section_label, spawn_inventory_panel, spawn_slot, spawn_title_bar, stack_label,
+    InventorySlot, CLOSE_BTN_BG, CLOSE_BTN_FONT_SIZE, CLOSE_BTN_SIZE, LABEL_FONT_SIZE, SLOT_BG,
+    SLOT_BORDER,
 };
 use super::{InteractionMode, ScreenMode};
 
@@ -374,6 +374,7 @@ pub fn handle_assembler_inventory_slot_clicks(
         (Changed<Interaction>, With<AssemblerInventoryPanel>),
     >,
     mode: Res<InteractionMode>,
+    player: Res<Player>,
     mut cmd: Commands,
 ) {
     let InteractionMode::InScreen(ScreenMode::Assembler(assembler_entity)) = *mode else {
@@ -382,8 +383,10 @@ pub fn handle_assembler_inventory_slot_clicks(
     for (&interaction, slot_marker) in &interactions {
         if interaction == Interaction::Pressed {
             cmd.trigger(LoadMachineInput {
+                player: player.0,
                 player_inventory_slot: slot_marker.0,
                 machine: assembler_entity,
+                machine_input_slot: None,
             });
         }
     }
@@ -392,6 +395,7 @@ pub fn handle_assembler_inventory_slot_clicks(
 pub fn handle_assembler_output_slot_clicks(
     interactions: Query<(&Interaction, &AssemblerOutputSlot), Changed<Interaction>>,
     mode: Res<InteractionMode>,
+    player: Res<Player>,
     mut cmd: Commands,
 ) {
     let InteractionMode::InScreen(ScreenMode::Assembler(assembler_entity)) = *mode else {
@@ -400,6 +404,7 @@ pub fn handle_assembler_output_slot_clicks(
     for (&interaction, slot_marker) in &interactions {
         if interaction == Interaction::Pressed {
             cmd.trigger(UnloadMachineOutput {
+                player: player.0,
                 machine: assembler_entity,
                 output_slot: slot_marker.0,
             });

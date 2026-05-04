@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 
-use crate::common::{HDir, PlaceStructure, Structure, WorldCoords, WorldCoordsDelta};
+use crate::common::{CoordsMap, HDir, Structure, WorldCoords, WorldCoordsDelta};
 
 /// Describes one type of resource patch in world generation.
 pub struct ResourcePatch {
@@ -73,7 +73,7 @@ impl Plugin for PerlinWorldPlugin {
     }
 }
 
-fn spawn_flat_terrain(mut cmd: Commands) {
+fn spawn_flat_terrain(mut cmd: Commands, mut coord_map: ResMut<CoordsMap>) {
     use rand::Rng;
     let o = WorldCoords::ORIGIN;
     let mut rng = rand::thread_rng();
@@ -88,12 +88,8 @@ fn spawn_flat_terrain(mut cmd: Commands) {
             };
             let entity = cmd.spawn_empty().id();
             let flb = o + ground_height + WorldCoordsDelta::ZERO.north(ns).east(ew);
-            cmd.trigger(PlaceStructure {
-                entity,
-                structure: block,
-                brt: block.brt_for(flb, None),
-                flb,
-            });
+            let mut ec = cmd.entity(entity);
+            block.attach_bundle(&mut ec, &mut coord_map, flb, None);
         }
     }
 
@@ -106,40 +102,32 @@ fn spawn_flat_terrain(mut cmd: Commands) {
     ] {
         let entity = cmd.spawn_empty().id();
         let flb = o + WorldCoordsDelta::ZERO.north(ns).east(ew);
-        cmd.trigger(PlaceStructure {
-            entity,
-            structure: block,
-            brt: block.brt_for(flb, None),
-            flb,
-        });
+        let mut ec = cmd.entity(entity);
+        block.attach_bundle(&mut ec, &mut coord_map, flb, None);
     }
 }
 
-fn spawn_flat_belts(mut cmd: Commands) {
+fn spawn_flat_belts(mut cmd: Commands, mut coord_map: ResMut<CoordsMap>) {
     use crate::common::Dir;
     let o = WorldCoords::ORIGIN;
 
     for flb in [o.step(HDir::North).step(Dir::Up), o, o.step(HDir::South)] {
         let entity = cmd.spawn_empty().id();
-        cmd.trigger(PlaceStructure {
-            entity,
-            structure: Structure::Belt,
-            brt: Structure::Belt.brt_for(flb, Some(HDir::North)),
-            flb,
-        });
+        let mut ec = cmd.entity(entity);
+        Structure::Belt.attach_bundle(&mut ec, &mut coord_map, flb, Some(HDir::North));
     }
 
     let flb = o.step(WorldCoordsDelta::ZERO.west(3));
     let entity = cmd.spawn_empty().id();
-    cmd.trigger(PlaceStructure {
-        entity,
-        structure: Structure::Furnace,
-        brt: Structure::Furnace.brt_for(flb, Some(HDir::North)),
-        flb,
-    });
+    let mut ec = cmd.entity(entity);
+    Structure::Furnace.attach_bundle(&mut ec, &mut coord_map, flb, Some(HDir::North));
 }
 
-fn spawn_perlin_terrain(mut cmd: Commands, config: Res<WorldGenConfig>) {
+fn spawn_perlin_terrain(
+    mut cmd: Commands,
+    mut coord_map: ResMut<CoordsMap>,
+    config: Res<WorldGenConfig>,
+) {
     use noise::{NoiseFn, Perlin};
     let o = WorldCoords::ORIGIN;
     let terrain_noise = Perlin::new(config.terrain_seed);
@@ -169,12 +157,8 @@ fn spawn_perlin_terrain(mut cmd: Commands, config: Res<WorldGenConfig>) {
                 .height(height_half)
                 .north(ns)
                 .east(ew);
-            cmd.trigger(PlaceStructure {
-                entity,
-                structure: terrain_block,
-                brt: terrain_block.brt_for(flb, None),
-                flb,
-            });
+            let mut ec = cmd.entity(entity);
+            terrain_block.attach_bundle(&mut ec, &mut coord_map, flb, None);
 
             // If a resource patch covers this tile, place it on top of the terrain.
             let resource = resource_noises
@@ -198,12 +182,8 @@ fn spawn_perlin_terrain(mut cmd: Commands, config: Res<WorldGenConfig>) {
                     .height(height_half + 2)
                     .north(ns)
                     .east(ew);
-                cmd.trigger(PlaceStructure {
-                    entity,
-                    structure: block,
-                    brt: block.brt_for(flb, None),
-                    flb,
-                });
+                let mut ec = cmd.entity(entity);
+                block.attach_bundle(&mut ec, &mut coord_map, flb, None);
             }
         }
     }

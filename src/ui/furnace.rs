@@ -1,11 +1,12 @@
 use bevy::prelude::*;
 
 use crate::common::{
-    Furnace, InputBuffer, LoadMachineInput, MachineStatus, OutputBuffer, UnloadMachineOutput,
+    Furnace, InputBuffer, LoadMachineInput, MachineStatus, OutputBuffer, Player,
+    UnloadMachineOutput,
 };
 
 use super::common::{
-    InventorySlot, pane_node, section_label, spawn_screen_layout, spawn_slot, stack_label,
+    pane_node, section_label, spawn_screen_layout, spawn_slot, stack_label, InventorySlot,
 };
 use super::{InteractionMode, ScreenMode};
 
@@ -145,6 +146,7 @@ pub fn handle_furnace_inventory_slot_clicks(
         (Changed<Interaction>, With<FurnaceInventoryPanel>),
     >,
     mode: Res<InteractionMode>,
+    player: Res<Player>,
     mut cmd: Commands,
 ) {
     let InteractionMode::InScreen(ScreenMode::Furnace(furnace_entity)) = *mode else {
@@ -153,8 +155,10 @@ pub fn handle_furnace_inventory_slot_clicks(
     for (&interaction, slot_marker) in &interactions {
         if interaction == Interaction::Pressed {
             cmd.trigger(LoadMachineInput {
+                player: player.0,
                 player_inventory_slot: slot_marker.0,
                 machine: furnace_entity,
+                machine_input_slot: None,
             });
         }
     }
@@ -163,6 +167,7 @@ pub fn handle_furnace_inventory_slot_clicks(
 pub fn handle_furnace_output_slot_clicks(
     interactions: Query<(&Interaction, &FurnaceOutputSlot), Changed<Interaction>>,
     mode: Res<InteractionMode>,
+    player: Res<Player>,
     mut cmd: Commands,
 ) {
     let InteractionMode::InScreen(ScreenMode::Furnace(furnace_entity)) = *mode else {
@@ -171,6 +176,7 @@ pub fn handle_furnace_output_slot_clicks(
     for (&interaction, slot_marker) in &interactions {
         if interaction == Interaction::Pressed {
             cmd.trigger(UnloadMachineOutput {
+                player: player.0,
                 machine: furnace_entity,
                 output_slot: slot_marker.0,
             });
