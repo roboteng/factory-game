@@ -15,7 +15,7 @@ Structural and reactive behavior — things that respond to events or set up the
 - All observers: `on_place_structure`, `on_place_item`, `on_remove_block`, `on_incline`, `on_load_machine_input`, `on_unload_machine_output`, `on_set_assembler_recipe`, `on_set_source_item`
 - `spawn_player`
 
-## `SimPlugin` (new, in `src/sim/mod.rs` or `src/common/sim.rs`)
+## `SimPlugin` (new, in `src/common/sim.rs`)
 
 Tick-driven simulation — systems that advance world state each frame:
 
@@ -36,6 +36,12 @@ Tick-driven simulation — systems that advance world state each frame:
 - `side_loading`
 - `grow_corn`
 - `despawn_old_entities` (PostUpdate)
+
+# Module & Visibility
+
+All simulation functions listed above physically move from `src/common/mod.rs` into `src/common/sim.rs`. `SimPlugin` is defined in that same file, so it calls them as ordinary private functions — no visibility changes needed. `src/common/mod.rs` gains `mod sim; pub use sim::SimPlugin;`.
+
+The `#[cfg(feature = "invariant-check")] InvariantsPlugin` stays inside `CorePlugin` — it is structural/reactive and does not depend on any sim systems.
 
 # Changes Required
 
@@ -73,11 +79,13 @@ pub fn sim_test_app() -> App {
 
 ## Existing tests
 
-Of the 25 tests in `src/common/mod.rs`:
+Tests in `src/common/mod.rs` fall into three groups (exact count may vary as the file evolves):
 
-- **22 tests need `SimPlugin`** — all belt shape tests (18) and miner/collector tests (4). Change `test_app()` → `sim_test_app()` in each.
-- **1 test is observers only** — `load_machine_input_moves_ore_to_furnace_input_buffer`. Stays on `test_app()`.
-- **2 tests are pure unit tests** — `into_raycast`, `place_block_facing`. No app involved, no change needed.
+- **Belt shape & sim-dependent tests** — all call `app.update()` to exercise simulation systems. Change `test_app()` → `sim_test_app()` in each.
+- **Observer-only tests** — e.g. `load_machine_input_moves_ore_to_furnace_input_buffer`. Trigger an event and check state; no sim systems needed. Stays on `test_app()`.
+- **Pure unit tests** — e.g. `into_raycast`, `place_block_facing`. No app involved, no change needed.
+
+Tests in `src/common/machine.rs`, `src/common/dir.rs`, and `src/common/inventory.rs` are all pure unit tests with no `App` — unaffected by this split.
 
 # Benefit
 

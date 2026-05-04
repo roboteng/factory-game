@@ -2,7 +2,7 @@ mod common;
 mod ui;
 
 use bevy::prelude::*;
-use common::{CorePlugin, FlatWorldPlugin, PerlinWorldPlugin};
+use common::{CorePlugin, FlatWorldPlugin, PerlinWorldPlugin, SimPlugin};
 use ui::{FlyMode, FreeHotbar, SurvivalHotbar, UiPlugin};
 
 fn main() {
@@ -14,7 +14,7 @@ fn main() {
     let mut app = App::new();
 
     app.insert_resource(FlyMode(fly_mode));
-    app.add_plugins((DefaultPlugins, CorePlugin));
+    app.add_plugins((DefaultPlugins, CorePlugin, SimPlugin));
 
     if flat_mode {
         app.add_plugins(FlatWorldPlugin);
