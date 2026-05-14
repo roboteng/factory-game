@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 
-use crate::common::{BeltShape, Corn, ITEM_SIZE, Item, PlaceItem, Structure};
+use crate::common::{BeltShape, Corn, Item, PlaceItem, Structure, ITEM_SIZE};
 
 use crate::ui::player_controller::NeedsGhostTint;
 
@@ -34,6 +34,89 @@ enum ItemModelDef {
     },
 }
 
+impl Item {
+    fn model(self, asset_server: &AssetServer) -> ItemModelDef {
+        use Item::*;
+        match self {
+            Belt => ItemModelDef::Mesh(
+                asset_server.load(GltfAssetLabel::Scene(2).from_asset("models/belt.glb")),
+                ITEM_SIZE,
+            ),
+            Source => ItemModelDef::Color(Color::srgb(0.2, 0.8, 0.2), ITEM_SIZE),
+            Sink => ItemModelDef::Color(Color::srgb(0.8, 0.2, 0.2), ITEM_SIZE),
+            Rock => ItemModelDef::Color(Color::srgb(0.55, 0.55, 0.55), ITEM_SIZE),
+            Dirt => ItemModelDef::Color(Color::srgb(0.55, 0.35, 0.15), ITEM_SIZE),
+            IronOre => ItemModelDef::TintedMesh {
+                scene: asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Rubble.glb")),
+                color: Color::srgb(0.5, 0.4, 0.35),
+                scale: 1.0,
+                metallic: 0.0,
+                roughness: 0.9,
+            },
+            CopperOre => ItemModelDef::TintedMesh {
+                scene: asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Rubble.glb")),
+                color: Color::srgb(0.65, 0.35, 0.1),
+                scale: 1.0,
+                metallic: 0.0,
+                roughness: 0.9,
+            },
+            IronIngot => ItemModelDef::TintedMesh {
+                scene: asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Ingot.glb")),
+                color: Color::srgb(0.7, 0.7, 0.75),
+                scale: 1.0,
+                metallic: 0.9,
+                roughness: 0.2,
+            },
+            CopperIngot => ItemModelDef::TintedMesh {
+                scene: asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Ingot.glb")),
+                color: Color::srgb(0.8, 0.5, 0.2),
+                scale: 1.0,
+                metallic: 0.9,
+                roughness: 0.2,
+            },
+            IronPlate => ItemModelDef::Mesh(
+                asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/IronPlate.glb")),
+                ITEM_SIZE,
+            ),
+            IronRod => ItemModelDef::Mesh(
+                asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/IronRod.glb")),
+                ITEM_SIZE,
+            ),
+            CopperWire => ItemModelDef::Mesh(
+                asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/CopperWire.glb")),
+                ITEM_SIZE,
+            ),
+            Circuit => ItemModelDef::Mesh(
+                asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Circuit.glb")),
+                ITEM_SIZE,
+            ),
+            Miner => ItemModelDef::Mesh(
+                asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Miner.glb")),
+                ITEM_SIZE,
+            ),
+            Furnace => ItemModelDef::Mesh(
+                asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Furnace.glb")),
+                ITEM_SIZE * 0.5,
+            ),
+            Assembler => ItemModelDef::Mesh(
+                asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Assembler.glb")),
+                ITEM_SIZE * 0.4,
+            ),
+            Collector => ItemModelDef::Mesh(
+                asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Collector.glb")),
+                ITEM_SIZE,
+            ),
+            CornKernels => ItemModelDef::Color(Color::srgb(0.95, 0.85, 0.2), ITEM_SIZE),
+            CornStalk => ItemModelDef::Color(Color::srgb(0.3, 0.7, 0.2), ITEM_SIZE),
+            Biomass => ItemModelDef::Color(Color::srgb(0.3, 0.5, 0.15), ITEM_SIZE),
+            Gear => ItemModelDef::Mesh(
+                asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Gear.glb")),
+                1.0,
+            ),
+        }
+    }
+}
+
 #[derive(Component)]
 pub struct SceneTint {
     pub color: Color,
@@ -62,31 +145,6 @@ pub struct BlockModels {
     corn_stage_b: ModelDef,
     corn_stage_c: ModelDef,
     corn_stage_d: ModelDef,
-}
-
-#[derive(Resource)]
-struct ItemModels {
-    belt: ItemModelDef,
-    source: ItemModelDef,
-    sink: ItemModelDef,
-    rock: ItemModelDef,
-    dirt: ItemModelDef,
-    iron_ore: ItemModelDef,
-    copper_ore: ItemModelDef,
-    iron_ingot: ItemModelDef,
-    copper_ingot: ItemModelDef,
-    iron_plate: ItemModelDef,
-    iron_rod: ItemModelDef,
-    copper_wire: ItemModelDef,
-    circuit: ItemModelDef,
-    miner: ItemModelDef,
-    furnace: ItemModelDef,
-    assembler: ItemModelDef,
-    collector: ItemModelDef,
-    corn_kernels: ItemModelDef,
-    corn_stalk: ItemModelDef,
-    biomass: ItemModelDef,
-    gear: ItemModelDef,
 }
 
 fn setup_models(mut cmd: Commands, asset_server: Res<AssetServer>) {
@@ -195,70 +253,6 @@ fn setup_models(mut cmd: Commands, asset_server: Res<AssetServer>) {
         corn_stage_d: ModelDef::Scene(asset_server.load(
             GltfAssetLabel::Scene(0).from_asset("models/kenney_nature_kit/crops_cornStageD.glb"),
         )),
-    });
-
-    let belt_straight = asset_server.load(GltfAssetLabel::Scene(2).from_asset("models/belt.glb"));
-    cmd.insert_resource(ItemModels {
-        belt: ItemModelDef::Mesh(belt_straight, ITEM_SIZE),
-        source: ItemModelDef::Color(Color::srgb(0.2, 0.8, 0.2), ITEM_SIZE),
-        sink: ItemModelDef::Color(Color::srgb(0.8, 0.2, 0.2), ITEM_SIZE),
-        rock: ItemModelDef::Color(Color::srgb(0.55, 0.55, 0.55), ITEM_SIZE),
-        dirt: ItemModelDef::Color(Color::srgb(0.55, 0.35, 0.15), ITEM_SIZE),
-        iron_ore: ItemModelDef::TintedMesh {
-            scene: asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Rubble.glb")),
-            color: Color::srgb(0.5, 0.4, 0.35),
-            scale: 1.0,
-            metallic: 0.0,
-            roughness: 0.9,
-        },
-        copper_ore: ItemModelDef::TintedMesh {
-            scene: asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Rubble.glb")),
-            color: Color::srgb(0.65, 0.35, 0.1),
-            scale: 1.0,
-            metallic: 0.0,
-            roughness: 0.9,
-        },
-        iron_ingot: ItemModelDef::TintedMesh {
-            scene: asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Ingot.glb")),
-            color: Color::srgb(0.7, 0.7, 0.75),
-            scale: 1.0,
-            metallic: 0.9,
-            roughness: 0.2,
-        },
-        copper_ingot: ItemModelDef::TintedMesh {
-            scene: asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Ingot.glb")),
-            color: Color::srgb(0.8, 0.5, 0.2),
-            scale: 1.0,
-            metallic: 0.9,
-            roughness: 0.2,
-        },
-        iron_plate: ItemModelDef::Color(Color::srgb(0.75, 0.75, 0.8), ITEM_SIZE),
-        iron_rod: ItemModelDef::Color(Color::srgb(0.6, 0.6, 0.65), ITEM_SIZE),
-        copper_wire: ItemModelDef::Color(Color::srgb(0.8, 0.45, 0.1), ITEM_SIZE),
-        circuit: ItemModelDef::Color(Color::srgb(0.15, 0.5, 0.2), ITEM_SIZE),
-        miner: ItemModelDef::Mesh(
-            asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Miner.glb")),
-            ITEM_SIZE,
-        ),
-        furnace: ItemModelDef::Mesh(
-            asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Furnace.glb")),
-            ITEM_SIZE * 0.5,
-        ),
-        assembler: ItemModelDef::Mesh(
-            asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Assembler.glb")),
-            ITEM_SIZE * 0.4,
-        ),
-        collector: ItemModelDef::Mesh(
-            asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Collector.glb")),
-            ITEM_SIZE,
-        ),
-        corn_kernels: ItemModelDef::Color(Color::srgb(0.95, 0.85, 0.2), ITEM_SIZE),
-        corn_stalk: ItemModelDef::Color(Color::srgb(0.3, 0.7, 0.2), ITEM_SIZE),
-        biomass: ItemModelDef::Color(Color::srgb(0.3, 0.5, 0.15), ITEM_SIZE),
-        gear: ItemModelDef::Mesh(
-            asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Gear.glb")),
-            1.0,
-        ),
     });
 }
 
@@ -421,38 +415,10 @@ fn tint_ghost_children(
     }
 }
 
-fn on_place_item(
-    event: On<PlaceItem>,
-    mut cmd: Commands,
-    item_models: Res<ItemModels>,
-    asset_server: Res<AssetServer>,
-) {
-    use Item::*;
-    let model = match event.item {
-        Item::Belt => &item_models.belt,
-        Item::Source => &item_models.source,
-        Item::Sink => &item_models.sink,
-        Item::Rock => &item_models.rock,
-        Item::Dirt => &item_models.dirt,
-        Item::IronOre => &item_models.iron_ore,
-        Item::CopperOre => &item_models.copper_ore,
-        Item::IronIngot => &item_models.iron_ingot,
-        Item::CopperIngot => &item_models.copper_ingot,
-        Item::IronPlate => &item_models.iron_plate,
-        Item::IronRod => &item_models.iron_rod,
-        Item::CopperWire => &item_models.copper_wire,
-        Item::Circuit => &item_models.circuit,
-        Item::Miner => &item_models.miner,
-        Item::Furnace => &item_models.furnace,
-        Item::Assembler => &item_models.assembler,
-        Item::Collector => &item_models.collector,
-        Item::CornKernels => &item_models.corn_kernels,
-        Item::CornStalk => &item_models.corn_stalk,
-        Item::Biomass => &item_models.biomass,
-        Gear => &item_models.gear,
-    };
+fn on_place_item(event: On<PlaceItem>, mut cmd: Commands, asset_server: Res<AssetServer>) {
+    let model = event.item.model(&asset_server);
 
-    let visual = match model {
+    let visual = match &model {
         ItemModelDef::Color(color, scale) => cmd
             .spawn((
                 SceneRoot(
