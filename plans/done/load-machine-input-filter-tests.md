@@ -1,8 +1,3 @@
----
-title: Load Machine Input Filter Tests
-done: true
----
-
 # Overview
 
 Write tests for the `on_load_machine_input` observer that exercise `Filter` gating. These were the motivating case for the `CorePlugin`/`SimPlugin` split (`common-sim-plugin-split.md`): before the split, `recalculate_filters` ran every `Update` and overwrote the `Filter` component, making it impossible to hold a specific filter state through a `trigger()` call when `app.update()` was also needed.

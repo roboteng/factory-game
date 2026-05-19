@@ -1,8 +1,3 @@
----
-title: Item Models - IronPlate, IronRod, CopperWire, Circuit
-done: false
----
-
 # Item Models: IronPlate, IronRod, CopperWire, Circuit
 
 Four items currently use `ItemModelDef::Color` (solid-colored cube fallback).

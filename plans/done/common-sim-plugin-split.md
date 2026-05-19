@@ -1,8 +1,3 @@
----
-title: Common Sim Plugin Split
-done: true
----
-
 # Overview
 
 Split `CorePlugin` into two plugins: `CorePlugin` (structural/reactive behavior) and `SimPlugin` (tick-driven simulation). This makes it possible to write tests that spin up a Bevy app and trigger events without fighting systems that unconditionally overwrite component state every frame.

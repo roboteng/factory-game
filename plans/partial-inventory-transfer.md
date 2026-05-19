@@ -1,8 +1,3 @@
----
-title: Partial Inventory Transfer
-done: false
----
-
 # Partial Inventory Transfer
 
 ## Problem

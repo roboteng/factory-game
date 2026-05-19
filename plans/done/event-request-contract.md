@@ -1,8 +1,3 @@
----
-title: Event Request Contract
-done: true
----
-
 # Overview
 
 Events should be **requests**, not **commands**. When a player clicks to move an item, the event says "player requests to move item from slot 3 into the furnace input." The handler decides whether that request is valid and, if so, performs the entire state transition atomically. If the request is invalid — wrong item type, full inventory, missing entity — nothing happens.
