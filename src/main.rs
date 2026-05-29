@@ -1,4 +1,3 @@
-mod common;
 mod ui;
 
 use bevy::prelude::*;

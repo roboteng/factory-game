@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 
-use crate::common::{MachineStatus, Recipe, inventory::Inventory};
+use crate::{MachineStatus, Recipe, inventory::Inventory};
 
 #[derive(Resource)]
 pub struct Player(pub Entity);

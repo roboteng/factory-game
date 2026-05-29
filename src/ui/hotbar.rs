@@ -1,8 +1,6 @@
-use crate::common::{
-    inventory::{Inventory, Stack},
-    *,
-};
 use bevy::prelude::*;
+use common::inventory::{Inventory, Stack};
+use common::{Item, Player};
 
 use super::{InteractionMode, WorldMode};
 

@@ -13,7 +13,6 @@ pub mod world_gen;
 pub use player::{HandCrafter, Player, spawn_player};
 pub use sim::SimPlugin;
 pub use world_gen::{FlatWorldPlugin, PerlinWorldPlugin};
-#[cfg(feature = "invariant-check")]
 pub mod invariants;
 
 pub use dir::*;
@@ -62,8 +61,7 @@ pub const SIDES: [Side; 2] = [Side::Left, Side::Right];
 pub struct CorePlugin;
 impl Plugin for CorePlugin {
     fn build(&self, app: &mut App) {
-        #[cfg(feature = "invariant-check")]
-        app.add_plugins(crate::common::invariants::InvariantsPlugin);
+        app.add_plugins(crate::invariants::InvariantsPlugin);
 
         app.register_type::<Corn>()
             .register_type_data::<Corn, ReflectWorldDrop>()

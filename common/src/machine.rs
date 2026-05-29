@@ -1,7 +1,7 @@
 use bevy::platform::collections::HashSet;
 
-use crate::common::inventory::Stack;
-use crate::common::*;
+use crate::inventory::Stack;
+use crate::*;
 use std::ops::Deref;
 use std::ops::DerefMut;
 
@@ -376,7 +376,7 @@ impl Collector {
 
 #[cfg(test)]
 mod tests {
-    use crate::common::*;
+    use crate::*;
 
     #[test]
     fn buffer_accepts_items() {

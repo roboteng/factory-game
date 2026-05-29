@@ -1,6 +1,5 @@
 use super::*;
 use super::{DirtyBelt, dir::Curve, inventory::Stack, should_ramp};
-use bevy::prelude::*;
 
 pub struct SimPlugin;
 impl Plugin for SimPlugin {

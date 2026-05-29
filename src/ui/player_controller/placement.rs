@@ -1,10 +1,10 @@
-use crate::common::{inventory::Inventory, *};
 use crate::ui::hotbar::{Hotbar, PlacementItem};
 use crate::ui::player_controller::{FirstPersonCamera, PlacementDirection, RayTarget, cast_ray};
 use crate::ui::visuals::BlockModels;
 use crate::ui::{InteractionMode, WorldMode};
 
 use bevy::{prelude::*, window::CursorGrabMode, window::CursorOptions};
+use common::{inventory::Inventory, *};
 
 /// Marker for all ghost preview entities (belt and single).
 #[derive(Component)]

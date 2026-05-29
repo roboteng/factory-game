@@ -1,10 +1,9 @@
-use crate::common::{Belt, RaycastTarget};
-
 use avian3d;
 use bevy::{
     prelude::*,
     window::{CursorGrabMode, CursorOptions},
 };
+use common::{Belt, RaycastTarget};
 use rand::Rng;
 
 mod hotbar;

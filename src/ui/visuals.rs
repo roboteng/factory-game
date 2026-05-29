@@ -1,6 +1,7 @@
 use bevy::prelude::*;
+use common::CornGrowthTicks;
 
-use crate::common::{BeltShape, Corn, ITEM_SIZE, Item, PlaceItem, Structure};
+use common::{BeltShape, Corn, ITEM_SIZE, Item, PlaceItem, Structure};
 
 use crate::ui::player_controller::NeedsGhostTint;
 
@@ -33,9 +34,14 @@ enum ItemModelDef {
         roughness: f32,
     },
 }
+trait ItemExt {
+    #[expect(unused)]
+    fn icon(self) -> &'static str;
+    fn model(self, asset_server: &AssetServer) -> ItemModelDef;
+}
 
-impl Item {
-    pub fn icon(self) -> &'static str {
+impl ItemExt for Item {
+    fn icon(self) -> &'static str {
         use Item::*;
         match self {
             Belt => "icons/belt.png",
@@ -496,7 +502,7 @@ fn on_place_item(event: On<PlaceItem>, mut cmd: Commands, asset_server: Res<Asse
 fn attach_corn_models(
     corns: Query<(Entity, &Corn), Changed<Corn>>,
     all_models: Res<BlockModels>,
-    corn_ticks: Res<crate::common::CornGrowthTicks>,
+    corn_ticks: Res<CornGrowthTicks>,
     mut cmd: Commands,
 ) {
     for (entity, corn) in &corns {

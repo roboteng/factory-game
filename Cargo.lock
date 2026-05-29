@@ -1970,6 +1970,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "common"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "noise",
+ "pretty_assertions",
+ "rand 0.8.5",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "concurrent-queue"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2487,7 +2498,8 @@ version = "0.3.0"
 dependencies = [
  "avian3d",
  "bevy",
- "noise",
+ "common",
+ "gui",
  "pretty_assertions",
  "rand 0.8.5",
  "tracing-subscriber",
@@ -2913,6 +2925,14 @@ name = "grid"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f9e2d4c0a8296178d8802098410ca05d86b17a10bb5ab559b3fb404c1f948220"
+
+[[package]]
+name = "gui"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "common",
+]
 
 [[package]]
 name = "guillotiere"

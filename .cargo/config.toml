@@ -1,5 +1,5 @@
 [alias]
-t = "test --no-default-features --features=invariant-check,debug"
+t = "test --no-default-features --features=invariant-check,debug --workspace"
 release = "build --release --no-default-features --features=ui"
 # Run the UI with no invariant checking
 rni = "run --no-default-features --features=ui"

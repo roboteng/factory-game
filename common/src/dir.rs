@@ -1,4 +1,4 @@
-use crate::common::Side;
+use crate::Side;
 use bevy::prelude::*;
 use std::f32::consts::PI;
 
