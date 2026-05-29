@@ -1,6 +1,4 @@
-use crate::common::{
-    Assembler, Belt, Furnace, Miner, Player, RaycastTarget, Source, inventory::Inventory,
-};
+use crate::common::{Belt, RaycastTarget};
 
 use avian3d;
 use bevy::{
@@ -9,41 +7,12 @@ use bevy::{
 };
 use rand::Rng;
 
-mod assembler;
-mod common;
-mod furnace;
 mod hotbar;
-mod inventory;
-mod menu;
-mod miner;
 mod player_controller;
-mod source;
 mod visuals;
 
-use assembler::{
-    CloseAssemblerButton, handle_assembler_inventory_slot_clicks,
-    handle_assembler_output_slot_clicks, handle_assembler_recipe_button,
-    handle_clear_assembler_recipe, setup_assembler_pane, update_assembler_pane,
-};
-use common::{InventorySlot, stack_label};
-use furnace::{
-    CloseFurnaceButton, handle_furnace_inventory_slot_clicks, handle_furnace_output_slot_clicks,
-    setup_furnace_pane, update_furnace_pane,
-};
 use hotbar::PlacementItem;
 pub use hotbar::{FreeHotbar, SurvivalHotbar};
-use inventory::{
-    CloseInventoryButton, handle_inventory_recipe_button, setup_inventory_pane,
-    update_inventory_pane,
-};
-use menu::{ResumeButton, setup_menu_pane, update_menu_pane};
-use miner::{
-    CloseMinerButton, handle_miner_output_slot_clicks, setup_miner_pane, update_miner_pane,
-};
-use source::{
-    CloseSourceButton, handle_source_item_button, handle_source_scroll, setup_source_pane,
-    update_source_pane,
-};
 
 pub struct UiPlugin;
 impl Plugin for UiPlugin {
@@ -56,50 +25,15 @@ impl Plugin for UiPlugin {
         app.init_resource::<InteractionMode>();
         app.init_resource::<LookTarget>();
 
-        app.add_observer(open_furnace_screen);
-        app.add_observer(open_assembler_screen);
-        app.add_observer(open_source_screen);
-        app.add_observer(open_miner_screen);
-
         app.add_systems(Startup, spawn_stars);
         app.add_systems(Startup, setup_reticle);
         app.add_systems(Startup, setup_delete_preview);
         app.add_systems(Startup, setup_incline_preview);
-        app.add_systems(Startup, setup_inventory_pane);
-        app.add_systems(Startup, setup_menu_pane);
-        app.add_systems(Startup, setup_furnace_pane);
-        app.add_systems(Startup, setup_assembler_pane);
 
         app.add_systems(Update, cursor_grab);
         app.add_systems(Update, draw_crosshair_gizmo);
         app.add_systems(Update, update_delete_preview_visual);
         app.add_systems(Update, update_incline_preview_visual);
-
-        app.add_systems(Update, update_inventory_pane.after(cursor_grab));
-        app.add_systems(Update, handle_close_button::<CloseInventoryButton>);
-        app.add_systems(Update, handle_inventory_recipe_button);
-        app.add_systems(Update, update_menu_pane.after(cursor_grab));
-        app.add_systems(Update, handle_close_button::<ResumeButton>);
-        app.add_systems(Update, update_furnace_pane.after(cursor_grab));
-        app.add_systems(Update, handle_close_button::<CloseFurnaceButton>);
-        app.add_systems(Update, handle_furnace_inventory_slot_clicks);
-        app.add_systems(Update, handle_furnace_output_slot_clicks);
-        app.add_systems(Update, update_assembler_pane.after(cursor_grab));
-        app.add_systems(Update, handle_close_button::<CloseAssemblerButton>);
-        app.add_systems(Update, handle_assembler_recipe_button);
-        app.add_systems(Update, handle_clear_assembler_recipe);
-        app.add_systems(Update, handle_assembler_inventory_slot_clicks);
-        app.add_systems(Update, handle_assembler_output_slot_clicks);
-        app.add_systems(Startup, setup_source_pane);
-        app.add_systems(Update, update_source_pane.after(cursor_grab));
-        app.add_systems(Update, handle_close_button::<CloseSourceButton>);
-        app.add_systems(Update, handle_source_item_button);
-        app.add_systems(Update, handle_source_scroll);
-        app.add_systems(Startup, setup_miner_pane);
-        app.add_systems(Update, update_miner_pane.after(cursor_grab));
-        app.add_systems(Update, handle_close_button::<CloseMinerButton>);
-        app.add_systems(Update, handle_miner_output_slot_clicks);
-        app.add_systems(Update, update_inventory_slots);
     }
 }
 
@@ -359,78 +293,4 @@ fn update_incline_preview_visual(
     pos.y += rt.half_extents.y;
     t.translation = pos;
     t.scale = rt.half_extents * 2.0 * 1.05;
-}
-
-fn open_furnace_screen(
-    event: On<Interact>,
-    furnaces: Query<(), With<Furnace>>,
-    mut mode: ResMut<InteractionMode>,
-) {
-    if furnaces.contains(event.0) {
-        *mode = InteractionMode::InScreen(ScreenMode::Furnace(event.0));
-    }
-}
-
-fn open_assembler_screen(
-    event: On<Interact>,
-    assemblers: Query<(), With<Assembler>>,
-    mut mode: ResMut<InteractionMode>,
-) {
-    if assemblers.contains(event.0) {
-        *mode = InteractionMode::InScreen(ScreenMode::Assembler(event.0));
-    }
-}
-
-fn open_source_screen(
-    event: On<Interact>,
-    sources: Query<(), With<Source>>,
-    mut mode: ResMut<InteractionMode>,
-) {
-    if sources.contains(event.0) {
-        *mode = InteractionMode::InScreen(ScreenMode::Source(event.0));
-    }
-}
-
-fn open_miner_screen(
-    event: On<Interact>,
-    miners: Query<(), With<Miner>>,
-    mut mode: ResMut<InteractionMode>,
-) {
-    if miners.contains(event.0) {
-        *mode = InteractionMode::InScreen(ScreenMode::Miner(event.0));
-    }
-}
-
-/// Generic close button handler for all screen close buttons.
-/// Closes the current screen and returns to world mode.
-fn handle_close_button<T: Component>(
-    interaction: Query<&Interaction, (Changed<Interaction>, With<T>)>,
-    mut mode: ResMut<InteractionMode>,
-) {
-    for &interaction in interaction.iter() {
-        if interaction == Interaction::Pressed {
-            *mode = InteractionMode::InWorld(WorldMode::None);
-        }
-    }
-}
-
-/// Updates all InventorySlot labels whenever the player's inventory changes.
-/// Shared by the inventory screen and the furnace screen's inventory panel.
-fn update_inventory_slots(
-    player: Res<Player>,
-    inventory_q: Query<&Inventory, Changed<Inventory>>,
-    inv_slots: Query<(&InventorySlot, &Children)>,
-    mut texts: Query<&mut Text>,
-) {
-    let Ok(inventory) = inventory_q.get(player.0) else {
-        return;
-    };
-    for (slot_marker, children) in &inv_slots {
-        let label = stack_label(inventory.get(slot_marker.0));
-        if let Some(&child) = children.first() {
-            if let Ok(mut text) = texts.get_mut(child) {
-                **text = label.into();
-            }
-        }
-    }
 }

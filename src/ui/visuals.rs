@@ -35,6 +35,34 @@ enum ItemModelDef {
 }
 
 impl Item {
+    pub fn icon(self) -> &'static str {
+        use Item::*;
+        match self {
+            Belt => "icons/belt.png",
+            Source => "icons/source.png",
+            Sink => "icons/sink.png",
+            Rock => "icons/rock.png",
+            Dirt => "icons/dirt.png",
+            IronOre => "icons/iron_ore.png",
+            CopperOre => "icons/copper_ore.png",
+            IronIngot => "icons/iron_ingot.png",
+            CopperIngot => "icons/copper_ingot.png",
+            IronPlate => "icons/iron_plate.png",
+            IronRod => "icons/iron_rod.png",
+            CopperWire => "icons/copper_wire.png",
+            Circuit => "icons/circuit.png",
+            Miner => "icons/miner.png",
+            Furnace => "icons/furnace.png",
+            Assembler => "icons/assembler.png",
+            Collector => "icons/collector.png",
+            CornKernels => "icons/corn_kernels.png",
+            CornStalk => "icons/corn_stalk.png",
+            Biomass => "icons/biomass.png",
+            Gear => "icons/gear.png",
+            PickAxe => "icons/pick_axe.png",
+        }
+    }
+
     fn model(self, asset_server: &AssetServer) -> ItemModelDef {
         use Item::*;
         match self {

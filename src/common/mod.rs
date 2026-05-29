@@ -314,11 +314,7 @@ impl Recipes {
                 vec![s(Item::Miner, 1)],
                 600,
             ),
-            assembler(
-                vec![s(Item::IronPlate, 2), s(Item::IronRod, 2)],
-                vec![s(Item::Furnace, 1)],
-                600,
-            ),
+            assembler(vec![s(Item::Rock, 8)], vec![s(Item::Furnace, 1)], 600),
             assembler(
                 vec![s(Item::IronPlate, 2), s(Item::Gear, 1), s(Item::Circuit, 1)],
                 vec![s(Item::Assembler, 1)],

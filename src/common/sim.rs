@@ -1,6 +1,6 @@
-use bevy::prelude::*;
 use super::*;
-use super::{dir::Curve, DirtyBelt, inventory::Stack, should_ramp};
+use super::{DirtyBelt, dir::Curve, inventory::Stack, should_ramp};
+use bevy::prelude::*;
 
 pub struct SimPlugin;
 impl Plugin for SimPlugin {
@@ -607,8 +607,8 @@ fn consume_sink_buffer(mut sinks: Query<&mut InputBuffer, With<Sink>>) {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::inventory::{Inventory, Stack};
+    use super::*;
     #[allow(unused_imports)]
     use pretty_assertions::{assert_eq, assert_ne};
 
