@@ -5,7 +5,9 @@ use placement::{
     update_belt_placement, update_single_ghost,
 };
 
+use crate::common::inventory::Inventory;
 use crate::common::*;
+use crate::ui::hotbar::{Hotbar, PlacementItem};
 use crate::ui::{FlyMode, Interact, InteractionMode, LookTarget, ScreenMode, WorldMode};
 
 use avian3d::prelude::*;
@@ -36,6 +38,7 @@ impl Plugin for PlayerControllerPlugin {
                         handle_right_click,
                         handle_delete_input,
                         handle_incline_input,
+                        handle_mining,
                         (
                             compute_placement_target,
                             handle_click_to_place,
@@ -509,6 +512,40 @@ fn handle_right_click(
     }
     let Some(entity) = look_target.0 else { return };
     cmd.trigger(Interact(entity));
+}
+
+fn handle_mining(
+    mouse: Res<ButtonInput<MouseButton>>,
+    mode: Res<InteractionMode>,
+    look_target: Res<LookTarget>,
+    hotbar: Res<Hotbar>,
+    player: Res<Player>,
+    inventories: Query<&Inventory>,
+    mut cmd: Commands,
+) {
+    if !mouse.just_pressed(MouseButton::Left) {
+        return;
+    }
+    let item = match *mode {
+        InteractionMode::InWorld(WorldMode::Placing(PlacementItem::HotbarSlot(s))) => {
+            let Some(Some(item)) = hotbar.0.get(s as usize) else {
+                return;
+            };
+            item.clone()
+        }
+        InteractionMode::InWorld(WorldMode::Placing(PlacementItem::Custom(item))) => item,
+        _ => return,
+    };
+    if item == Item::PickAxe
+        && let Ok(inv) = inventories.get(player.0)
+        && inv.item_count(item) >= 1
+        && let Some(entity) = look_target.0
+    {
+        cmd.trigger(PlayerMine {
+            entity,
+            player: player.0,
+        });
+    }
 }
 
 fn handle_delete_input(

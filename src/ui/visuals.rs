@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 
-use crate::common::{BeltShape, Corn, Item, PlaceItem, Structure, ITEM_SIZE};
+use crate::common::{BeltShape, Corn, ITEM_SIZE, Item, PlaceItem, Structure};
 
 use crate::ui::player_controller::NeedsGhostTint;
 
@@ -113,6 +113,7 @@ impl Item {
                 asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Gear.glb")),
                 1.0,
             ),
+            PickAxe => ItemModelDef::Color(Color::srgb(0.05, 0.05, 0.15), ITEM_SIZE),
         }
     }
 }

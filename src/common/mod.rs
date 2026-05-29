@@ -16,8 +16,6 @@ pub use world_gen::{FlatWorldPlugin, PerlinWorldPlugin};
 #[cfg(feature = "invariant-check")]
 pub mod invariants;
 
-// Re-export direction types; explicit `use` for `Curve` to shadow `bevy::prelude::Curve`.
-use dir::Curve;
 pub use dir::*;
 
 pub use machine::*;
@@ -88,9 +86,9 @@ impl Plugin for CorePlugin {
         app.add_observer(on_unload_machine_output);
         app.add_observer(on_set_assembler_recipe);
         app.add_observer(on_set_source_item);
+        app.add_observer(on_player_mine);
 
         spawn_player(app.world_mut());
-
     }
 }
 
@@ -178,6 +176,12 @@ pub struct SetSourceItem {
 pub struct SetAssemblerRecipe {
     pub assembler: Entity,
     pub recipe: Option<machine::AssemblerRecipe>,
+}
+
+#[derive(Event)]
+pub struct PlayerMine {
+    pub entity: Entity,
+    pub player: Entity,
 }
 
 #[derive(Component)]
@@ -392,6 +396,7 @@ pub enum Item {
     CornStalk,
     Biomass,
     Gear,
+    PickAxe,
 }
 
 impl Item {
@@ -419,6 +424,7 @@ impl Item {
             CornStalk => "Corn Stalk",
             Biomass => "Biomass",
             Gear => "Gear",
+            PickAxe => "Pick Axe",
         }
     }
 
@@ -449,6 +455,7 @@ impl Item {
             | Item::Circuit
             | Item::CornStalk
             | Item::Biomass
+            | Item::PickAxe
             | Item::Gear => None,
         }
     }
@@ -490,11 +497,12 @@ impl Structure {
         }
     }
 
-    /// Item produced when a miner harvests this block. `None` means not minable.
+    /// Item produced when mined by a Miner or the Player. `None` means not minable.
     pub fn mine(self) -> Option<Item> {
         match self {
             Structure::IronOreDeposit => Some(Item::IronOre),
             Structure::CopperOreDeposit => Some(Item::CopperOre),
+            Structure::Rock => Some(Item::Rock),
             _ => None,
         }
     }
@@ -1105,6 +1113,25 @@ fn on_set_source_item(event: On<SetSourceItem>, mut sources: Query<&mut Source>)
     source.configured_item = event.item;
 }
 
+fn on_player_mine(
+    event: On<PlayerMine>,
+    mut invs: Query<&mut Inventory>,
+    structs: Query<&Structure>,
+) {
+    let Ok(s) = structs.get(event.entity) else {
+        return;
+    };
+    match s.mine() {
+        Some(item) => {
+            let Ok(mut inv) = invs.get_mut(event.player) else {
+                return;
+            };
+            inv.insert(item.into()).unwrap();
+        }
+        None => {}
+    };
+}
+
 impl<T> std::ops::Index<Side> for Sided<T> {
     type Output = T;
 
@@ -1246,7 +1273,6 @@ pub fn test_app() -> App {
     app.init_resource::<PlacementErrors>();
     app
 }
-
 
 #[derive(Debug)]
 pub enum ItemPlacementError {
@@ -1592,7 +1618,13 @@ mod tests {
 
         let buf = app.world().get::<InputBuffer>(machine).unwrap();
         assert!(buf.slots.iter().any(|s| s.item == Item::IronOre));
-        assert!(app.world().get::<Inventory>(player).unwrap().get(ore_slot).is_none());
+        assert!(
+            app.world()
+                .get::<Inventory>(player)
+                .unwrap()
+                .get(ore_slot)
+                .is_none()
+        );
     }
 
     #[test]
@@ -1609,8 +1641,10 @@ mod tests {
             let mut inv = app.world_mut().get_mut::<Inventory>(player).unwrap();
             inv.insert(Stack::new(Item::CopperOre, 1)).unwrap();
         }
-        let copper_slot =
-            find_slot(app.world().get::<Inventory>(player).unwrap(), Item::CopperOre);
+        let copper_slot = find_slot(
+            app.world().get::<Inventory>(player).unwrap(),
+            Item::CopperOre,
+        );
 
         app.world_mut().trigger(LoadMachineInput {
             player,
@@ -1621,12 +1655,13 @@ mod tests {
 
         let buf = app.world().get::<InputBuffer>(machine).unwrap();
         assert!(buf.slots.is_empty());
-        assert!(app
-            .world()
-            .get::<Inventory>(player)
-            .unwrap()
-            .get(copper_slot)
-            .is_some());
+        assert!(
+            app.world()
+                .get::<Inventory>(player)
+                .unwrap()
+                .get(copper_slot)
+                .is_some()
+        );
     }
 
     #[test]
@@ -1640,8 +1675,10 @@ mod tests {
             let mut inv = app.world_mut().get_mut::<Inventory>(player).unwrap();
             inv.insert(Stack::new(Item::CopperOre, 1)).unwrap();
         }
-        let copper_slot =
-            find_slot(app.world().get::<Inventory>(player).unwrap(), Item::CopperOre);
+        let copper_slot = find_slot(
+            app.world().get::<Inventory>(player).unwrap(),
+            Item::CopperOre,
+        );
 
         app.world_mut().trigger(LoadMachineInput {
             player,

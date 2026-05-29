@@ -28,12 +28,10 @@ impl Plugin for SurvivalHotbar {
             let mut a = world.query::<&mut Inventory>();
             a.get_mut(world, player).unwrap()
         };
-        inv.insert(Stack::new(Item::Miner, 1)).unwrap();
-        inv.insert(Stack::new(Item::Furnace, 1)).unwrap();
+        inv.insert(Stack::new(Item::PickAxe, 1)).unwrap();
 
         let mut hotbar = [None; 10];
-        hotbar[0] = Some(Item::Miner);
-        hotbar[1] = Some(Item::Furnace);
+        hotbar[0] = Some(Item::PickAxe);
         app.insert_resource(Hotbar(hotbar));
     }
 }

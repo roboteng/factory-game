@@ -376,8 +376,6 @@ impl Collector {
 
 #[cfg(test)]
 mod tests {
-    use bevy::ecs::relationship::RelationshipSourceCollection;
-
     use crate::common::*;
 
     #[test]
