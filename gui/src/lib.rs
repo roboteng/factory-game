@@ -12,12 +12,14 @@ use rand::Rng;
 
 pub use visuals::ItemExt;
 
-mod hotbar;
-mod player_controller;
-mod visuals;
+pub mod hotbar;
+pub mod player_controller;
+pub mod visuals;
 
 use hotbar::PlacementItem;
 pub use hotbar::{FreeHotbar, SurvivalHotbar};
+
+use crate::hotbar::Hotbar;
 
 pub struct UiPlugin;
 impl Plugin for UiPlugin {
@@ -309,6 +311,7 @@ fn hotbar_view(
     player: Res<Player>,
     invs: Query<&Inventory, Changed<Inventory>>,
     hotbar: Res<hotbar::Hotbar>,
+    mode: Res<InteractionMode>,
     asset_server: Res<AssetServer>,
     prev_hotbar: Query<Entity, With<HotbarTag>>,
     mut cmd: Commands,
@@ -323,10 +326,16 @@ fn hotbar_view(
 
     let mut cmd = cmd.spawn(HotbarTag);
 
-    spawn_hotbar(&mut cmd, &asset_server, inv);
+    spawn_hotbar(&mut cmd, &asset_server, &hotbar, inv, &mode);
 }
 
-pub fn spawn_hotbar(cmd: &mut EntityCommands, asset_server: &AssetServer, inv: &Inventory) {
+pub fn spawn_hotbar(
+    cmd: &mut EntityCommands,
+    asset_server: &AssetServer,
+    hotbar: &Hotbar,
+    inv: &Inventory,
+    mode: &InteractionMode,
+) {
     cmd.insert(Node {
         width: percent(100),
         height: percent(100),
@@ -345,15 +354,13 @@ pub fn spawn_hotbar(cmd: &mut EntityCommands, asset_server: &AssetServer, inv: &
             padding: UiRect::all(px(5.0)),
             ..default()
         })
-        .with_children(|c| {
-            for _ in 0..10 {
-                c.spawn(slot(
-                    Stack {
-                        item: Item::PickAxe,
-                        count: 2,
-                    },
-                    asset_server,
-                ));
+        .with_children(|cmd| {
+            for i in 0..10 {
+                let stack = hotbar.0[i].map(|item| Stack {
+                    count: inv.item_count(item),
+                    item,
+                });
+                slot(cmd, stack, asset_server);
             }
         });
     });
@@ -361,8 +368,8 @@ pub fn spawn_hotbar(cmd: &mut EntityCommands, asset_server: &AssetServer, inv: &
 
 const SLOT_SIZE: f64 = 64.0;
 
-fn slot(stack: Stack, asset_server: &AssetServer) -> impl Bundle {
-    (
+fn slot(cmd: &mut ChildSpawnerCommands, stack: Option<Stack>, asset_server: &AssetServer) {
+    let mut child_cmd = cmd.spawn((
         Node {
             height: px(SLOT_SIZE),
             width: px(SLOT_SIZE),
@@ -371,16 +378,18 @@ fn slot(stack: Stack, asset_server: &AssetServer) -> impl Bundle {
             ..default()
         },
         BorderColor::all(Color::BLACK),
-        children![
-            (
+    ));
+    if let Some(stack) = stack {
+        child_cmd.with_children(|cmd| {
+            cmd.spawn((
                 ImageNode::new(asset_server.load(stack.item.icon())),
                 Node {
                     width: percent(100),
                     height: percent(100),
                     ..default()
                 },
-            ),
-            (
+            ));
+            cmd.spawn((
                 Text::new(format!("{}", stack.count)),
                 Node {
                     position_type: PositionType::Absolute,
@@ -388,7 +397,7 @@ fn slot(stack: Stack, asset_server: &AssetServer) -> impl Bundle {
                     right: px(4.0),
                     ..default()
                 },
-            ),
-        ],
-    )
+            ));
+        });
+    }
 }
