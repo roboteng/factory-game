@@ -9,8 +9,8 @@ use placement::{
     update_belt_placement, update_single_ghost,
 };
 
-use crate::ui::hotbar::{Hotbar, PlacementItem};
-use crate::ui::{FlyMode, Interact, InteractionMode, LookTarget, ScreenMode, WorldMode};
+use crate::hotbar::{Hotbar, PlacementItem};
+use crate::{FlyMode, Interact, InteractionMode, LookTarget, ScreenMode, WorldMode};
 use common::inventory::Inventory;
 
 use avian3d::prelude::*;

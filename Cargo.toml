@@ -16,8 +16,9 @@ debug = ["bevy/debug"]
 
 [workspace.dependencies]
 bevy = {version = "0.18.0", default-features = false, features = ["bevy_log", "3d", "bevy_color", "debug"]}
-gui.path = "./gui"
 rand = "0.8"
+avian3d = "0.6.1"
+gui.path = "./gui"
 common.path = "./common"
 
 [dependencies]
@@ -25,7 +26,6 @@ gui.workspace = true
 common.workspace = true
 bevy.workspace = true
 rand.workspace = true
-avian3d = "0.6.1"
 
 [dev-dependencies]
 pretty_assertions = "1.4.1"

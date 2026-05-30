@@ -1,9 +1,8 @@
 use bevy::prelude::*;
 use common::CornGrowthTicks;
-
 use common::{BeltShape, Corn, ITEM_SIZE, Item, PlaceItem, Structure};
 
-use crate::ui::player_controller::NeedsGhostTint;
+use super::player_controller::NeedsGhostTint;
 
 pub struct VisualsPlugin;
 impl Plugin for VisualsPlugin {
@@ -23,7 +22,7 @@ enum ModelDef {
     Random(Vec<ModelDef>),
 }
 
-enum ItemModelDef {
+pub enum ItemModelDef {
     Color(Color, f32),
     Mesh(Handle<Scene>, f32),
     TintedMesh {
@@ -34,8 +33,8 @@ enum ItemModelDef {
         roughness: f32,
     },
 }
-trait ItemExt {
-    #[expect(unused)]
+
+pub trait ItemExt {
     fn icon(self) -> &'static str;
     fn model(self, asset_server: &AssetServer) -> ItemModelDef;
 }

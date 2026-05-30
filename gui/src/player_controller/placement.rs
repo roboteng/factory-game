@@ -1,7 +1,7 @@
-use crate::ui::hotbar::{Hotbar, PlacementItem};
-use crate::ui::player_controller::{FirstPersonCamera, PlacementDirection, RayTarget, cast_ray};
-use crate::ui::visuals::BlockModels;
-use crate::ui::{InteractionMode, WorldMode};
+use crate::hotbar::{Hotbar, PlacementItem};
+use crate::player_controller::{FirstPersonCamera, PlacementDirection, RayTarget, cast_ray};
+use crate::visuals::BlockModels;
+use crate::{InteractionMode, WorldMode};
 
 use bevy::{prelude::*, window::CursorGrabMode, window::CursorOptions};
 use common::{inventory::Inventory, *};

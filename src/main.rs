@@ -1,8 +1,6 @@
-mod ui;
-
 use bevy::prelude::*;
 use common::{CorePlugin, FlatWorldPlugin, PerlinWorldPlugin, SimPlugin};
-use ui::{FlyMode, FreeHotbar, SurvivalHotbar, UiPlugin};
+use gui::{FlyMode, FreeHotbar, SurvivalHotbar, UiPlugin};
 
 fn main() {
     let fly_mode = std::env::args().any(|a| a == "--fly");

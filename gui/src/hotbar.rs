@@ -67,7 +67,6 @@ impl Plugin for FreeHotbar {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlacementItem {
     HotbarSlot(u16),
-    #[expect(dead_code)]
     Custom(Item),
 }
 
