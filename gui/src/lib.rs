@@ -1,9 +1,10 @@
 use avian3d;
 use bevy::{
+    ecs::relationship::RelatedSpawnerCommands,
     prelude::*,
     window::{CursorGrabMode, CursorOptions},
 };
-use common::{Belt, RaycastTarget};
+use common::{Belt, Item, RaycastTarget, inventory::Stack};
 use rand::Rng;
 
 pub use visuals::ItemExt;
@@ -30,6 +31,7 @@ impl Plugin for UiPlugin {
         app.add_systems(Startup, setup_reticle);
         app.add_systems(Startup, setup_delete_preview);
         app.add_systems(Startup, setup_incline_preview);
+        app.add_systems(Startup, spawn_gui);
 
         app.add_systems(Update, cursor_grab);
         app.add_systems(Update, draw_crosshair_gizmo);
@@ -294,4 +296,74 @@ fn update_incline_preview_visual(
     pos.y += rt.half_extents.y;
     t.translation = pos;
     t.scale = rt.half_extents * 2.0 * 1.05;
+}
+
+pub fn spawn_gui(mut commands: Commands, asset_server: Res<AssetServer>) {
+    commands
+        .spawn((Node {
+            width: percent(100),
+            height: percent(100),
+            align_items: AlignItems::Center,
+            justify_content: JustifyContent::FlexEnd,
+            display: Display::Flex,
+            flex_direction: FlexDirection::Column,
+            ..default()
+        },))
+        .with_children(|cmd| spawn_hotbar(cmd, &asset_server));
+}
+
+fn spawn_hotbar(cmd: &mut RelatedSpawnerCommands<ChildOf>, asset_server: &AssetServer) {
+    cmd.spawn(Node {
+        align_items: AlignItems::Center,
+        justify_content: JustifyContent::Center,
+        flex_direction: FlexDirection::Row,
+        column_gap: px(10.0),
+        padding: UiRect::all(px(5.0)),
+        ..default()
+    })
+    .with_children(|c| {
+        for _ in 0..10 {
+            c.spawn(slot(
+                Stack {
+                    item: Item::PickAxe,
+                    count: 2,
+                },
+                asset_server,
+            ));
+        }
+    });
+}
+
+const SLOT_SIZE: f64 = 64.0;
+
+fn slot(stack: Stack, asset_server: &AssetServer) -> impl Bundle {
+    (
+        Node {
+            height: px(SLOT_SIZE),
+            width: px(SLOT_SIZE),
+            border: UiRect::all(px(2)),
+            position_type: PositionType::Relative,
+            ..default()
+        },
+        BorderColor::all(Color::BLACK),
+        children![
+            (
+                ImageNode::new(asset_server.load(stack.item.icon())),
+                Node {
+                    width: percent(100),
+                    height: percent(100),
+                    ..default()
+                },
+            ),
+            (
+                Text::new(format!("{}", stack.count)),
+                Node {
+                    position_type: PositionType::Absolute,
+                    bottom: px(2.0),
+                    right: px(4.0),
+                    ..default()
+                },
+            ),
+        ],
+    )
 }
