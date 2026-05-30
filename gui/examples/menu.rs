@@ -1,5 +1,6 @@
 use bevy::prelude::*;
-use gui::spawn_gui;
+use common::inventory::Inventory;
+use gui::spawn_hotbar;
 
 fn main() {
     App::new()
@@ -13,5 +14,6 @@ fn main() {
 
 fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.spawn(Camera2d);
-    spawn_gui(commands, asset_server);
+    let mut cmd = commands.spawn_empty();
+    spawn_hotbar(&mut cmd, &asset_server, &Inventory::new());
 }

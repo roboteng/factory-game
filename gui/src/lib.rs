@@ -4,7 +4,10 @@ use bevy::{
     prelude::*,
     window::{CursorGrabMode, CursorOptions},
 };
-use common::{Belt, Item, RaycastTarget, inventory::Stack};
+use common::{
+    Belt, Item, Player, RaycastTarget,
+    inventory::{Inventory, Stack},
+};
 use rand::Rng;
 
 pub use visuals::ItemExt;
@@ -31,12 +34,13 @@ impl Plugin for UiPlugin {
         app.add_systems(Startup, setup_reticle);
         app.add_systems(Startup, setup_delete_preview);
         app.add_systems(Startup, setup_incline_preview);
-        app.add_systems(Startup, spawn_gui);
 
         app.add_systems(Update, cursor_grab);
         app.add_systems(Update, draw_crosshair_gizmo);
         app.add_systems(Update, update_delete_preview_visual);
         app.add_systems(Update, update_incline_preview_visual);
+
+        app.add_systems(Update, hotbar_view);
     }
 }
 
@@ -298,39 +302,60 @@ fn update_incline_preview_visual(
     t.scale = rt.half_extents * 2.0 * 1.05;
 }
 
-pub fn spawn_gui(mut commands: Commands, asset_server: Res<AssetServer>) {
-    commands
-        .spawn((Node {
-            width: percent(100),
-            height: percent(100),
-            align_items: AlignItems::Center,
-            justify_content: JustifyContent::FlexEnd,
-            display: Display::Flex,
-            flex_direction: FlexDirection::Column,
-            ..default()
-        },))
-        .with_children(|cmd| spawn_hotbar(cmd, &asset_server));
+#[derive(Component)]
+pub struct HotbarTag;
+
+fn hotbar_view(
+    player: Res<Player>,
+    invs: Query<&Inventory, Changed<Inventory>>,
+    hotbar: Res<hotbar::Hotbar>,
+    asset_server: Res<AssetServer>,
+    prev_hotbar: Query<Entity, With<HotbarTag>>,
+    mut cmd: Commands,
+) {
+    if !hotbar.is_changed() {
+        return;
+    }
+    let Ok(inv) = invs.get(player.0) else { return };
+    for hb in prev_hotbar {
+        cmd.entity(hb).despawn();
+    }
+
+    let mut cmd = cmd.spawn(HotbarTag);
+
+    spawn_hotbar(&mut cmd, &asset_server, inv);
 }
 
-fn spawn_hotbar(cmd: &mut RelatedSpawnerCommands<ChildOf>, asset_server: &AssetServer) {
-    cmd.spawn(Node {
+pub fn spawn_hotbar(cmd: &mut EntityCommands, asset_server: &AssetServer, inv: &Inventory) {
+    cmd.insert(Node {
+        width: percent(100),
+        height: percent(100),
         align_items: AlignItems::Center,
-        justify_content: JustifyContent::Center,
-        flex_direction: FlexDirection::Row,
-        column_gap: px(10.0),
-        padding: UiRect::all(px(5.0)),
+        justify_content: JustifyContent::FlexEnd,
+        display: Display::Flex,
+        flex_direction: FlexDirection::Column,
         ..default()
     })
-    .with_children(|c| {
-        for _ in 0..10 {
-            c.spawn(slot(
-                Stack {
-                    item: Item::PickAxe,
-                    count: 2,
-                },
-                asset_server,
-            ));
-        }
+    .with_children(|cmd| {
+        cmd.spawn(Node {
+            align_items: AlignItems::Center,
+            justify_content: JustifyContent::Center,
+            flex_direction: FlexDirection::Row,
+            column_gap: px(10.0),
+            padding: UiRect::all(px(5.0)),
+            ..default()
+        })
+        .with_children(|c| {
+            for _ in 0..10 {
+                c.spawn(slot(
+                    Stack {
+                        item: Item::PickAxe,
+                        count: 2,
+                    },
+                    asset_server,
+                ));
+            }
+        });
     });
 }
 
