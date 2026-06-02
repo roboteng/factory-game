@@ -24,6 +24,7 @@ impl Plugin for SurvivalHotbar {
 
         let mut hotbar = [None; 10];
         hotbar[0] = Some(Item::PickAxe);
+        hotbar[1] = Some(Item::CopperOre);
         app.insert_resource(Hotbar(hotbar));
     }
 }

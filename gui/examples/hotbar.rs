@@ -1,0 +1,47 @@
+use bevy::prelude::*;
+use common::{
+    Item, PlaceItem,
+    inventory::{Inventory, Stack},
+};
+use gui::{
+    InteractionMode, WorldMode,
+    hotbar::{Hotbar, PlacementItem},
+    spawn_hotbar,
+};
+
+fn main() {
+    App::new()
+        .add_plugins(DefaultPlugins.build().set(AssetPlugin {
+            file_path: "../assets/".to_string(),
+            ..default()
+        }))
+        .add_systems(Startup, setup)
+        .run();
+}
+
+fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
+    commands.spawn(Camera2d);
+    let mut cmd = commands.spawn_empty();
+    let mut hotbar = Hotbar(Default::default());
+    hotbar.0[0] = Some(Item::PickAxe);
+    hotbar.0[1] = Some(Item::IronOre);
+    hotbar.0[2] = Some(Item::Rock);
+    hotbar.0[3] = Some(Item::Dirt);
+    hotbar.0[4] = Some(Item::Rock);
+
+    let mut inventory = Inventory::new();
+    inventory.insert(Item::PickAxe.into()).unwrap();
+    inventory
+        .insert(Stack {
+            item: Item::Dirt,
+            count: 3,
+        })
+        .unwrap();
+    spawn_hotbar(
+        &mut cmd,
+        &asset_server,
+        &hotbar,
+        &inventory,
+        &InteractionMode::InWorld(WorldMode::Placing(PlacementItem::Custom(Item::Rock))),
+    );
+}

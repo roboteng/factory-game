@@ -423,7 +423,10 @@ impl Item {
     }
 
     pub fn stack_size(self) -> u16 {
-        100
+        match self {
+            Item::PickAxe => 1,
+            _ => 100,
+        }
     }
 
     /// Returns the world block this item places, or `None` if the item cannot be placed.

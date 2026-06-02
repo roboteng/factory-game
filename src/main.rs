@@ -35,7 +35,7 @@ fn main() {
         app.add_plugins((
             bevy::diagnostic::FrameTimeDiagnosticsPlugin::default(),
             bevy::diagnostic::SystemInformationDiagnosticsPlugin,
-            bevy::diagnostic::LogDiagnosticsPlugin::default(),
+            // bevy::diagnostic::LogDiagnosticsPlugin::default(),
         ));
         app.add_plugins(bevy::dev_tools::fps_overlay::FpsOverlayPlugin::default());
     }

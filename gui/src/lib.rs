@@ -379,7 +379,17 @@ pub fn spawn_hotbar(
                     count: inv.item_count(item),
                     item,
                 });
-                slot(cmd, stack, asset_server, i == selected_slot);
+                let selected = match mode {
+                    InteractionMode::InWorld(WorldMode::Placing(PlacementItem::HotbarSlot(
+                        slot,
+                    ))) => *slot as usize == i,
+                    InteractionMode::InWorld(WorldMode::Placing(PlacementItem::Custom(item))) => {
+                        Some(*item) == hotbar.0[i]
+                    }
+                    InteractionMode::InWorld(_) => false,
+                    InteractionMode::InScreen(_) => false,
+                };
+                slot(cmd, stack, asset_server, selected);
             }
         });
     });
@@ -406,22 +416,30 @@ fn slot(
     if let Some(stack) = stack {
         child_cmd.with_children(|cmd| {
             cmd.spawn((
-                ImageNode::new(asset_server.load(stack.item.icon())),
+                ImageNode::new(asset_server.load(stack.item.icon())).with_color(
+                    if stack.count == 0 {
+                        Color::linear_rgb(0.25, 0.25, 0.25)
+                    } else {
+                        Color::WHITE
+                    },
+                ),
                 Node {
                     width: percent(100),
                     height: percent(100),
                     ..default()
                 },
             ));
-            cmd.spawn((
-                Text::new(format!("{}", stack.count)),
-                Node {
-                    position_type: PositionType::Absolute,
-                    bottom: px(2.0),
-                    right: px(4.0),
-                    ..default()
-                },
-            ));
+            if !(stack.count == 1 && stack.item.stack_size() == 1) {
+                cmd.spawn((
+                    Text::new(format!("{}", stack.count)),
+                    Node {
+                        position_type: PositionType::Absolute,
+                        bottom: px(2.0),
+                        right: px(4.0),
+                        ..default()
+                    },
+                ));
+            }
         });
     }
 }
