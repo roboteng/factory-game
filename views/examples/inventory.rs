@@ -1,9 +1,6 @@
 use bevy::prelude::*;
-use common::{
-    inventory::{Inventory, Stack},
-    Item,
-};
-use gui::{hotbar::PlacementItem, views::spawn_inventory, InteractionMode, WorldMode};
+use common::inventory::Inventory;
+use views::spawn_inventory;
 
 fn main() {
     App::new()

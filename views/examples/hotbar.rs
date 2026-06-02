@@ -1,20 +1,34 @@
 use bevy::prelude::*;
 use common::{
-    Item,
     inventory::{Inventory, Stack},
+    Item,
 };
 use gui::{
-    InteractionMode, WorldMode,
     hotbar::{Hotbar, PlacementItem},
-    views::hotbar::spawn_hotbar,
+    InteractionMode, WorldMode,
 };
+use views::spawn_hotbar;
 
 fn main() {
     App::new()
-        .add_plugins(DefaultPlugins.build().set(AssetPlugin {
-            file_path: "../assets/".to_string(),
-            ..default()
-        }))
+        .add_plugins(
+            DefaultPlugins
+                .build()
+                .set(AssetPlugin {
+                    file_path: "../assets/".to_string(),
+                    ..default()
+                })
+                .disable::<bevy::pbr::PbrPlugin>()
+                .disable::<bevy::gltf::GltfPlugin>()
+                .disable::<bevy::audio::AudioPlugin>()
+                .disable::<bevy::gilrs::GilrsPlugin>()
+                .disable::<bevy::animation::AnimationPlugin>()
+                .disable::<bevy::gizmos::GizmoPlugin>()
+                .disable::<bevy::gizmos_render::GizmoRenderPlugin>()
+                .disable::<bevy::light::LightPlugin>()
+                .disable::<bevy::anti_alias::AntiAliasPlugin>()
+                .disable::<bevy::post_process::PostProcessPlugin>(),
+        )
         .add_systems(Startup, setup)
         .run();
 }

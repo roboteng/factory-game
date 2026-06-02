@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 use common::{CorePlugin, FlatWorldPlugin, PerlinWorldPlugin, SimPlugin};
 use gui::{FlyMode, FreeHotbar, SurvivalHotbar, UiPlugin};
+use views::ViewsPlugin;
 
 fn main() {
     let fly_mode = std::env::args().any(|a| a == "--fly");
@@ -26,6 +27,7 @@ fn main() {
     }
 
     app.add_plugins(UiPlugin);
+    app.add_plugins(ViewsPlugin);
     app.add_systems(Update, screenshot_on_f10);
     #[cfg(feature = "dev")]
     {
@@ -55,7 +57,7 @@ fn screenshot_on_f10(
     mut counter: Local<u32>,
     mut commands: Commands,
 ) {
-    use bevy::render::view::screenshot::{Screenshot, save_to_disk};
+    use bevy::render::view::screenshot::{save_to_disk, Screenshot};
     if input.just_pressed(KeyCode::F10) {
         let path = format!("./screenshot-{}.png", *counter);
         *counter += 1;

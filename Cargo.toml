@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["common","gui"]
+members = ["common", "gui", "views"]
 
 [package]
 name = "factory-game"
@@ -20,10 +20,12 @@ rand = "0.8"
 avian3d = "0.6.1"
 gui.path = "./gui"
 common.path = "./common"
+views.path = "./views"
 
 [dependencies]
 gui.workspace = true
 common.workspace = true
+views.workspace = true
 bevy.workspace = true
 rand.workspace = true
 

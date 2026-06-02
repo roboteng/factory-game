@@ -1,13 +1,11 @@
-use crate::visuals::ItemExt;
 use bevy::prelude::*;
 use common::{
     inventory::{Inventory, Stack},
     Player,
 };
-
-use crate::{
+use gui::{
     hotbar::{self, Hotbar, PlacementItem},
-    InteractionMode, WorldMode,
+    InteractionMode, ItemExt, WorldMode,
 };
 
 #[derive(Component)]

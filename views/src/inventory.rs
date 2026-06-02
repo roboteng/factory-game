@@ -1,9 +1,6 @@
-pub mod hotbar;
-
-use bevy::{ecs::world::CommandQueue, prelude::*};
+use bevy::prelude::*;
 use common::{Player, inventory::Inventory};
-
-use crate::InteractionMode;
+use gui::{InteractionMode, ScreenMode};
 
 #[derive(Component)]
 pub struct UiRoot;
@@ -24,7 +21,7 @@ pub fn view(
             }
         }
         InteractionMode::InScreen(screen_mode) => {
-            use crate::ScreenMode::*;
+            use ScreenMode::*;
             match screen_mode {
                 Inventory => {
                     let Ok(inv) = invs.get(player.0) else { return };
@@ -37,10 +34,10 @@ pub fn view(
                     }
                 }
                 Menu => todo!(),
-                Furnace(entity) => todo!(),
-                Assembler(entity) => todo!(),
-                Source(entity) => todo!(),
-                Miner(entity) => todo!(),
+                Furnace(_entity) => todo!(),
+                Assembler(_entity) => todo!(),
+                Source(_entity) => todo!(),
+                Miner(_entity) => todo!(),
             }
         }
     }
