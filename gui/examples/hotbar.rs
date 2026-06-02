@@ -1,12 +1,12 @@
 use bevy::prelude::*;
 use common::{
-    Item, PlaceItem,
+    Item,
     inventory::{Inventory, Stack},
 };
 use gui::{
     InteractionMode, WorldMode,
     hotbar::{Hotbar, PlacementItem},
-    spawn_hotbar,
+    views::hotbar::spawn_hotbar,
 };
 
 fn main() {
