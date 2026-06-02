@@ -15,7 +15,7 @@ trace = ["bevy/trace_chrome"]
 debug = ["bevy/debug"]
 
 [workspace.dependencies]
-bevy = {version = "0.18.0", default-features = false, features = ["bevy_log", "3d", "bevy_color", "debug"]}
+bevy = {version = "0.18.0", default-features = false, features = ["bevy_log", "3d", "bevy_color", "debug", "dynamic_linking"]}
 rand = "0.8"
 avian3d = "0.6.1"
 gui.path = "./gui"

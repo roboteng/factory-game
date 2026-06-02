@@ -1,6 +1,6 @@
 pub mod hotbar;
 
-use bevy::prelude::*;
+use bevy::{ecs::world::CommandQueue, prelude::*};
 use common::{Player, inventory::Inventory};
 
 use crate::InteractionMode;
@@ -16,9 +16,7 @@ pub fn view(
     asset_server: Res<AssetServer>,
     mut cmd: Commands,
 ) {
-    for root in roots {
-        cmd.entity(root).despawn();
-    }
+    let mode_changed = mode.is_changed();
     match mode.into_inner() {
         InteractionMode::InWorld(_) => {
             for root in roots {
@@ -26,12 +24,17 @@ pub fn view(
             }
         }
         InteractionMode::InScreen(screen_mode) => {
-            let mut cmds = cmd.spawn(UiRoot);
             use crate::ScreenMode::*;
             match screen_mode {
                 Inventory => {
                     let Ok(inv) = invs.get(player.0) else { return };
-                    spawn_inventory(&mut cmds, &inv, &asset_server);
+                    if inv.is_changed() || mode_changed {
+                        for root in roots {
+                            cmd.entity(root).despawn();
+                        }
+                        let mut cmds = cmd.spawn(UiRoot);
+                        spawn_inventory(&mut cmds, &inv, &asset_server);
+                    }
                 }
                 Menu => todo!(),
                 Furnace(entity) => todo!(),
@@ -48,17 +51,17 @@ pub fn spawn_inventory(cmd: &mut EntityCommands, inv: &Inventory, asset_server: 
         width: percent(100.0),
         height: percent(100.0),
         justify_content: JustifyContent::Center,
-        align_content: AlignContent::Center,
+        align_items: AlignItems::Center,
         ..default()
     })
     .with_children(|cmd| {
         cmd.spawn((
             Node {
-                height: px(100.0),
-                width: px(100.0),
+                height: percent(75.0),
+                width: percent(75.0),
                 ..default()
             },
-            BackgroundColor(Color::srgb(0.5, 1.0, 0.5)),
+            BackgroundColor(Color::srgba(0.25, 0.25, 0.25, 0.875)),
         ));
     });
 }

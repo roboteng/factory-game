@@ -1,13 +1,13 @@
 use crate::visuals::ItemExt;
 use bevy::prelude::*;
 use common::{
-    Player,
     inventory::{Inventory, Stack},
+    Player,
 };
 
 use crate::{
-    InteractionMode, WorldMode,
     hotbar::{self, Hotbar, PlacementItem},
+    InteractionMode, WorldMode,
 };
 
 #[derive(Component)]
