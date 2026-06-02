@@ -2,6 +2,7 @@ use avian3d;
 use bevy::{
     ecs::relationship::RelatedSpawnerCommands,
     prelude::*,
+    reflect::VariantType::Tuple,
     window::{CursorGrabMode, CursorOptions},
 };
 use common::{
@@ -309,24 +310,27 @@ pub struct HotbarTag;
 
 fn hotbar_view(
     player: Res<Player>,
-    invs: Query<&Inventory, Changed<Inventory>>,
+    invs: Query<Ref<Inventory>>,
     hotbar: Res<hotbar::Hotbar>,
     mode: Res<InteractionMode>,
     asset_server: Res<AssetServer>,
     prev_hotbar: Query<Entity, With<HotbarTag>>,
     mut cmd: Commands,
 ) {
-    if !hotbar.is_changed() {
+    let Ok(inv) = invs.get(player.0) else {
+        return;
+    };
+    if !(hotbar.is_changed() || mode.is_changed() || inv.is_changed()) {
         return;
     }
-    let Ok(inv) = invs.get(player.0) else { return };
+
     for hb in prev_hotbar {
         cmd.entity(hb).despawn();
     }
 
     let mut cmd = cmd.spawn(HotbarTag);
 
-    spawn_hotbar(&mut cmd, &asset_server, &hotbar, inv, &mode);
+    spawn_hotbar(&mut cmd, &asset_server, &hotbar, &inv, &mode);
 }
 
 pub fn spawn_hotbar(
@@ -336,6 +340,21 @@ pub fn spawn_hotbar(
     inv: &Inventory,
     mode: &InteractionMode,
 ) {
+    const UNSELECTED: usize = 11;
+    let selected_slot = match mode {
+        InteractionMode::InWorld(WorldMode::Placing(PlacementItem::HotbarSlot(slot))) => {
+            *slot as usize
+        }
+        InteractionMode::InWorld(WorldMode::Placing(PlacementItem::Custom(item))) => hotbar
+            .0
+            .iter()
+            .enumerate()
+            .find(|(_, a)| **a == Some(*item))
+            .map(|(index, _)| index)
+            .unwrap_or(UNSELECTED),
+        InteractionMode::InWorld(_) => UNSELECTED,
+        InteractionMode::InScreen(_) => UNSELECTED,
+    };
     cmd.insert(Node {
         width: percent(100),
         height: percent(100),
@@ -360,7 +379,7 @@ pub fn spawn_hotbar(
                     count: inv.item_count(item),
                     item,
                 });
-                slot(cmd, stack, asset_server);
+                slot(cmd, stack, asset_server, i == selected_slot);
             }
         });
     });
@@ -368,7 +387,12 @@ pub fn spawn_hotbar(
 
 const SLOT_SIZE: f64 = 64.0;
 
-fn slot(cmd: &mut ChildSpawnerCommands, stack: Option<Stack>, asset_server: &AssetServer) {
+fn slot(
+    cmd: &mut ChildSpawnerCommands,
+    stack: Option<Stack>,
+    asset_server: &AssetServer,
+    selected: bool,
+) {
     let mut child_cmd = cmd.spawn((
         Node {
             height: px(SLOT_SIZE),
@@ -377,7 +401,7 @@ fn slot(cmd: &mut ChildSpawnerCommands, stack: Option<Stack>, asset_server: &Ass
             position_type: PositionType::Relative,
             ..default()
         },
-        BorderColor::all(Color::BLACK),
+        BorderColor::all(if selected { Color::WHITE } else { Color::BLACK }),
     ));
     if let Some(stack) = stack {
         child_cmd.with_children(|cmd| {
