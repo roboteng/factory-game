@@ -16,7 +16,7 @@ pub mod visuals;
 use hotbar::PlacementItem;
 pub use hotbar::{FreeHotbar, SurvivalHotbar};
 
-use crate::views::hotbar::hotbar_view;
+use crate::views::{hotbar::hotbar_view, view};
 
 pub struct UiPlugin;
 impl Plugin for UiPlugin {
@@ -40,6 +40,7 @@ impl Plugin for UiPlugin {
         app.add_systems(Update, update_incline_preview_visual);
 
         app.add_systems(Update, hotbar_view);
+        app.add_systems(Update, view);
     }
 }
 
