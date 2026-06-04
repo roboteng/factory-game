@@ -1,5 +1,8 @@
 use bevy::prelude::*;
-use common::inventory::Inventory;
+use common::{
+    Item,
+    inventory::{Inventory, Stack},
+};
 use views::spawn_inventory;
 
 fn main() {
@@ -29,6 +32,16 @@ fn main() {
 fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.spawn(Camera2d);
     let mut cmd = commands.spawn_empty();
-    let inv = Inventory::new();
+    let mut inv = Inventory::new();
+    inv.insert(Stack {
+        item: Item::Furnace,
+        count: 3,
+    })
+    .unwrap();
+    inv.insert(Stack {
+        item: Item::Belt,
+        count: 4,
+    })
+    .unwrap();
     spawn_inventory(&mut cmd, &inv, asset_server.as_ref());
 }
