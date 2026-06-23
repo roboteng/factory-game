@@ -153,7 +153,7 @@ fn slot(
         cmd.spawn((
             Text::new(((slot_idx + 1) % 10).to_string()),
             TextFont {
-                font_size: 9.0,
+                font_size: bevy::text::FontSize::Px(9.0),
                 ..default()
             },
             TextColor(SLOT_KEY_COLOR),

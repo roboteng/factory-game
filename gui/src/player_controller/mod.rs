@@ -100,7 +100,7 @@ fn setup(mut cmd: Commands, fly_mode: Res<FlyMode>) {
     cmd.spawn((
         DirectionalLight {
             illuminance: 3000.0,
-            shadows_enabled: false,
+            shadow_maps_enabled: false,
             ..Default::default()
         },
         Transform::from_rotation(Quat::from_euler(

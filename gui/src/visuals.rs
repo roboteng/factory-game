@@ -17,16 +17,16 @@ impl Plugin for VisualsPlugin {
 }
 
 enum ModelDef {
-    Scene(Handle<Scene>),
-    TintedScene(Handle<Scene>, Color),
+    Scene(Handle<WorldAsset>),
+    TintedScene(Handle<WorldAsset>, Color),
     Random(Vec<ModelDef>),
 }
 
 pub enum ItemModelDef {
     Color(Color, f32),
-    Mesh(Handle<Scene>, f32),
+    Mesh(Handle<WorldAsset>, f32),
     TintedMesh {
-        scene: Handle<Scene>,
+        scene: Handle<WorldAsset>,
         color: Color,
         scale: f32,
         metallic: f32,
@@ -291,7 +291,7 @@ fn setup_models(mut cmd: Commands, asset_server: Res<AssetServer>) {
 }
 
 impl BlockModels {
-    pub fn ghost_scene(&self, item: Item) -> Option<Handle<Scene>> {
+    pub fn ghost_scene(&self, item: Item) -> Option<Handle<WorldAsset>> {
         let model = match item.can_place()? {
             Structure::Belt => &self.belt_straight,
             Structure::Source => &self.source,
@@ -304,7 +304,7 @@ impl BlockModels {
             Structure::Collector => &self.collector,
             _ => return None,
         };
-        fn mdl(model: &ModelDef) -> Option<Handle<Scene>> {
+        fn mdl(model: &ModelDef) -> Option<Handle<WorldAsset>> {
             match model {
                 ModelDef::Scene(handle) => Some(handle.clone()),
                 ModelDef::TintedScene(handle, _) => Some(handle.clone()),
@@ -318,11 +318,11 @@ impl BlockModels {
 fn apply_model(entity: Entity, mut cmd: Commands, model: &ModelDef) {
     match model {
         ModelDef::Scene(handle) => {
-            cmd.entity(entity).insert(SceneRoot(handle.clone()));
+            cmd.entity(entity).insert(WorldAssetRoot(handle.clone()));
         }
         ModelDef::TintedScene(handle, color) => {
             cmd.entity(entity).insert((
-                SceneRoot(handle.clone()),
+                WorldAssetRoot(handle.clone()),
                 SceneTint {
                     color: *color,
                     metallic: 0.0,
@@ -455,7 +455,7 @@ fn on_place_item(event: On<PlaceItem>, mut cmd: Commands, asset_server: Res<Asse
     let visual = match &model {
         ItemModelDef::Color(color, scale) => cmd
             .spawn((
-                SceneRoot(
+                WorldAssetRoot(
                     asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Block.glb")),
                 ),
                 Transform::from_scale(Vec3::splat(scale * 0.95)),
@@ -469,7 +469,7 @@ fn on_place_item(event: On<PlaceItem>, mut cmd: Commands, asset_server: Res<Asse
             .id(),
         ItemModelDef::Mesh(handle, scale) => cmd
             .spawn((
-                SceneRoot(handle.clone()),
+                WorldAssetRoot(handle.clone()),
                 Transform::from_scale(Vec3::splat(scale * 0.95)),
             ))
             .id(),
@@ -481,7 +481,7 @@ fn on_place_item(event: On<PlaceItem>, mut cmd: Commands, asset_server: Res<Asse
             roughness,
         } => cmd
             .spawn((
-                SceneRoot(scene.clone()),
+                WorldAssetRoot(scene.clone()),
                 Transform::from_scale(Vec3::splat(scale * 0.95)),
                 SceneTint {
                     color: *color,

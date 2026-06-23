@@ -1,6 +1,6 @@
 use bevy::{
     app::MainScheduleOrder,
-    ecs::schedule::{ExecutorKind, ScheduleLabel},
+    ecs::schedule::{ScheduleLabel, SingleThreadedExecutor},
     prelude::*,
 };
 use std::panic::Location;
@@ -13,7 +13,7 @@ pub struct InvariantsPlugin;
 impl Plugin for InvariantsPlugin {
     fn build(&self, app: &mut App) {
         let mut invariant_schedule = Schedule::new(InvariantChecks);
-        invariant_schedule.set_executor_kind(ExecutorKind::SingleThreaded);
+        invariant_schedule.set_executor(SingleThreadedExecutor::new());
         app.add_schedule(invariant_schedule);
 
         let mut main_schedule_order = app.world_mut().resource_mut::<MainScheduleOrder>();

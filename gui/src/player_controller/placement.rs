@@ -337,7 +337,7 @@ pub fn sync_belt_ghosts(
             Visibility::Hidden,
         ));
         if let Some(ref s) = scene {
-            ec.insert(SceneRoot(s.clone()));
+            ec.insert(WorldAssetRoot(s.clone()));
         }
         entities.push(ec.id());
     }
@@ -445,7 +445,7 @@ pub fn update_single_ghost(
             Visibility::Visible,
         ));
         if let Some(scene) = block_models.ghost_scene(target.item) {
-            ec.insert(SceneRoot(scene));
+            ec.insert(WorldAssetRoot(scene));
         }
     }
 }

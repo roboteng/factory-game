@@ -16,7 +16,6 @@ fn main() {
                 })
                 .disable::<bevy::pbr::PbrPlugin>()
                 .disable::<bevy::gltf::GltfPlugin>()
-                .disable::<bevy::audio::AudioPlugin>()
                 .disable::<bevy::gilrs::GilrsPlugin>()
                 .disable::<bevy::animation::AnimationPlugin>()
                 .disable::<bevy::gizmos::GizmoPlugin>()

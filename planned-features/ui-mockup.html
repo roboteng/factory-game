@@ -1,0 +1,1025 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Factory Game — UI Mockup</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400&family=Figtree:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --s-950: #0c0e10;
+  --s-900: #141719;
+  --s-850: #191d20;
+  --s-800: #1e2328;
+  --s-750: #252b32;
+  --s-700: #2d343c;
+  --s-600: #3e4855;
+  --s-500: #566070;
+  --s-400: #8a9aaa;
+  --s-300: #b0becb;
+  --s-200: #cdd8e0;
+  --s-100: #e8eff4;
+
+  --a-600: #b36b00;
+  --a-500: #cc7c00;
+  --a-400: #e8940a;
+  --a-300: #f5aa30;
+  --a-200: #ffc966;
+
+  --font-display: 'Cormorant Garamond', Georgia, serif;
+  --font-ui: 'Figtree', system-ui, sans-serif;
+
+  --radius-sm: 3px;
+  --radius: 5px;
+  --radius-lg: 8px;
+
+  --panel-bg: rgba(18, 21, 25, 0.96);
+  --slot-bg: rgba(255, 255, 255, 0.03);
+  --slot-border: rgba(180, 210, 230, 0.08);
+  --noise: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='250' height='250'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.78' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='250' height='250' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E");
+  --hotbar-h: 88px; /* slot 54 + pad 4*2 + margin 26 */
+}
+
+html, body {
+  width: 100%; height: 100%;
+  overflow: hidden;
+  background: var(--s-950);
+  font-family: var(--font-ui);
+  color: var(--s-200);
+  user-select: none;
+}
+
+/* ═══════════════════════════════════════
+   LAYER 0 — WORLD (always visible)
+═══════════════════════════════════════ */
+
+#world-bg {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+}
+
+.world-sky {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    180deg,
+    #111c2a 0%, #182335 38%, #1e2d3e 55%,
+    #263828 72%, #1e2a1c 88%, #181f14 100%
+  );
+}
+
+.world-sky::before {
+  content: '';
+  position: absolute;
+  bottom: 28%; left: 0; right: 0;
+  height: 220px;
+  background: linear-gradient(180deg, transparent 40%, #1a2416 40%);
+  clip-path: polygon(
+    0% 100%, 0% 68%, 3% 55%, 7% 62%, 12% 44%, 17% 56%,
+    22% 38%, 27% 52%, 33% 31%, 38% 46%, 44% 28%, 49% 43%,
+    54% 25%, 59% 40%, 63% 22%, 68% 38%, 73% 30%, 78% 46%,
+    83% 33%, 88% 48%, 92% 36%, 96% 50%, 100% 40%, 100% 100%
+  );
+  opacity: 0.8;
+}
+
+.world-sky::after {
+  content: '';
+  position: absolute;
+  bottom: 26%; left: 0; right: 0;
+  height: 60px;
+  background: linear-gradient(180deg, transparent, rgba(30, 45, 35, 0.6));
+}
+
+.world-ground {
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  height: 28%;
+  background: linear-gradient(180deg, #1f2a1a 0%, #191f14 50%, #141810 100%);
+  border-top: 1px solid rgba(70, 95, 60, 0.25);
+}
+
+.world-ground::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    repeating-linear-gradient(90deg, rgba(0,0,0,0.18) 0px, rgba(0,0,0,0.18) 1px, transparent 1px, transparent 48px),
+    repeating-linear-gradient(0deg, rgba(0,0,0,0.18) 0px, rgba(0,0,0,0.18) 1px, transparent 1px, transparent 48px);
+}
+
+#world-bg::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: var(--noise);
+  opacity: 0.045;
+  pointer-events: none;
+}
+
+.vignette {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: radial-gradient(ellipse 80% 80% at 50% 50%, transparent 55%, rgba(0,0,0,0.55) 100%);
+  pointer-events: none;
+}
+
+/* ═══════════════════════════════════════
+   LAYER 1 — INVENTORY OVERLAY (z:10)
+   Backdrop stops above the hotbar so
+   the hotbar stays visible + interactive.
+═══════════════════════════════════════ */
+
+#inventory-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  /* Push modal up so hotbar is clear */
+  padding-bottom: var(--hotbar-h);
+}
+
+#inventory-overlay.open { display: flex; }
+
+/* The dim+blur that covers only the non-hotbar area */
+#inv-backdrop {
+  position: absolute;
+  inset: 0;
+  bottom: calc(var(--hotbar-h) - 14px);
+  background: rgba(6, 8, 10, 0.80);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  pointer-events: none;
+}
+
+/* Soft gradient fade at the bottom of the backdrop */
+#inv-backdrop::after {
+  content: '';
+  position: absolute;
+  bottom: -28px; left: 0; right: 0;
+  height: 28px;
+  background: linear-gradient(to bottom, rgba(6, 8, 10, 0.80), transparent);
+  pointer-events: none;
+}
+
+.inventory-modal {
+  display: flex;
+  width: min(880px, 95vw);
+  height: min(540px, calc(100vh - var(--hotbar-h) - 40px));
+  border: 1px solid rgba(180, 210, 230, 0.09);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  background: var(--panel-bg);
+  position: relative;
+  z-index: 1;
+  box-shadow:
+    0 40px 90px rgba(0,0,0,0.75),
+    0 0 0 1px rgba(255,255,255,0.03),
+    inset 0 1px 0 rgba(255,255,255,0.04);
+}
+
+.inventory-modal::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: var(--noise);
+  opacity: 0.05;
+  pointer-events: none;
+  z-index: 0;
+  border-radius: inherit;
+}
+
+.inventory-modal::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse 45% 35% at 5% 5%, rgba(160, 100, 10, 0.07) 0%, transparent 100%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ── Left: Crafting ── */
+
+.inv-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid rgba(180, 210, 230, 0.06);
+  position: relative;
+  z-index: 1;
+}
+
+.panel-header {
+  padding: 18px 22px 14px;
+  border-bottom: 1px solid rgba(180, 210, 230, 0.05);
+  flex-shrink: 0;
+  position: relative;
+}
+
+.panel-header::after {
+  content: '';
+  position: absolute;
+  bottom: -1px; left: 22px;
+  width: 32px; height: 1px;
+  background: var(--a-500);
+  opacity: 0.6;
+}
+
+.panel-title {
+  font-family: var(--font-display);
+  font-size: 21px;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  color: var(--s-100);
+  line-height: 1;
+}
+
+.panel-subtitle {
+  font-size: 10px;
+  color: var(--s-500);
+  margin-top: 4px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.drag-hint {
+  font-size: 9.5px;
+  color: var(--s-600);
+  margin-top: 3px;
+  letter-spacing: 0.05em;
+  font-style: italic;
+  font-family: var(--font-display);
+}
+
+.inv-grid-container {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 14px 14px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--s-700) transparent;
+}
+.inv-grid-container::-webkit-scrollbar { width: 4px; }
+.inv-grid-container::-webkit-scrollbar-track { background: transparent; }
+.inv-grid-container::-webkit-scrollbar-thumb { background: var(--s-700); border-radius: 2px; }
+
+.inv-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 5px;
+}
+
+.inv-slot {
+  aspect-ratio: 1;
+  background: var(--slot-bg);
+  border: 1px solid var(--slot-border);
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: default;
+  position: relative;
+  transition: border-color 0.15s, background 0.15s, transform 0.1s;
+  overflow: hidden;
+}
+
+.inv-slot.filled {
+  cursor: grab;
+  border-color: rgba(180, 210, 230, 0.11);
+}
+.inv-slot.filled:active { cursor: grabbing; }
+
+.inv-slot.filled:hover {
+  border-color: rgba(232, 148, 10, 0.32);
+  background: rgba(232, 148, 10, 0.05);
+  transform: scale(1.04);
+  z-index: 2;
+}
+
+.inv-slot.dragging {
+  opacity: 0.4;
+  border-color: rgba(232, 148, 10, 0.5);
+}
+
+/* Pin badge — shows which hotbar slot this type is assigned to */
+.pin-badge {
+  position: absolute;
+  top: 2px; right: 3px;
+  font-size: 8px;
+  font-weight: 700;
+  color: var(--a-300);
+  line-height: 1;
+  letter-spacing: 0;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+}
+
+.inv-slot .slot-count {
+  position: absolute;
+  bottom: 3px; right: 4px;
+  font-size: 10px; font-weight: 600;
+  color: var(--s-200);
+  text-shadow: 0 1px 3px rgba(0,0,0,0.9);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Right: Inventory ── */
+
+.craft-panel {
+  flex: 0 0 54%;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  z-index: 1;
+  background: rgba(8, 10, 13, 0.45);
+}
+
+.recipe-list-section {
+  flex: 0 0 44%;
+  display: flex;
+  flex-direction: column;
+  border-bottom: 1px solid rgba(180, 210, 230, 0.06);
+  overflow: hidden;
+}
+
+.recipe-category-tabs {
+  display: flex;
+  gap: 3px;
+  padding: 8px 8px 0;
+  flex-shrink: 0;
+}
+
+.recipe-tab {
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  cursor: pointer;
+  border: 1px solid transparent;
+  color: var(--s-500);
+  background: none;
+  font-family: var(--font-ui);
+  transition: color 0.12s, border-color 0.12s, background 0.12s;
+}
+.recipe-tab:hover { color: var(--s-300); border-color: rgba(180,210,230,0.1); }
+.recipe-tab.active {
+  color: var(--a-300);
+  border-color: rgba(232,148,10,0.25);
+  background: rgba(232,148,10,0.07);
+}
+
+.recipe-list-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--s-700) transparent;
+}
+.recipe-list-scroll::-webkit-scrollbar { width: 3px; }
+.recipe-list-scroll::-webkit-scrollbar-track { background: transparent; }
+.recipe-list-scroll::-webkit-scrollbar-thumb { background: var(--s-700); border-radius: 2px; }
+
+#recipe-list {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 5px;
+}
+
+.recipe-item {
+  aspect-ratio: 1;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: background 0.12s, border-color 0.12s;
+  border: 1px solid var(--slot-border);
+  background: var(--slot-bg);
+  position: relative;
+}
+.recipe-item:hover { background: rgba(255,255,255,0.05); border-color: rgba(180,210,230,0.12); }
+.recipe-item.active { background: rgba(232,148,10,0.08); border-color: rgba(232,148,10,0.28); }
+.recipe-can-craft-dot {
+  position: absolute; top: 4px; right: 4px;
+  width: 5px; height: 5px; border-radius: 50%;
+  background: #6ab86a;
+  box-shadow: 0 0 4px rgba(106,184,106,0.6);
+}
+
+.recipe-detail {
+  flex: 1;
+  padding: 14px 16px 16px;
+  display: flex; flex-direction: column;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--s-700) transparent;
+}
+
+.recipe-detail-title {
+  font-family: var(--font-display);
+  font-size: 18px; font-weight: 500;
+  color: var(--s-100);
+  margin-bottom: 11px;
+  letter-spacing: 0.04em; line-height: 1;
+}
+
+.recipe-output-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 11px;
+  background: rgba(232,148,10,0.06);
+  border: 1px solid rgba(232,148,10,0.13);
+  border-radius: var(--radius-sm);
+  margin-bottom: 12px;
+}
+.recipe-output-label { font-size: 9.5px; color: var(--s-500); text-transform: uppercase; letter-spacing: 0.1em; }
+.recipe-output-name  { font-size: 14px; font-weight: 600; color: var(--a-300); margin-top: 1px; letter-spacing: 0.02em; }
+
+.section-label { font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--s-600); margin-bottom: 6px; }
+
+.ingredient-list { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
+
+.ingredient-row {
+  display: flex; align-items: center; gap: 9px;
+  padding: 5px 8px;
+  background: rgba(255,255,255,0.02);
+  border: 1px solid rgba(180,210,230,0.055);
+  border-radius: var(--radius-sm);
+}
+.ingredient-name { flex: 1; font-size: 11.5px; color: var(--s-300); }
+.ingredient-amounts { display: flex; align-items: baseline; gap: 3px; font-variant-numeric: tabular-nums; }
+.amt-have { font-size: 12px; font-weight: 600; }
+.amt-have.ok    { color: #6ab86a; }
+.amt-have.short { color: #e07070; }
+.amt-have.some  { color: var(--a-300); }
+.amt-sep  { font-size: 10px; color: var(--s-600); }
+.amt-need { font-size: 11px; color: var(--s-500); font-weight: 500; }
+
+.craft-btn-footer {
+  flex-shrink: 0;
+  padding: 10px 16px 14px;
+  border-top: 1px solid rgba(180, 210, 230, 0.05);
+}
+
+.craft-btn {
+  padding: 10px 18px;
+  background: var(--a-500);
+  border: none; border-radius: var(--radius-sm);
+  color: #0c0e10;
+  font-family: var(--font-ui); font-size: 12px; font-weight: 700;
+  cursor: pointer; letter-spacing: 0.08em; text-transform: uppercase;
+  transition: background 0.15s, transform 0.1s, box-shadow 0.15s;
+  box-shadow: 0 2px 10px rgba(200,130,0,0.28);
+  width: 100%;
+}
+.craft-btn:hover:not(:disabled) {
+  background: var(--a-400);
+  box-shadow: 0 4px 18px rgba(232,148,10,0.42);
+  transform: translateY(-1px);
+}
+.craft-btn:active:not(:disabled) { transform: translateY(0); }
+.craft-btn.success { background: #4a9e4a; box-shadow: 0 2px 10px rgba(74,158,74,0.35); }
+.craft-btn:disabled { background: var(--s-750); color: var(--s-600); cursor: not-allowed; box-shadow: none; }
+
+.close-hint {
+  position: absolute; top: 14px; right: 16px;
+  font-size: 10.5px; color: var(--s-600);
+  letter-spacing: 0.06em; cursor: pointer;
+  transition: color 0.15s; z-index: 10;
+  background: none; border: none;
+  font-family: var(--font-ui);
+}
+.close-hint:hover { color: var(--s-300); }
+
+/* ═══════════════════════════════════════
+   LAYER 2 — HUD (z:20, always on top)
+   Hotbar is always visible and interactive.
+═══════════════════════════════════════ */
+
+#hud {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  padding-bottom: 26px;
+  pointer-events: none;
+}
+
+.crosshair {
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  width: 20px; height: 20px;
+  pointer-events: none;
+  transition: opacity 0.2s;
+}
+.crosshair::before, .crosshair::after {
+  content: '';
+  position: absolute;
+  background: rgba(255,255,255,0.65);
+  border-radius: 1px;
+}
+.crosshair::before { width: 2px; height: 14px; top: 3px; left: 9px; }
+.crosshair::after  { width: 14px; height: 2px; top: 9px; left: 3px; }
+.crosshair.hidden { opacity: 0; }
+
+.hotbar {
+  display: flex;
+  gap: 3px;
+  padding: 4px;
+  background: rgba(12, 15, 18, 0.72);
+  border: 1px solid rgba(180, 210, 230, 0.07);
+  border-radius: var(--radius);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  pointer-events: all;
+  position: relative;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.03);
+  transition: box-shadow 0.2s;
+}
+
+.hotbar::before {
+  content: '';
+  position: absolute; inset: 0;
+  border-radius: inherit;
+  background-image: var(--noise);
+  opacity: 0.06;
+  pointer-events: none;
+}
+
+/* When inventory is open, hotbar glows subtly as a drop zone context */
+.hotbar.receive-mode {
+  box-shadow: 0 4px 24px rgba(0,0,0,0.5), 0 0 0 1px rgba(232,148,10,0.2), inset 0 1px 0 rgba(255,255,255,0.03);
+}
+
+.hotbar-slot {
+  width: 54px; height: 54px;
+  position: relative;
+  background: var(--slot-bg);
+  border: 1px solid var(--slot-border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, transform 0.12s, box-shadow 0.15s;
+  display: flex; align-items: center; justify-content: center;
+  overflow: visible;
+}
+
+.hotbar-slot:hover {
+  border-color: rgba(232,148,10,0.3);
+  background: rgba(232,148,10,0.05);
+}
+
+.hotbar-slot.selected {
+  border-color: var(--a-400);
+  background: rgba(232,148,10,0.09);
+  box-shadow: 0 0 0 1px rgba(232,148,10,0.18), inset 0 0 14px rgba(232,148,10,0.1);
+}
+
+.hotbar-slot.selected::after {
+  content: '';
+  position: absolute;
+  bottom: -5px; left: 12%; right: 12%;
+  height: 2px;
+  background: var(--a-400);
+  box-shadow: 0 0 8px var(--a-400), 0 0 3px var(--a-300);
+  border-radius: 1px;
+}
+
+/* Drop target state */
+.hotbar-slot.drag-over {
+  border-color: var(--a-300) !important;
+  background: rgba(232,148,10,0.18) !important;
+  box-shadow: 0 0 0 2px rgba(232,148,10,0.35), inset 0 0 18px rgba(232,148,10,0.15) !important;
+  transform: scale(1.08);
+}
+
+.slot-icon   { width: 36px; height: 36px; border-radius: 2px; flex-shrink: 0; }
+.slot-count  {
+  position: absolute; bottom: 3px; right: 4px;
+  font-size: 10px; font-weight: 600;
+  color: var(--s-100);
+  text-shadow: 0 1px 4px rgba(0,0,0,1);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.slot-key {
+  position: absolute; top: 3px; left: 5px;
+  font-size: 9px; font-weight: 400;
+  color: var(--s-500); line-height: 1;
+}
+
+/* ═══════════════════════════════════════
+   DEMO CHROME
+═══════════════════════════════════════ */
+
+.demo-nav {
+  position: absolute;
+  top: 18px; right: 18px;
+  z-index: 30;
+}
+
+.demo-btn {
+  padding: 7px 13px;
+  background: rgba(18,21,25,0.82);
+  border: 1px solid rgba(180,210,230,0.13);
+  border-radius: var(--radius-sm);
+  color: var(--s-300);
+  font-family: var(--font-ui); font-size: 11px;
+  cursor: pointer; backdrop-filter: blur(4px);
+  transition: all 0.15s; letter-spacing: 0.05em;
+}
+.demo-btn:hover { border-color: var(--a-400); color: var(--a-300); }
+
+.screen-label {
+  position: absolute; top: 18px; left: 18px;
+  font-family: var(--font-display); font-size: 12px;
+  font-style: italic; color: var(--s-600);
+  letter-spacing: 0.07em; pointer-events: none;
+  z-index: 30;
+}
+</style>
+</head>
+<body>
+
+<!-- ══ Layer 0: World (always) ══ -->
+<div id="world-bg">
+  <div class="world-sky"></div>
+  <div class="world-ground"></div>
+</div>
+<div class="vignette"></div>
+
+<!-- ══ Layer 1: Inventory overlay (on demand) ══ -->
+<div id="inventory-overlay">
+  <div id="inv-backdrop"></div>
+  <div class="inventory-modal">
+    <button class="close-hint" onclick="closeInventory()">Close [E]</button>
+    <!-- Left: Crafting -->
+    <div class="craft-panel">
+      <div class="panel-header">
+        <div class="panel-title">Crafting</div>
+      </div>
+      <div class="recipe-list-section">
+        <div class="recipe-category-tabs" id="recipe-tabs"></div>
+        <div class="recipe-list-scroll">
+          <div id="recipe-list"></div>
+        </div>
+      </div>
+      <div class="recipe-detail" id="recipe-detail"></div>
+      <div class="craft-btn-footer" id="craft-btn-footer"></div>
+    </div>
+    <!-- Right: Inventory -->
+    <div class="inv-panel">
+      <div class="panel-header">
+        <div class="panel-title">Inventory</div>
+        <div class="drag-hint">Drag items to hotbar slots to assign</div>
+      </div>
+      <div class="inv-grid-container">
+        <div class="inv-grid" id="inv-grid"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ Layer 2: HUD (always, above overlay) ══ -->
+<div id="hud">
+  <div class="crosshair" id="crosshair"></div>
+  <div class="hotbar" id="hotbar"></div>
+</div>
+
+<!-- Demo chrome -->
+<div class="demo-nav">
+  <button class="demo-btn" id="toggle-btn" onclick="toggleInventory()">Open Inventory [E]</button>
+</div>
+<div class="screen-label" id="screen-label">Screen 1 — Playing / HUD</div>
+
+<script>
+// ── DATA ─────────────────────────────────────────────────────
+
+const ITEMS = {
+  iron_ore:     { name: 'Iron Ore',     color: '#7a4a35', dark: '#2e1a10' },
+  stone:        { name: 'Stone',        color: '#6a7078', dark: '#2a2e33' },
+  coal:         { name: 'Coal',         color: '#38383e', dark: '#18181c' },
+  wood:         { name: 'Wood',         color: '#7a5a38', dark: '#301e10' },
+  copper_ore:   { name: 'Copper Ore',   color: '#9a6035', dark: '#38220e' },
+  iron_ingot:   { name: 'Iron Ingot',   color: '#7a8e9e', dark: '#2a3440' },
+  copper_wire:  { name: 'Copper Wire',  color: '#c07035', dark: '#3a2210' },
+  machine_part: { name: 'Machine Part', color: '#c09030', dark: '#38280c' },
+  stone_block:  { name: 'Stone Block',  color: '#80888e', dark: '#2e3438' },
+  basic_belt:   { name: 'Basic Belt',   color: '#a07840', dark: '#382a14' },
+};
+
+// Hotbar pins: each slot holds an item TYPE id (not a stack).
+// Count is always derived live from INVENTORY.
+let hotbarPins = [
+  'iron_ore', 'stone', 'coal', 'wood',
+  'copper_ore', 'iron_ingot', null, 'basic_belt', null
+];
+let selectedHotbarSlot = 2; // 0-indexed
+
+// Inventory: item stacks. Multiple stacks of same type allowed.
+const INVENTORY = [
+  { item: 'iron_ore',    count: 64  },
+  { item: 'stone',       count: 128 },
+  { item: 'coal',        count: 32  },
+  { item: 'wood',        count: 24  },
+  { item: 'copper_ore',  count: 16  },
+  { item: 'iron_ingot',  count: 8   },
+  { item: 'copper_wire', count: 4   },
+  { item: 'machine_part',count: 3   },
+  null, null,
+  { item: 'stone',       count: 40  },
+  { item: 'iron_ore',    count: 12  },
+  null, null, null,
+  { item: 'wood',        count: 8   },
+  null, null, null, null,
+];
+
+const RECIPE_CATEGORIES = ['Machines', 'Components'];
+
+const RECIPES = [
+  { id: 'basic_belt',   name: 'Basic Belt',   category: 'Machines',
+    output: { item: 'basic_belt', count: 3 },
+    ingredients: [{ item: 'iron_ingot', count: 1 }, { item: 'stone', count: 2 }] },
+  { id: 'machine_part', name: 'Machine Part', category: 'Machines',
+    output: { item: 'machine_part', count: 1 },
+    ingredients: [{ item: 'iron_ingot', count: 3 }, { item: 'copper_wire', count: 2 }] },
+  { id: 'iron_ingot',   name: 'Iron Ingot',   category: 'Components',
+    output: { item: 'iron_ingot', count: 1 },
+    ingredients: [{ item: 'iron_ore', count: 3 }, { item: 'coal', count: 1 }] },
+  { id: 'copper_wire',  name: 'Copper Wire',  category: 'Components',
+    output: { item: 'copper_wire', count: 2 },
+    ingredients: [{ item: 'copper_ore', count: 2 }, { item: 'coal', count: 1 }] },
+  { id: 'stone_block',  name: 'Stone Block',  category: 'Components',
+    output: { item: 'stone_block', count: 1 },
+    ingredients: [{ item: 'stone', count: 4 }] },
+];
+
+// ── HELPERS ──────────────────────────────────────────────────
+
+function countItem(id) {
+  return INVENTORY.filter(s => s?.item === id).reduce((n, s) => n + s.count, 0);
+}
+
+function canCraft(r) {
+  return r.ingredients.every(i => countItem(i.item) >= i.count);
+}
+
+function itemIcon(item, w, h) {
+  const sh = Math.max(2, Math.floor(h / 12));
+  return `<div style="width:${w}px;height:${h}px;border-radius:2px;
+    background:${item.color};flex-shrink:0;
+    box-shadow:inset 0 -${sh}px 0 rgba(0,0,0,0.38),inset 1px 1px 0 rgba(255,255,255,0.08)">
+  </div>`;
+}
+
+function hexToRgb(hex) {
+  return [1,3,5].map(i => parseInt(hex.slice(i,i+2),16)).join(',');
+}
+
+// ── HOTBAR ────────────────────────────────────────────────────
+
+function renderHotbar() {
+  document.getElementById('hotbar').innerHTML = hotbarPins.map((itemId, i) => {
+    const sel = i === selectedHotbarSlot;
+    const cls = ['hotbar-slot', sel ? 'selected' : ''].filter(Boolean).join(' ');
+    const inner = itemId
+      ? `${itemIcon(ITEMS[itemId], 36, 36)}<span class="slot-count">${countItem(itemId)}</span>`
+      : '';
+    return `<div class="${cls}"
+      data-slot="${i}"
+      onclick="selectHotbarSlot(${i})"
+      ondragover="onHotbarDragOver(event,${i})"
+      ondragleave="onHotbarDragLeave(event,${i})"
+      ondrop="onHotbarDrop(event,${i})">
+      <span class="slot-key">${i+1}</span>
+      ${inner}
+    </div>`;
+  }).join('');
+}
+
+function selectHotbarSlot(i) {
+  selectedHotbarSlot = i;
+  renderHotbar();
+}
+
+// ── INVENTORY ─────────────────────────────────────────────────
+
+let draggingItemId = null;
+
+function renderInventory() {
+  document.getElementById('inv-grid').innerHTML = INVENTORY.map((slot, i) => {
+    if (!slot) return `<div class="inv-slot"></div>`;
+    const item = ITEMS[slot.item];
+    const pinSlot = hotbarPins.indexOf(slot.item);
+    const pinBadge = pinSlot >= 0
+      ? `<span class="pin-badge">${pinSlot + 1}</span>`
+      : '';
+    const dragging = draggingItemId === slot.item ? ' dragging' : '';
+    return `<div class="inv-slot filled${dragging}"
+      style="background:rgba(${hexToRgb(item.dark)},0.6)"
+      draggable="true"
+      data-item="${slot.item}"
+      ondragstart="onInvDragStart(event,'${slot.item}')"
+      ondragend="onInvDragEnd()">
+      ${pinBadge}
+      ${itemIcon(item, 36, 36)}
+      <span class="slot-count">${slot.count}</span>
+    </div>`;
+  }).join('');
+}
+
+// ── DRAG & DROP ───────────────────────────────────────────────
+
+function onInvDragStart(e, itemId) {
+  draggingItemId = itemId;
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', itemId);
+  // Enter receive mode on hotbar
+  document.getElementById('hotbar').classList.add('receive-mode');
+  // Slight delay so the dragging class renders before the ghost is captured
+  setTimeout(() => renderInventory(), 0);
+}
+
+function onInvDragEnd() {
+  draggingItemId = null;
+  document.getElementById('hotbar').classList.remove('receive-mode');
+  renderInventory();
+}
+
+function onHotbarDragOver(e, slotIdx) {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  document.querySelectorAll('.hotbar-slot').forEach((el, i) => {
+    el.classList.toggle('drag-over', i === slotIdx);
+  });
+}
+
+function onHotbarDragLeave(e, slotIdx) {
+  // Only clear if we've left the slot entirely (not entered a child)
+  if (!e.currentTarget.contains(e.relatedTarget)) {
+    e.currentTarget.classList.remove('drag-over');
+  }
+}
+
+function onHotbarDrop(e, slotIdx) {
+  e.preventDefault();
+  const itemId = e.dataTransfer.getData('text/plain');
+  if (!itemId || !ITEMS[itemId]) return;
+
+  // If this type is already pinned elsewhere, clear the old pin
+  const existing = hotbarPins.indexOf(itemId);
+  if (existing >= 0) hotbarPins[existing] = null;
+
+  hotbarPins[slotIdx] = itemId;
+
+  document.querySelectorAll('.hotbar-slot').forEach(el => el.classList.remove('drag-over'));
+  document.getElementById('hotbar').classList.remove('receive-mode');
+  draggingItemId = null;
+
+  renderHotbar();
+  renderInventory(); // refresh pin badges
+}
+
+// ── RECIPES ───────────────────────────────────────────────────
+
+let activeCategory = RECIPE_CATEGORIES[0];
+let activeRecipe = RECIPES.find(r => r.category === activeCategory);
+
+function iconBadge(item, count, size) {
+  const badge = count > 1
+    ? `<span style="position:absolute;bottom:0;right:0;font-size:8px;font-weight:600;
+        color:var(--s-200);text-shadow:0 1px 2px rgba(0,0,0,0.9);line-height:1">${count}</span>`
+    : '';
+  return `<div style="position:relative;display:inline-flex;flex-shrink:0">
+    ${itemIcon(item, size, size)}${badge}
+  </div>`;
+}
+
+function renderCategoryTabs() {
+  document.getElementById('recipe-tabs').innerHTML = RECIPE_CATEGORIES.map(cat =>
+    `<button class="recipe-tab${cat === activeCategory ? ' active' : ''}"
+      onclick="selectCategory('${cat}')">${cat}</button>`
+  ).join('');
+}
+
+function selectCategory(cat) {
+  activeCategory = cat;
+  const first = RECIPES.find(r => r.category === cat);
+  if (first) { activeRecipe = first; }
+  renderCategoryTabs();
+  renderRecipeList();
+  renderRecipeDetail();
+}
+
+function renderRecipeList() {
+  const visible = RECIPES.filter(r => r.category === activeCategory);
+  document.getElementById('recipe-list').innerHTML = visible.map(r => {
+    const outItem = ITEMS[r.output.item];
+    const craftable = canCraft(r);
+    const active = r.id === activeRecipe.id ? ' active' : '';
+    return `<div class="recipe-item${active}" onclick="selectRecipe('${r.id}')">
+      ${iconBadge(outItem, r.output.count, 28)}
+      ${craftable ? '<div class="recipe-can-craft-dot"></div>' : ''}
+    </div>`;
+  }).join('');
+}
+
+function selectRecipe(id) {
+  activeRecipe = RECIPES.find(r => r.id === id);
+  renderRecipeList();
+  renderRecipeDetail();
+}
+
+function renderRecipeDetail() {
+  const r = activeRecipe;
+  const out = ITEMS[r.output.item];
+  const craftable = canCraft(r);
+
+  const ingredients = r.ingredients.map(ing => {
+    const item = ITEMS[ing.item];
+    const have = countItem(ing.item);
+    const cls = have >= ing.count ? 'ok' : have > 0 ? 'some' : 'short';
+    return `<div class="ingredient-row">
+      ${itemIcon(item, 28, 28)}
+      <div class="ingredient-amounts">
+        <span class="amt-have ${cls}">${have}</span>
+        <span class="amt-sep">/</span>
+        <span class="amt-need">${ing.count}</span>
+      </div>
+    </div>`;
+  }).join('');
+
+  document.getElementById('recipe-detail').innerHTML = `
+    <div class="recipe-detail-title">${r.name}</div>
+    <div class="recipe-output-row">
+      ${itemIcon(out, 34, 34)}
+      <div>
+        <div class="recipe-output-label">Output</div>
+        <div class="recipe-output-name">${r.output.count > 1 ? r.output.count + '× ' : ''}${out.name}</div>
+      </div>
+    </div>
+    <div class="section-label">Requires</div>
+    <div class="ingredient-list">${ingredients}</div>`;
+
+  document.getElementById('craft-btn-footer').innerHTML = `
+    <button class="craft-btn" id="craft-btn" ${!craftable ? 'disabled' : ''} onclick="doCraft()">
+      ${craftable ? 'Craft' : 'Missing Materials'}
+    </button>`;
+}
+
+function doCraft() {
+  const btn = document.getElementById('craft-btn');
+  btn.textContent = 'Crafted!';
+  btn.classList.add('success');
+  btn.disabled = true;
+  setTimeout(() => {
+    btn.textContent = 'Craft';
+    btn.classList.remove('success');
+    btn.disabled = false;
+  }, 900);
+}
+
+// ── NAVIGATION ────────────────────────────────────────────────
+
+let invOpen = false;
+
+function toggleInventory() { invOpen ? closeInventory() : openInventory(); }
+
+function openInventory() {
+  invOpen = true;
+  document.getElementById('inventory-overlay').classList.add('open');
+  document.getElementById('crosshair').classList.add('hidden');
+  document.getElementById('toggle-btn').textContent = 'Close Inventory [E]';
+  document.getElementById('screen-label').textContent = 'Screen 2 — Inventory + Crafting';
+  renderInventory();
+  renderCategoryTabs();
+  renderRecipeList();
+  renderRecipeDetail();
+}
+
+function closeInventory() {
+  invOpen = false;
+  document.getElementById('inventory-overlay').classList.remove('open');
+  document.getElementById('crosshair').classList.remove('hidden');
+  document.getElementById('toggle-btn').textContent = 'Open Inventory [E]';
+  document.getElementById('screen-label').textContent = 'Screen 1 — Playing / HUD';
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key.toLowerCase() === 'e') toggleInventory();
+});
+
+// ── INIT ──────────────────────────────────────────────────────
+
+renderHotbar();
+</script>
+</body>
+</html>

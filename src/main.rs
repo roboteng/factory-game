@@ -57,7 +57,7 @@ fn screenshot_on_f10(
     mut counter: Local<u32>,
     mut commands: Commands,
 ) {
-    use bevy::render::view::screenshot::{save_to_disk, Screenshot};
+    use bevy::render::view::screenshot::{Screenshot, save_to_disk};
     if input.just_pressed(KeyCode::F10) {
         let path = format!("./screenshot-{}.png", *counter);
         *counter += 1;

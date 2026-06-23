@@ -15,7 +15,6 @@ pub mod visuals;
 use hotbar::PlacementItem;
 pub use hotbar::{FreeHotbar, SurvivalHotbar};
 
-
 pub struct UiPlugin;
 impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
@@ -36,7 +35,6 @@ impl Plugin for UiPlugin {
         app.add_systems(Update, draw_crosshair_gizmo);
         app.add_systems(Update, update_delete_preview_visual);
         app.add_systems(Update, update_incline_preview_visual);
-
     }
 }
 

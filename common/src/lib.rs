@@ -1,4 +1,4 @@
-use bevy::{math::ops::sin_cos, prelude::*, reflect::reflect_trait};
+use bevy::{ecs::resource::IsResource, math::ops::sin_cos, prelude::*, reflect::reflect_trait};
 use std::any::TypeId;
 use std::collections::HashMap;
 use std::f32::consts::PI;
@@ -877,7 +877,8 @@ fn on_remove_block(
     mut coord_map: ResMut<CoordsMap>,
     type_registry: Res<AppTypeRegistry>,
     // EntityRef reads all components, so it conflicts with &mut Inventory — use ParamSet.
-    mut params: ParamSet<(Query<EntityRef>, Query<&mut Inventory>)>,
+    // Without<IsResource> excludes resource entities (Bevy 0.19+: resources are stored as components).
+    mut params: ParamSet<(Query<EntityRef, Without<IsResource>>, Query<&mut Inventory>)>,
     buf_q: Query<(Option<&InputBuffer>, Option<&OutputBuffer>)>,
     mut cmd: Commands,
 ) {
