@@ -7,7 +7,7 @@ use gui::{
     InteractionMode, WorldMode,
     hotbar::{Hotbar, PlacementItem},
 };
-use views::spawn_hotbar;
+use views::hotbar::hotbar_scene;
 
 fn main() {
     App::new()
@@ -34,7 +34,6 @@ fn main() {
 
 fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.spawn(Camera2d);
-    let mut cmd = commands.spawn_empty();
     let mut hotbar = Hotbar(Default::default());
     hotbar.0[0] = Some(Item::PickAxe);
     hotbar.0[1] = Some(Item::IronOre);
@@ -50,11 +49,10 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
             count: 3,
         })
         .unwrap();
-    spawn_hotbar(
-        &mut cmd,
-        &asset_server,
+
+    commands.spawn_scene(hotbar_scene(
         &hotbar,
         &inventory,
         &InteractionMode::InWorld(WorldMode::Placing(PlacementItem::Custom(Item::Rock))),
-    );
+    ));
 }

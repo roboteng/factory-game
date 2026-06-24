@@ -3,7 +3,7 @@ use common::{
     Item,
     inventory::{Inventory, Stack},
 };
-use views::spawn_inventory;
+use views::inventory::spawn_inventory;
 
 fn main() {
     App::new()

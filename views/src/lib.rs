@@ -1,10 +1,7 @@
 use bevy::prelude::*;
 
-mod hotbar;
-mod inventory;
-
-pub use hotbar::spawn_hotbar;
-pub use inventory::spawn_inventory;
+pub mod hotbar;
+pub mod inventory;
 
 pub struct ViewsPlugin;
 impl Plugin for ViewsPlugin {
