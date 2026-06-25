@@ -16,7 +16,6 @@ pub fn hotbar_view(
     invs: Query<Ref<Inventory>>,
     hotbar: Res<hotbar::Hotbar>,
     mode: Res<InteractionMode>,
-    asset_server: Res<AssetServer>,
     prev_hotbar: Query<Entity, With<HotbarRoot>>,
     mut cmd: Commands,
 ) {
@@ -31,14 +30,7 @@ pub fn hotbar_view(
         cmd.entity(hb).despawn();
     }
 
-    cmd.spawn_scene(bsn!(
-        #HotbarRoot
-        hotbar_scene(&hotbar, &inv, &mode)
-    ));
-    cmd.spawn_scene(bsn!(
-        HotbarRoot
-        hotbar_scene(&hotbar, &inv, &mode)
-    ));
+    cmd.spawn_scene(hotbar_scene(&hotbar, &inv, &mode));
 }
 
 pub fn hotbar_scene(hotbar: &Hotbar, inv: &Inventory, mode: &InteractionMode) -> impl Scene {
@@ -61,29 +53,32 @@ pub fn hotbar_scene(hotbar: &Hotbar, inv: &Inventory, mode: &InteractionMode) ->
             slot(i, stack, selected)
         })
         .collect();
-    bsn!(Node {
-        width: percent(100),
-        height: percent(100),
-        align_items: AlignItems::Center,
-        justify_content: JustifyContent::FlexEnd,
-        display: Display::Flex,
-        flex_direction: FlexDirection::Column,
-        padding: UiRect::bottom(px(26.0)),
-    }
-    Children [
+    bsn!(
+        HotbarRoot
         Node {
+            width: percent(100),
+            height: percent(100),
             align_items: AlignItems::Center,
-            justify_content: JustifyContent::Center,
-            flex_direction: FlexDirection::Row,
-            column_gap: px(3.0),
-            padding: UiRect::all(px(4.0)),
-            border: UiRect::all(px(1.0)),
-            border_radius: BorderRadius::all(px(5.0)),
+            justify_content: JustifyContent::FlexEnd,
+            display: Display::Flex,
+            flex_direction: FlexDirection::Column,
+            padding: UiRect::bottom(px(26.0)),
         }
-        BackgroundColor(Color::srgba_u8(12, 15, 18, 184))
-        BorderColor::all(Color::srgba_u8(180, 210, 230, 18))
-        Children[ {slots} ]
-    ])
+        Children [
+            Node {
+                align_items: AlignItems::Center,
+                justify_content: JustifyContent::Center,
+                flex_direction: FlexDirection::Row,
+                column_gap: px(3.0),
+                padding: UiRect::all(px(4.0)),
+                border: UiRect::all(px(1.0)),
+                border_radius: BorderRadius::all(px(5.0)),
+            }
+            BackgroundColor(Color::srgba_u8(12, 15, 18, 184))
+            BorderColor::all(Color::srgba_u8(180, 210, 230, 18))
+            Children [{ slots }]
+        ]
+    )
 }
 
 const SLOT_SIZE: f64 = 64.0;
@@ -130,61 +125,6 @@ fn slot(slot_idx: usize, stack: Option<Stack>, selected: bool) -> impl Scene {
             }),
         )
     };
-    // let mut child_cmd = cmd.spawn(Node {
-    //     height: px(SLOT_SIZE),
-    //     width: px(SLOT_SIZE),
-    //     border: UiRect::all(px(1.0)),
-    //     border_radius: BorderRadius::all(px(3.0)),
-    //     position_type: PositionType::Relative,
-    //     ..default()
-    // });
-    // child_cmd
-    //     .insert(BorderColor::all(border_color))
-    //     .insert(BackgroundColor(bg_color));
-    // child_cmd.with_children(|cmd| {
-    //     cmd.spawn((
-    // Text::new(((slot_idx + 1) % 10).to_string()),
-    // TextFont {
-    //     font_size: bevy::text::FontSize::Px(9.0),
-    //     ..default()
-    // },
-    // TextColor(SLOT_KEY_COLOR),
-    // Node {
-    //     position_type: PositionType::Absolute,
-    //     top: px(3.0),
-    //     left: px(5.0),
-    //     ..default()
-    // },
-    //     ));
-    //     if let Some(stack) = stack {
-    //         cmd.spawn((
-    // ImageNode::new(asset_server.load(stack.item.icon())).with_color(
-    //     if stack.count == 0 {
-    //         Color::linear_rgb(0.25, 0.25, 0.25)
-    //     } else {
-    //         Color::WHITE
-    //     },
-    // ),
-    // Node {
-    //     width: percent(100),
-    //     height: percent(100),
-    //     ..default()
-    // },
-    //         ));
-    //         if !(stack.count == 1 && stack.item.stack_size() == 1) {
-    //             cmd.spawn((
-    //                 Text::new(format!("{}", stack.count)),
-    //                 Node {
-    //                     position_type: PositionType::Absolute,
-    //                     bottom: px(2.0),
-    //                     right: px(4.0),
-    //                     ..default()
-    //                 },
-    //             ));
-    //         }
-    //     }
-    // });
-
     bsn!(
         Node {
             height: px(SLOT_SIZE),
@@ -208,34 +148,48 @@ fn slot(slot_idx: usize, stack: Option<Stack>, selected: bool) -> impl Scene {
                     left: px(5.0),
                 }
             ),
-            {stack.map(|stack| bsn_list!{
-                (ImageNode {
-                    image: {stack.item.icon()},
-                    color: {if stack.count == 0 {
-                            Color::linear_rgb(0.25, 0.25, 0.25)
-                        } else {
-                            Color::WHITE
-                        }},
-                }
-                Node {
-                    width: percent(100),
-                    height: percent(100),
-                }),
-                ({{let scene : Box<dyn Scene> = if (stack.count == 1 && stack.item.stack_size() == 1) {
-                    Box::new(bsn!())
-                } else {
-                    Box::new(bsn!(
-                        Text::new(format!("{}", stack.count))
-                        Node {
-                            position_type: PositionType::Absolute,
-                            bottom: px(2.0),
-                            right: px(4.0),
-                        }
-                    ))
-                };
-                scene}
-                })
-            })},
+            { stack.map(stack_view) },
         ]
     )
+}
+
+fn stack_view(stack: Stack) -> impl SceneList {
+    bsn_list! {
+        stack_icon(stack),
+        item_count(stack),
+    }
+}
+
+fn stack_icon(stack: Stack) -> impl Scene {
+    bsn! {
+        ImageNode {
+            image: { stack.item.icon() },
+            color: {
+                if stack.count == 0 {
+                    Color::linear_rgb(0.25, 0.25, 0.25)
+                } else {
+                    Color::WHITE
+                }
+            },
+        }
+        Node {
+            width: percent(100),
+            height: percent(100),
+        }
+    }
+}
+
+fn item_count(stack: Stack) -> impl Scene {
+    if stack.count == 1 && stack.item.stack_size() == 1 {
+        Box::new(bsn!()) as Box<dyn Scene>
+    } else {
+        Box::new(bsn!(
+            Text::new(format!("{}", stack.count))
+            Node {
+                position_type: PositionType::Absolute,
+                bottom: px(2.0),
+                right: px(4.0),
+            }
+        ))
+    }
 }

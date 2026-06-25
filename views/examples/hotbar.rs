@@ -32,7 +32,7 @@ fn main() {
         .run();
 }
 
-fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
+fn setup(mut commands: Commands) {
     commands.spawn(Camera2d);
     let mut hotbar = Hotbar(Default::default());
     hotbar.0[0] = Some(Item::PickAxe);
