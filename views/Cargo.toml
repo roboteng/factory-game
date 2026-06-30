@@ -7,3 +7,7 @@ edition = "2024"
 bevy.workspace = true
 common.workspace = true
 gui.workspace = true
+
+[dev-dependencies]
+crossbeam-channel = "0.5.15"
+image = "0.25.10"
