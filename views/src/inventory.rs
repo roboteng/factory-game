@@ -1,19 +1,18 @@
-use bevy::{ecs::relationship::RelatedSpawnerCommands, prelude::*};
+use bevy::prelude::*;
 use common::{
-    Player,
     inventory::{Inventory, Stack},
+    Player,
 };
 use gui::{InteractionMode, ItemExt, ScreenMode};
 
-#[derive(Component)]
-pub struct UiRoot;
+#[derive(Component, Clone, Default)]
+pub struct InventoryRoot;
 
 pub fn view(
-    roots: Query<Entity, With<UiRoot>>,
+    roots: Query<Entity, With<InventoryRoot>>,
     mode: Res<InteractionMode>,
     player: Res<Player>,
     invs: Query<Ref<Inventory>>,
-    asset_server: Res<AssetServer>,
     mut cmd: Commands,
 ) {
     let mode_changed = mode.is_changed();
@@ -32,8 +31,7 @@ pub fn view(
                         for root in roots {
                             cmd.entity(root).despawn();
                         }
-                        let mut cmds = cmd.spawn(UiRoot);
-                        spawn_inventory(&mut cmds, &inv, &asset_server);
+                        cmd.spawn_scene(inventory_scene(&inv));
                     }
                 }
                 Menu => todo!(),
@@ -46,71 +44,83 @@ pub fn view(
     }
 }
 
-const SLOT_SIZE: f32 = 64.0;
+const SLOT_SIZE: f64 = 64.0;
 
-pub fn spawn_inventory(cmd: &mut EntityCommands, inv: &Inventory, asset_server: &AssetServer) {
-    cmd.insert(Node {
-        width: percent(100.0),
-        height: percent(100.0),
-        justify_content: JustifyContent::Center,
-        align_items: AlignItems::Center,
-        ..default()
-    })
-    .with_children(|cmd| {
-        cmd.spawn((
+pub fn inventory_scene(inv: &Inventory) -> impl Scene {
+    let slots: Vec<_> = (0..20).map(|i| slot(inv.get(i))).collect();
+    bsn!(
+        InventoryRoot
+        Node {
+            width: percent(100),
+            height: percent(100),
+            justify_content: JustifyContent::Center,
+            align_items: AlignItems::Center,
+        }
+        Children [
             Node {
-                height: percent(75.0),
-                width: percent(75.0),
-                ..default()
-            },
-            BackgroundColor(Color::srgba(0.25, 0.25, 0.25, 0.875)),
-        ))
-        .with_children(|cmd| {
-            cmd.spawn(
-                (Node {
-                    width: percent(100.0),
-                    height: percent(100.0),
+                height: percent(75),
+                width: percent(75),
+            }
+            BackgroundColor(Color::srgba(0.25, 0.25, 0.25, 0.875))
+            Children [
+                Node {
+                    width: percent(100),
+                    height: percent(100),
                     column_gap: px(5.0),
                     row_gap: px(5.0),
                     flex_wrap: FlexWrap::Wrap,
                     align_items: AlignItems::Start,
                     align_content: AlignContent::Start,
-                    ..default()
-                }),
-            )
-            .with_children(|cmd| {
-                for i in 0..20 {
-                    slot(cmd, inv.get(i), asset_server);
                 }
-            });
-        });
-    });
+                Children [{ slots }]
+            ]
+        ]
+    )
 }
 
-fn slot(
-    cmd: &mut RelatedSpawnerCommands<ChildOf>,
-    stack: Option<Stack>,
-    asset_server: &AssetServer,
-) {
-    let mut c = cmd.spawn((
+fn slot(stack: Option<Stack>) -> impl Scene {
+    bsn!(
         Node {
             height: px(SLOT_SIZE),
             width: px(SLOT_SIZE),
-            ..default()
-        },
-        BackgroundColor(Color::srgba(0.35, 0.35, 0.35, 0.875)),
-    ));
-    let Some(stack) = stack else { return };
-    c.with_children(|cmd| {
-        cmd.spawn(ImageNode::new(asset_server.load(stack.item.icon())));
-        cmd.spawn((
+        }
+        BackgroundColor(Color::srgba(0.35, 0.35, 0.35, 0.875))
+        Children [
+            { stack.map(stack_content) }
+        ]
+    )
+}
+
+fn stack_content(stack: Stack) -> impl SceneList {
+    bsn_list! {
+        stack_icon(stack),
+        item_count(stack),
+    }
+}
+
+fn stack_icon(stack: Stack) -> impl Scene {
+    bsn! {
+        ImageNode {
+            image: { stack.item.icon() },
+        }
+        Node {
+            width: percent(100),
+            height: percent(100),
+        }
+    }
+}
+
+fn item_count(stack: Stack) -> impl Scene {
+    if stack.count == 1 && stack.item.stack_size() == 1 {
+        Box::new(bsn!()) as Box<dyn Scene>
+    } else {
+        Box::new(bsn!(
+            Text::new(format!("{}", stack.count))
             Node {
-                right: px(0),
-                bottom: px(0),
                 position_type: PositionType::Absolute,
-                ..default()
-            },
-            Text::new(stack.count.to_string()),
-        ));
-    });
+                bottom: px(2.0),
+                right: px(4.0),
+            }
+        ))
+    }
 }

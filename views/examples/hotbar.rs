@@ -1,4 +1,4 @@
-use bevy::prelude::*;
+use bevy::{prelude::*, window::CompositeAlphaMode};
 use common::{
     Item,
     inventory::{Inventory, Stack},
@@ -16,6 +16,13 @@ fn main() {
                 .build()
                 .set(AssetPlugin {
                     file_path: "../assets/".to_string(),
+                    ..default()
+                })
+                .set(WindowPlugin {
+                    primary_window: Some(Window {
+                        composite_alpha_mode: CompositeAlphaMode::Opaque,
+                        ..default()
+                    }),
                     ..default()
                 })
                 .disable::<bevy::pbr::PbrPlugin>()
