@@ -2,6 +2,7 @@ use bevy::prelude::*;
 
 pub mod hotbar;
 pub mod inventory;
+pub mod slot;
 
 pub struct ViewsPlugin;
 impl Plugin for ViewsPlugin {

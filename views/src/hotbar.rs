@@ -1,12 +1,14 @@
 use bevy::{prelude::*, scene::RelatedScenes};
 use common::{
-    Player,
     inventory::{Inventory, Stack},
+    Player,
 };
 use gui::{
-    InteractionMode, ItemExt, WorldMode,
     hotbar::{self, Hotbar, PlacementItem},
+    InteractionMode, WorldMode,
 };
+
+use crate::slot;
 
 #[derive(Component, Clone, Default)]
 pub struct HotbarRoot;
@@ -81,8 +83,6 @@ pub fn hotbar_scene(hotbar: &Hotbar, inv: &Inventory, mode: &InteractionMode) ->
     )
 }
 
-const SLOT_SIZE: f64 = 64.0;
-
 const SLOT_SELECTED: Srgba = Srgba {
     red: 245.0 / 255.0,
     green: 170.0 / 255.0,
@@ -127,8 +127,8 @@ fn slot(slot_idx: usize, stack: Option<Stack>, selected: bool) -> impl Scene {
     };
     bsn!(
         Node {
-            height: px(SLOT_SIZE),
-            width: px(SLOT_SIZE),
+            height: px(slot::SIZE),
+            width: px(slot::SIZE),
             border: UiRect::all(px(1.0)),
             border_radius: BorderRadius::all(px(3.0)),
             position_type: PositionType::Relative,
@@ -148,48 +148,7 @@ fn slot(slot_idx: usize, stack: Option<Stack>, selected: bool) -> impl Scene {
                     left: px(5.0),
                 }
             ),
-            { stack.map(stack_view) },
+            { stack.map(slot::stack_content) },
         ]
     )
-}
-
-fn stack_view(stack: Stack) -> impl SceneList {
-    bsn_list! {
-        stack_icon(stack),
-        item_count(stack),
-    }
-}
-
-fn stack_icon(stack: Stack) -> impl Scene {
-    bsn! {
-        ImageNode {
-            image: { stack.item.icon() },
-            color: {
-                if stack.count == 0 {
-                    Color::linear_rgb(0.25, 0.25, 0.25)
-                } else {
-                    Color::WHITE
-                }
-            },
-        }
-        Node {
-            width: percent(100),
-            height: percent(100),
-        }
-    }
-}
-
-fn item_count(stack: Stack) -> impl Scene {
-    if stack.count == 1 && stack.item.stack_size() == 1 {
-        Box::new(bsn!()) as Box<dyn Scene>
-    } else {
-        Box::new(bsn!(
-            Text::new(format!("{}", stack.count))
-            Node {
-                position_type: PositionType::Absolute,
-                bottom: px(2.0),
-                right: px(4.0),
-            }
-        ))
-    }
 }

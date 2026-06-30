@@ -3,7 +3,9 @@ use common::{
     inventory::{Inventory, Stack},
     Player,
 };
-use gui::{InteractionMode, ItemExt, ScreenMode};
+use gui::{InteractionMode, ScreenMode};
+
+use crate::slot;
 
 #[derive(Component, Clone, Default)]
 pub struct InventoryRoot;
@@ -44,8 +46,6 @@ pub fn view(
     }
 }
 
-const SLOT_SIZE: f64 = 64.0;
-
 pub fn inventory_scene(inv: &Inventory) -> impl Scene {
     let slots: Vec<_> = (0..20).map(|i| slot(inv.get(i))).collect();
     bsn!(
@@ -81,46 +81,12 @@ pub fn inventory_scene(inv: &Inventory) -> impl Scene {
 fn slot(stack: Option<Stack>) -> impl Scene {
     bsn!(
         Node {
-            height: px(SLOT_SIZE),
-            width: px(SLOT_SIZE),
+            height: px(slot::SIZE),
+            width: px(slot::SIZE),
         }
         BackgroundColor(Color::srgba(0.35, 0.35, 0.35, 0.875))
         Children [
-            { stack.map(stack_content) }
+            { stack.map(slot::stack_content) }
         ]
     )
-}
-
-fn stack_content(stack: Stack) -> impl SceneList {
-    bsn_list! {
-        stack_icon(stack),
-        item_count(stack),
-    }
-}
-
-fn stack_icon(stack: Stack) -> impl Scene {
-    bsn! {
-        ImageNode {
-            image: { stack.item.icon() },
-        }
-        Node {
-            width: percent(100),
-            height: percent(100),
-        }
-    }
-}
-
-fn item_count(stack: Stack) -> impl Scene {
-    if stack.count == 1 && stack.item.stack_size() == 1 {
-        Box::new(bsn!()) as Box<dyn Scene>
-    } else {
-        Box::new(bsn!(
-            Text::new(format!("{}", stack.count))
-            Node {
-                position_type: PositionType::Absolute,
-                bottom: px(2.0),
-                right: px(4.0),
-            }
-        ))
-    }
 }
